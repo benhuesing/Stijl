@@ -1,0 +1,47 @@
+name: Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-adwaita-icon-theme
+            mingw-w64-ucrt-x86_64-hicolor-icon-theme
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-ntldd
+
+      - name: Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Tests
+        continue-on-error: true
+        run: cargo test --release
+
+      - name: Bauen und Installer erstellen
+        run: SKIP_DEPS=1 bash packaging/windows/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mondrian-Windows-Installer
+          path: target/windows/*-Setup.exe
+          if-no-files-found: error
