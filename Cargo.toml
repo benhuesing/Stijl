@@ -1,21 +1,21 @@
 [package]
 name = "stijl"
-version = "0.9.41"
+version = "0.9.42"
 edition = "2021"
-description = "Ein Vektorzeichenprogramm für GNOME"
+description = "A vector graphics editor for GNOME"
 authors = ["Bendix Hüsing"]
 repository = "https://github.com/benhuesing/Stijl"
 license = "GPL-3.0-or-later"
 rust-version = "1.80"
 
 [dependencies]
-# GTK 4.12+ und libadwaita 1.5+ (z. B. Ubuntu 24.04, Fedora 40, Debian 13, Arch)
+# GTK 4.12+ and libadwaita 1.5+ (e.g. Ubuntu 24.04, Fedora 40, Debian 13, Arch)
 gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
 adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
 cairo = { package = "cairo-rs", version = "0.20", features = ["png", "pdf"] }
 pangocairo = "0.20"
 
-# nur beim Bauen unter Windows: Programmsymbol in die .exe (siehe build.rs)
+# only when building on Windows: app icon in the .exe (see build.rs)
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 

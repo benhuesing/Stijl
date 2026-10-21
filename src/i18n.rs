@@ -33,7 +33,7 @@ pub fn init(lang: Lang) {
 
 /// Sprache aus der Einstellung (`system`, `de`, `en_GB`) und den Sprachen des Systems
 /// (z. B. `["de_DE.UTF-8", "de_DE", "de", "C"]`): Deutsch für deutschsprachige Systeme,
-/// sonst britisches Englisch.
+/// sonst (auch ohne Angabe) britisches Englisch.
 pub fn choose(setting: &str, system: &[String]) -> Lang {
     match setting {
         "de" => Lang::De,
@@ -45,9 +45,8 @@ pub fn choose(setting: &str, system: &[String]) -> Lang {
                 .find(|s| !s.is_empty() && *s != "C" && *s != "POSIX");
             match first {
                 Some(s) if s.starts_with("de") => Lang::De,
-                Some(_) => Lang::EnGb,
-                // nur „C“: ohne Angabe bleibt es bei Deutsch
-                None => Lang::De,
+                // andere Sprachen und nur „C“ (ohne Angabe): Englisch
+                _ => Lang::EnGb,
             }
         }
     }
@@ -181,7 +180,7 @@ mod tests {
         );
         assert_eq!(choose("system", &sys(&["en_US.UTF-8", "en", "C"])), Lang::EnGb);
         assert_eq!(choose("system", &sys(&["fr_FR", "fr", "C"])), Lang::EnGb);
-        assert_eq!(choose("system", &sys(&["C"])), Lang::De);
+        assert_eq!(choose("system", &sys(&["C"])), Lang::EnGb);
         assert_eq!(choose("en_GB", &sys(&["de", "C"])), Lang::EnGb);
         assert_eq!(choose("de", &sys(&["en", "C"])), Lang::De);
     }

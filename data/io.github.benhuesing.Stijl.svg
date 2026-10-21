@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <path d="M 45.459 86.996 L 10.951 86.996 L 10.951 106.991 C 10.951 111.693 14.763 115.505 19.465 115.505 L 45.459 115.505 Z" fill="#9e881e" stroke="none"/>
+  <path d="M 79.452 86.996 L 113.96 86.996 L 113.96 106.991 L 113.916 107.861 L 113.787 108.706 L 113.578 109.522 L 113.291 110.305 L 112.933 111.049 L 112.506 111.751 L 112.016 112.406 L 111.467 113.011 L 110.862 113.561 L 110.206 114.051 L 109.504 114.477 L 108.76 114.836 L 107.978 115.122 L 107.162 115.332 L 106.317 115.461 L 105.446 115.505 L 45.459 115.505 L 45.459 109.505 L 79.452 109.505 Z" fill-rule="evenodd" fill="#c0bfbc" stroke="none"/>
+  <path d="M 45.459 12.495 L 105.934 12.495 L 106.755 12.537 L 107.552 12.658 L 108.321 12.856 L 109.058 13.126 L 109.76 13.464 L 110.422 13.866 L 111.04 14.328 L 111.61 14.846 L 112.128 15.416 L 112.59 16.034 L 112.992 16.696 L 113.33 17.397 L 113.599 18.135 L 113.797 18.904 L 113.919 19.701 L 113.96 20.521 L 113.96 47.003 L 45.459 47.003 Z" fill-rule="evenodd" fill="#f6d32d" stroke="none"/>
+  <path d="M 45.459 80.997 L 10.951 80.997 L 10.951 100.991 C 10.951 105.693 14.763 109.505 19.465 109.505 L 45.459 109.505 Z" fill="#f6d32d" stroke="none"/>
+  <rect x="10.951" y="47.003" width="34.508" height="33.993" fill="#e01b24" stroke="none"/>
+  <path d="M 10.951 20.521 C 10.951 16.089 14.544 12.495 18.977 12.495 L 45.459 12.495 L 45.459 47.003 L 10.951 47.003 Z" fill="#3584e4" stroke="none"/>
+  <path d="M 10.951 47.003 L 113.96 47.003" fill="none" stroke="#000000" stroke-width="2"/>
+  <path d="M 10.951 80.997 L 45.607 80.997" fill="none" stroke="#000000" stroke-width="2"/>
+  <path d="M 45.607 12.495 L 45.607 115.505" fill="none" stroke="#000000" stroke-width="2"/>
+  <path d="M 45.607 47.003 L 113.96 47.003 L 113.96 100.984 C 113.96 105.69 110.145 109.505 105.439 109.505 L 45.607 109.505 Z" fill="#ffffff" stroke="#1a5fb4" stroke-width="3"/>
+  <path d="M 79.502 39.719 L 79.502 47.003" fill="none" stroke="#1a5fb4" stroke-width="3"/>
+  <ellipse cx="79.452" cy="35.568" rx="4.151" ry="4.151" fill="#ffffff" stroke="#1a5fb4" stroke-width="3"/>
+  <ellipse cx="101.508" cy="97.1" rx="4.151" ry="4.151" fill="none" stroke="#1a5fb4" stroke-width="3"/>
+  <ellipse cx="101.508" cy="97.1" rx="1.256" ry="1.181" fill="#1a5fb4" stroke="none"/>
+  <rect x="110.871" y="106.416" width="6.178" height="6.178" fill="#ffffff" stroke="#1a5fb4" stroke-width="3"/>
+  <rect x="110.871" y="43.915" width="6.178" height="6.178" fill="#ffffff" stroke="#1a5fb4" stroke-width="3"/>
+  <rect x="42.518" y="43.915" width="6.178" height="6.178" fill="#ffffff" stroke="#1a5fb4" stroke-width="3"/>
+  <rect x="42.518" y="106.416" width="6.178" height="6.178" fill="#ffffff" stroke="#1a5fb4" stroke-width="3"/>
+</svg>

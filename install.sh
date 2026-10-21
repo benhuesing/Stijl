@@ -2,21 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 Bendix Hüsing
 #
-# Stijl für den aktuellen Benutzer installieren (ohne Root-Rechte).
-#   Programm:     ~/.local/bin/stijl
-#   Starter:      ~/.local/share/applications/io.github.benhuesing.Stijl.desktop
-#   Symbol:       ~/.local/share/icons/hicolor/scalable/apps/io.github.benhuesing.Stijl.svg
-# Eine frühere Installation unter dem alten Namen „Mondrian“ wird dabei entfernt; Einstellungen
-# und Bibliotheken übernimmt Stijl beim ersten Start.
+# Install Stijl for the current user (no root rights needed).
+#   Program:   ~/.local/bin/stijl
+#   Launcher:  ~/.local/share/applications/io.github.benhuesing.Stijl.desktop
+#   Icon:      ~/.local/share/icons/hicolor/scalable/apps/io.github.benhuesing.Stijl.svg
+# An earlier installation under the old name “Mondrian” is removed; Stijl takes over its
+# settings and libraries on first start.
 set -e
 cd "$(dirname "$0")"
 
-echo "Stijl wird gebaut …"
+echo "Building Stijl …"
 cargo build --release
 
-# Symbolverzeichnis auffrischen. Ein veralteter Zwischenspeicher (icon-theme.cache) würde
-# neue Symbole verstecken; lässt er sich nicht neu schreiben, wird er gelöscht – dann liest
-# das System die Ordner direkt.
+# Refresh the icon folder. An outdated icon-theme.cache would hide new icons; if it cannot
+# be rewritten it is deleted, and the system then reads the folders directly.
 refresh_icons() {
     HICOLOR="$HOME/.local/share/icons/hicolor"
     UPD=""
@@ -46,13 +45,13 @@ if [ -f "data/$ID.svg" ]; then
     ICON="$ID"
 fi
 
-# Starter mit vollem Pfad (funktioniert auch, wenn ~/.local/bin nicht im PATH steht)
+# launcher with the full path (works even if ~/.local/bin is not in PATH)
 sed -e "s|^Exec=.*|Exec=$BIN %F|" -e "s|^Icon=.*|Icon=$ICON|" "data/$ID.desktop" > "$APPS/$ID.desktop"
 
-# Beschreibung für Software-Zentren
+# description for software centres
 install -Dm644 "data/$ID.metainfo.xml" "$HOME/.local/share/metainfo/$ID.metainfo.xml"
 
-# alte Installation unter dem früheren Namen entfernen
+# remove the old installation under the former name
 OLD="io.github.mondrian.Mondrian"
 rm -f "$HOME/.local/bin/mondrian" "$APPS/$OLD.desktop" "$ICONS/$OLD.svg"
 
@@ -60,4 +59,4 @@ update-desktop-database "$APPS" 2>/dev/null || true
 refresh_icons
 
 
-echo "Fertig. Stijl steht jetzt in der App-Übersicht."
+echo "Done. Stijl is now in the app overview."

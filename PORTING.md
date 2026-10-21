@@ -1,83 +1,67 @@
-# Stijl auf Windows und macOS – Merkzettel
+# Stijl on Windows and macOS – notes for developers
 
-Stijl ist und bleibt ein GNOME-Programm. Auf Windows und macOS darf es nach GNOME
-aussehen (Kopfleiste, Adwaita-Stil, Knöpfe rechts oben).
+Stijl is and remains a GNOME app. On Windows and macOS it is fine for it to look like GNOME
+(header bar, Adwaita style, window buttons at the top right).
 
-## Stand
+## Status
 
-**Windows (seit 0.9.35):** Bau und Installer über MSYS2 und Inno Setup
-(`packaging/windows/`, GitHub Actions: `.github/workflows/release.yml`; Anleitung im README).
-Schon angepasst:
-- kein Konsolenfenster (`windows_subsystem`), Programmsymbol in der .exe (`build.rs`, `data/stijl.ico`)
-- keine Aufrufe von `fc-list`/`fc-match` unter Windows (Strichstärke-Regler und Schrifteinbettung in SVG entfallen dort)
-- Wiederherstellungsdateien unter `%LOCALAPPDATA%\stijl\recovery`
-- Farbprofile auch aus `C:\Windows\System32\spool\drivers\color` (und den macOS-Ordnern)
-- Grundschrift Segoe UI (macOS: Helvetica Neue)
-- „Öffnen mit“ für SVG/AI/PDF über den Installer; `gdbus.exe` liegt bei, damit Dateien möglichst im offenen Fenster landen
+**Windows (since 0.9.35):** build and installer via MSYS2 and Inno Setup
+(`packaging/windows/`, GitHub Actions: `.github/workflows/release.yml`; instructions in the
+README). Already adapted:
+- no console window (`windows_subsystem`), app icon in the .exe (`build.rs`, `data/stijl.ico`)
+- no calls to `fc-list`/`fc-match` (the weight slider for variable fonts and font embedding
+  in SVG are not available there)
+- recovery files in `%LOCALAPPDATA%\stijl\recovery`
+- colour profiles also from `C:\Windows\System32\spool\drivers\color` (and the macOS folders)
+- default font Segoe UI (macOS: Helvetica Neue)
+- *Open with* for SVG/AI/PDF via the installer; `gdbus.exe` is bundled so that files open in
+  the running window where possible
+- the update check uses the system’s `curl.exe` (`update.rs`)
 
-Noch offen für Windows: Schrifteinbettung und variable Schriften ohne Fontconfig (z. B. über
-Pango ≥ 1.44 `FontFamily::is_variable()`), Signatur des Installers (sonst warnt SmartScreen).
+Still open for Windows: font embedding and variable fonts without Fontconfig (e.g. via
+Pango ≥ 1.44 `FontFamily::is_variable()`), code signing (otherwise SmartScreen warns).
 
-**macOS (seit 0.9.40, ungetestet):** App-Bundle und Disk-Image über Homebrew
-(`packaging/macos/`, GitHub Actions: `.github/workflows/release.yml`). Schon angepasst:
-- Apple Silicon, ab der macOS-Version des Bau-Rechners (Runner `macos-15` → macOS 15+)
-- Bibliotheken per `dylibbundler` im Bundle, ad hoc signiert; Laufzeitpfade für Symbole,
-  Schemas und Bildlader setzt `main.rs` (`mac_bundle_env`)
-- Tastenkürzel: `<Control>` der Belegung wird zu `<Primary>` (⌘), Beschriftungen als ⇧⌘S
-- Programmmenü: Aktionen `app.about`, `app.preferences`, `app.quit`
-- keine Aufrufe von `fc-list`/`fc-match`
-- „Öffnen mit“ für SVG, AI und PDF (`Info.plist`)
+**macOS (since 0.9.40):** app bundle and disk image via Homebrew (`packaging/macos/`,
+GitHub Actions: `.github/workflows/release.yml`). Already adapted:
+- Apple silicon, from the macOS version of the build machine (runner `macos-15` → macOS 15+)
+- libraries bundled with `dylibbundler`, ad-hoc signed; runtime paths for icons, schemas and
+  image loaders are set in `main.rs` (`mac_bundle_env`)
+- keyboard shortcuts: `<Control>` in the key bindings becomes `<Primary>` (⌘), labels are
+  shown as ⇧⌘S
+- application menu: actions `app.about`, `app.preferences`, `app.quit`
+- no calls to `fc-list`/`fc-match`
+- *Open with* for SVG, AI and PDF (`Info.plist`)
 
-Noch offen für macOS: Signatur mit Developer ID und Notarisierung (99 $/Jahr bei Apple,
-sonst Warnung beim ersten Start), Intel-Macs, Übersetzungen von GTK/libadwaita im Bundle
-(deren Texte bleiben dort englisch), Test auf echter Hardware.
+Still open for macOS: signing with a Developer ID and notarisation (99 USD/year from Apple,
+otherwise a warning on first start), Intel Macs, translations of GTK/libadwaita inside the
+bundle (their own texts stay English there), testing on real hardware.
 
-## Was schon passt
+## What already works everywhere
 
-- **GTK 4, libadwaita, Cairo und Pango** laufen auf beiden Systemen (Windows über MSYS2
-  oder gvsbuild, macOS über Homebrew). Der Rust-Code nutzt dieselben Crates.
-- **Ordner für Einstellungen, Bibliotheken und zuletzt geöffnete Dateien** kommen über
-  `glib::user_config_dir()` / `glib::user_data_dir()`. Das liefert unter Windows `%LOCALAPPDATA%`
-  und unter macOS (GLib folgt dort den XDG-Vorgaben) `~/.config` bzw. `~/.local/share`.
-- **Sicheres Speichern** (`fsutil::write_atomic`) nutzt nur `std::fs`. `rename` ersetzt
-  auch unter Windows eine vorhandene Datei. Es scheitert aber, wenn ein anderes Programm
-  die Datei gerade offen hält. Dann kommt eine Fehlermeldung, und die alte Datei bleibt
-  heil.
-- **SVG, PDF/X, ICC und Effekte** sind reiner Rust- bzw. Cairo-Code. Hier ist nichts zu
-  tun.
+- **GTK 4, libadwaita, Cairo and Pango** run on both systems (Windows via MSYS2 or
+  gvsbuild, macOS via Homebrew). The Rust code uses the same crates.
+- **Folders for settings, libraries and recent files** come from `glib::user_config_dir()` /
+  `glib::user_data_dir()`. On Windows that is `%LOCALAPPDATA%`; on macOS GLib follows the
+  XDG defaults (`~/.config`, `~/.local/share`).
+- **Atomic saving** (`fsutil::write_atomic`) only uses `std::fs`. `rename` replaces an
+  existing file on Windows too, but fails while another program holds the file open – then
+  an error message appears and the old file stays intact.
+- **SVG, PDF/X, ICC and effects** are pure Rust or Cairo code. Nothing to do here.
 
-## Was angepasst werden muss
+## Still to do
 
-| Stelle | Problem | Lösung |
+| Where | Problem | Solution |
 |---|---|---|
-| `window.rs`: `font_is_variable` | ruft `fc-list` auf; unter Windows und macOS gibt es Fontconfig meist nicht, dann fehlt nur der Strichstärke-Regler | Pango ≥ 1.44 kennt `FontFamily::is_variable()` (Crate-Feature `v1_44`). Das ist besser für alle Systeme |
-| `export.rs`: `font_file` | `fc-match` sucht die Schriftdatei zum Einbetten in SVG | Pango-Fontmap fragen (`pangocairo`/`pango_fc_font` gibt es nur mit Fontconfig) oder eine Rust-Bibliothek wie `font-kit` nutzen |
-| `std::process::Command` (fc-list, fc-match) | unter Windows blitzt bei GUI-Programmen ein Konsolenfenster auf | `CREATE_NO_WINDOW` setzen (`std::os::windows::process::CommandExt`) oder die Aufrufe ganz ersetzen (siehe oben) |
-| Wiederherstellungsordner (`window.rs`, `$XDG_STATE_HOME` bzw. `~/.local/state`) | unter Windows und macOS unüblich | dort `glib::user_data_dir()/stijl/recovery` nehmen |
-| `export.rs`: `find_profiles` | sucht ICC-Profile nur in Linux-Ordnern | Windows: `C:\Windows\System32\spool\drivers\color`; macOS: `/Library/ColorSync/Profiles`, `~/Library/ColorSync/Profiles` |
-| Grundschrift „Cantarell“ (`editor.rs`, `text_defaults`) | fehlt außerhalb von GNOME, Pango nimmt dann eine Ersatzschrift | je System eine Vorgabe (Windows „Segoe UI“, macOS „Helvetica Neue“) oder Cantarell mitliefern |
-| Nur eine Instanz (Dateien als Tab im offenen Fenster) | `GApplication` erkennt eine laufende Instanz über D-Bus, das gibt es unter Windows/macOS nicht | Windows: GLib ≥ 2.74 kann das teilweise selbst, sonst eine benannte Pipe. macOS: Dateien kommen über `open`-Ereignisse an dieselbe Instanz (GTK-macOS-Backend prüfen) |
-| Symbole | eigene Symbole werden zur Laufzeit erzeugt (`icons.rs`), die übrigen kommen aus dem Adwaita-Symbolthema | das Adwaita-Icon-Theme (und `hicolor`) mitliefern |
-| Dunkles Design | libadwaita folgt unter Linux dem System über das Portal | unter Windows/macOS testen. Notfalls die Einstellung „Hell/Dunkel“ nutzen, die es schon gibt |
-| Ordner öffnen (Bibliothek ⋮ › Ordner öffnen) | `gtk::FileLauncher` | sollte funktionieren, testen |
-| Drucken | Stijl druckt nicht selbst (Export als PDF) | nichts nötig |
+| `window.rs`: `font_is_variable` | calls `fc-list`; without Fontconfig the weight slider is missing | Pango ≥ 1.44 has `FontFamily::is_variable()` (crate feature `v1_44`), which is better on all systems |
+| `export.rs`: `font_file` | `fc-match` finds the font file for embedding in SVG | ask the Pango font map, or use a Rust library such as `font-kit` |
+| Single instance (files open as tabs in the running window) | `GApplication` detects a running instance via D-Bus, which Windows/macOS lack | Windows: GLib ≥ 2.74 partly handles this, otherwise a named pipe. macOS: files arrive as `open` events to the same instance (check the GTK macOS backend) |
+| Dark style | on Linux libadwaita follows the system via the portal | test on Windows/macOS; the Light/Dark preference exists as a fallback |
+| Open folder (Library ⋮ › Open folder) | `gtk::FileLauncher` | should work – test |
 
-## Bauen und Verteilen (Stichworte)
+## Guidelines for further development
 
-- **Windows:** MSYS2 (UCRT64) mit `mingw-w64-ucrt-x86_64-gtk4`, `…-libadwaita`, `…-rust`.
-  Zum Verteilen alle DLLs, `share/glib-2.0/schemas`, Icons und `gdk-pixbuf`-Loader
-  einsammeln (z. B. mit einem `ldd`-Skript). Ohne Signatur warnt SmartScreen.
-- **macOS:** Homebrew `gtk4 libadwaita`. Für ein verteilbares Bundle die dylibs mit
-  `dylibbundler` einbetten. Ohne Apple-Entwicklerkonto (Signatur und Notarisierung)
-  muss man die App beim ersten Start per Rechtsklick › Öffnen freigeben.
-- **CI:** GitHub Actions hat Windows- und macOS-Runner. Ein Job je System, der
-  `cargo test` und den Bau ausführt, deckt die meisten Probleme früh auf.
-
-## Beim Weiterentwickeln beachten
-
-- Keine neuen Aufrufe externer Linux-Programme (`fc-*`, `xdg-*`). Lieber GLib/GIO
-  (`gio::AppInfo`, `gtk::FileLauncher`, `glib::user_*_dir`) oder reines Rust nutzen.
-- Pfade immer mit `Path::join` bauen, nie mit `/` zusammensetzen.
-- Linux-Ordner (`/usr/share/…`) nur als zusätzliche Suchorte, nie als einzige.
-- Neue Tastenkürzel mit `<Control>` schreiben. Die Mac-Umsetzung passiert dann an einer
-  Stelle (`keys.rs`).
+- No new calls to external Linux programs (`fc-*`, `xdg-*`). Prefer GLib/GIO
+  (`gio::AppInfo`, `gtk::FileLauncher`, `glib::user_*_dir`) or pure Rust.
+- Always build paths with `Path::join`, never by concatenating `/`.
+- Linux folders (`/usr/share/…`) only as additional search locations, never as the only one.
+- Write new shortcuts with `<Control>`; the Mac mapping happens in one place (`keys.rs`).
