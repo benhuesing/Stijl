@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 Bendix Hüsing
+#
+# Builds Stijl for Windows (installer) and macOS (disk image).
+#
+# - Manually: “Actions” › “Release” › “Run workflow” – the files can then be downloaded from
+#   the run under “Artifacts”.
+# - With a tag such as v0.9.42: additionally creates a draft release with both files. Only
+#   once it is published under “Releases” do installed copies see it in their update check.
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-adwaita-icon-theme
+            mingw-w64-ucrt-x86_64-hicolor-icon-theme
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-ntldd
+
+      - name: Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Tests
+        # failures here do not stop the installer (see the log for details)
+        continue-on-error: true
+        run: cargo test --release
+
+      - name: Build and create the installer
+        run: SKIP_DEPS=1 bash packaging/windows/build.sh
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: Stijl-Windows
+          path: target/windows/*-Setup.exe
+          if-no-files-found: error
+
+  macos:
+    # Apple silicon; the app runs on this runner’s macOS version and later
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Homebrew packages
+        run: brew install gtk4 libadwaita librsvg adwaita-icon-theme hicolor-icon-theme pkgconf dylibbundler
+
+      - name: Tests
+        continue-on-error: true
+        run: cargo test --release
+
+      - name: Build and create the disk image
+        run: SKIP_DEPS=1 bash packaging/macos/build.sh
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: Stijl-macOS
+          path: target/macos/*.dmg
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Stijl ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --draft
