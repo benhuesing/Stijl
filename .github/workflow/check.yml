@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 Bendix Hüsing
+#
+# On every push: build on Linux and run the tests. A red cross under “Actions” means that
+# something does not compile or a test fails.
+name: Check
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    # Ubuntu 24.04: GTK 4.14, libadwaita 1.5 – the oldest supported versions
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev
+
+      - name: Build
+        run: cargo build
+
+      - name: Tests
+        run: cargo test
+
+      - name: Formatting
+        run: cargo fmt --check
