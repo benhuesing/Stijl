@@ -1,8 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Tastenkürzel (ohne GTK): alle Kürzel des Programms mit ihren Standardwerten, eigene
 //! Belegungen, Konfliktprüfung und Speicherformat.
 //!
 //! Kürzel sind Zeichenketten im GTK-Format („<Control>n“, „<Shift>t“, „F9“).
 
+use crate::i18n::tr;
 use std::collections::BTreeMap;
 
 use crate::editor::Tool;
@@ -93,6 +97,20 @@ pub const DEFS: &[Def] = &[
         Action("win.export"),
     ),
     d(
+        "export-selection",
+        "Auswahl exportieren",
+        GROUP_FILE,
+        &[],
+        Action("win.export-selection"),
+    ),
+    d(
+        "copy-image",
+        "Als Bild kopieren",
+        GROUP_EDIT,
+        &["<Control><Alt>c"],
+        Action("win.copy-image"),
+    ),
+    d(
         "close-tab",
         "Tab schließen",
         GROUP_FILE,
@@ -154,6 +172,13 @@ pub const DEFS: &[Def] = &[
         GROUP_ARRANGE,
         &["<Control><Shift>g"],
         Action("win.ungroup"),
+    ),
+    d(
+        "join-paths",
+        "Pfade verbinden",
+        GROUP_ARRANGE,
+        &["<Control>j"],
+        Action("win.join-paths"),
     ),
     d(
         "raise",
@@ -291,13 +316,6 @@ pub const DEFS: &[Def] = &[
         Kind::Tool(Tool::Guide),
     ),
     d(
-        "tool-bucket",
-        "Farbeimer",
-        GROUP_TOOLS,
-        &["k"],
-        Kind::Tool(Tool::Bucket),
-    ),
-    d(
         "tool-eraser",
         "Radierer",
         GROUP_TOOLS,
@@ -305,10 +323,17 @@ pub const DEFS: &[Def] = &[
         Kind::Tool(Tool::Eraser),
     ),
     d(
+        "tool-scissors",
+        "Schere",
+        GROUP_TOOLS,
+        &["c"],
+        Kind::Tool(Tool::Scissors),
+    ),
+    d(
         "tool-builder",
         "Formerstellung",
         GROUP_TOOLS,
-        &["<Shift>m"],
+        &["<Shift>m", "k"],
         Kind::Tool(Tool::Builder),
     ),
     d(
@@ -517,29 +542,41 @@ pub fn allowed(kind: Kind, accel: &str) -> Result<(), &'static str> {
     let has_ctrl_or_alt = a.contains("<Control>") || a.contains("<Alt>");
     let key = a.rsplit('>').next().unwrap_or("");
     match kind {
-        Kind::Fixed => Err("Diese Taste ist fest."),
+        Kind::Fixed => Err(tr("Diese Taste ist fest.")),
         Action(_) => {
             let fkey = key.len() >= 2 && key.starts_with('F') && key[1..].chars().all(|c| c.is_ascii_digit());
             if has_ctrl_or_alt || fkey {
                 Ok(())
             } else {
-                Err("Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe.")
+                Err(tr(
+                    "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe.",
+                ))
             }
         }
         Kind::Tool(_) | Kind::Flip { .. } => {
             if has_ctrl_or_alt {
-                Err("Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt.")
+                Err(tr(
+                    "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt.",
+                ))
             } else if key.chars().count() == 1 {
                 Ok(())
             } else {
-                Err("Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig.")
+                Err(tr("Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig."))
             }
         }
     }
 }
 
-/// Lesbarer Text eines Kürzels ohne GTK: „Strg+Umschalt+S“.
+/// Kürzel für GTK: `<Control>` wird zu `<Primary>` – das ist Strg und auf dem Mac ⌘.
+pub fn to_gtk(accel: &str) -> String {
+    normalize(accel).replace("<Control>", "<Primary>")
+}
+
+/// Lesbarer Text eines Kürzels ohne GTK: „Strg+Umschalt+S“ (auf dem Mac „⇧⌘S“).
 pub fn label(accel: &str) -> String {
+    if cfg!(target_os = "macos") {
+        return mac_label(accel);
+    }
     let a = normalize(accel);
     let mut out: Vec<String> = Vec::new();
     let mut rest = a.as_str();
@@ -547,17 +584,23 @@ pub fn label(accel: &str) -> String {
         let Some(end) = r.find('>') else { break };
         out.push(
             match &r[..end] {
-                "Control" => "Strg",
-                "Shift" => "Umschalt",
-                "Alt" => "Alt",
-                "Super" => "Super",
+                "Control" => tr("Strg"),
+                "Shift" => tr("Umschalt"),
+                "Alt" => tr("Alt"),
+                "Super" => tr("Super"),
                 o => o,
             }
             .to_string(),
         );
         rest = &r[end + 1..];
     }
-    out.push(match rest {
+    out.push(label_plain(rest));
+    out.join("+")
+}
+
+/// Beschriftung einer Taste ohne Modifikatoren („bracketright“ → „]“).
+fn label_plain(key: &str) -> String {
+    match key {
         "bracketright" => "]".into(),
         "bracketleft" => "[".into(),
         "braceright" => "}".into(),
@@ -566,24 +609,43 @@ pub fn label(accel: &str) -> String {
         "plus" => "+".into(),
         "minus" => "−".into(),
         "equal" => "=".into(),
-        "KP_Add" => "Num +".into(),
-        "KP_Subtract" => "Num −".into(),
-        "space" => "Leertaste".into(),
-        "Delete" => "Entf".into(),
+        "KP_Add" => tr("Num +").into(),
+        "KP_Subtract" => tr("Num −").into(),
+        "space" => tr("Leertaste").into(),
+        "Delete" => tr("Entf").into(),
         "BackSpace" => "⌫".into(),
-        "Escape" => "Esc".into(),
-        "Return" => "Enter".into(),
+        "Escape" => tr("Esc").into(),
+        "Return" => tr("Enter").into(),
         "Left" => "←".into(),
         "Right" => "→".into(),
         "Up" => "↑".into(),
         "Down" => "↓".into(),
         "Tab" => "Tab".into(),
-        "Page_Down" => "Bild ↓".into(),
-        "Page_Up" => "Bild ↑".into(),
+        "Page_Down" => tr("Bild ↓").into(),
+        "Page_Up" => tr("Bild ↑").into(),
         k if k.chars().count() == 1 => k.to_uppercase(),
         k => k.to_string(),
-    });
-    out.join("+")
+    }
+}
+
+/// Mac-Schreibweise: Symbole in der dort üblichen Reihenfolge ⌃⌥⇧⌘, ohne Pluszeichen.
+fn mac_label(accel: &str) -> String {
+    let a = normalize(accel);
+    let mut syms = String::new();
+    for (m, sym) in [
+        ("<Super>", "⌃"),
+        ("<Alt>", "⌥"),
+        ("<Shift>", "⇧"),
+        ("<Control>", "⌘"),
+    ] {
+        if a.contains(m) {
+            syms.push_str(sym);
+        }
+    }
+    let key = a.rsplit('>').next().unwrap_or(&a);
+    // Taste wie in der normalen Beschriftung (ohne Modifikatoren)
+    let k = label_plain(key);
+    format!("{syms}{k}")
 }
 
 #[cfg(test)]
@@ -677,6 +739,10 @@ mod tests {
     fn labels_are_readable() {
         assert_eq!(label("<Control><Shift>s"), "Strg+Umschalt+S");
         assert_eq!(label("<Control>bracketright"), "Strg+]");
+        assert_eq!(mac_label("<Control><Shift>s"), "⇧⌘S");
+        assert_eq!(mac_label("<Alt><Control>c"), "⌥⌘C");
+        assert_eq!(mac_label("F9"), "F9");
+        assert_eq!(to_gtk("<Shift><Control>Z"), "<Primary><Shift>z");
         assert_eq!(label("F9"), "F9");
         assert_eq!(label("space"), "Leertaste");
     }

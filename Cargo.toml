@@ -1,8 +1,10 @@
 [package]
-name = "mondrian"
-version = "0.9.35"
+name = "stijl"
+version = "0.9.41"
 edition = "2021"
-description = "Ein einfacher Vektorzeichner für GNOME"
+description = "Ein Vektorzeichenprogramm für GNOME"
+authors = ["Bendix Hüsing"]
+repository = "https://github.com/benhuesing/Stijl"
 license = "GPL-3.0-or-later"
 rust-version = "1.80"
 

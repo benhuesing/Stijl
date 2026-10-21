@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! ICC-Farbprofile (ohne GTK): sRGB → CMYK über das Ausgabeprofil einer Druckbedingung
 //! (z. B. „Coated FOGRA39“ oder „PSO Coated v3“).
 //!

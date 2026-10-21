@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Grundlegende Geometrie: Punkte, Rechtecke, affine Transformationen und Kurvenhilfen.
 
 use std::ops::{Add, Mul, Sub};

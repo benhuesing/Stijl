@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Formerstellung, Radierer und Farbeimer.
 //!
-//! * Formerstellung: Überlappende Formen werden in ihre kleinsten Teilflächen
-//!   („Atome“) zerlegt. Über die mit dem Werkzeug gestrichen wird, werden zu einer
-//!   Form vereinigt.
+//! * Formerstellung und Schere: Alle Umrisse bilden einen ebenen Graphen (siehe unten);
+//!   seine Flächen sind die Teilflächen, mit den echten Kurvenstücken.
 //! * Radierer: Ein runder Pinsel zieht eine Spur; gefüllte Formen verlieren die Fläche
 //!   der Spur, Linien werden an der Spur aufgetrennt.
 
@@ -10,22 +12,7 @@ use crate::boolean::{self, area, Op, Ring};
 use crate::geom::{cubic_point, Pt, Rect};
 use crate::model::{Node, SubPath};
 
-/// Kleinste Teilfläche überlappender Formen.
-#[derive(Clone, Debug)]
-pub struct Atom {
-    /// Ausgerichtete Ringe (eine zusammenhängende Fläche, ggf. mit Löchern)
-    pub rings: Vec<Ring>,
-    /// oberstes Objekt, zu dem die Fläche gehört (bestimmt den Stil)
-    pub owner: u64,
-    /// alle Objekte, die diese Fläche bedecken
-    #[allow(dead_code)]
-    pub covers: Vec<u64>,
-    pub bbox: Rect,
-}
-
-/// Flächen kleiner als das (in Dokumenteinheiten²) gelten als Rechenrauschen.
-const MIN_AREA: f64 = 0.5;
-
+#[cfg(test)]
 fn rings_area(r: &[Ring]) -> f64 {
     r.iter().map(|x| area(x)).sum()
 }
@@ -46,89 +33,6 @@ fn rings_bbox(r: &[Ring]) -> Rect {
         }
     }
     b
-}
-
-/// Ringe in zusammenhängende Flächen aufteilen (jede Außenkontur mit ihren Löchern).
-pub fn components(rings: Vec<Ring>) -> Vec<Vec<Ring>> {
-    let (outer, holes): (Vec<Ring>, Vec<Ring>) = rings.into_iter().partition(|r| area(r) > 0.0);
-    let mut groups: Vec<Vec<Ring>> = outer.into_iter().map(|r| vec![r]).collect();
-    for h in holes {
-        let probe = h[0];
-        // kleinste Außenkontur, die das Loch enthält
-        let best = groups
-            .iter()
-            .enumerate()
-            .filter(|(_, g)| boolean::contains(&g[..1], probe))
-            .min_by(|a, b| area(&a.1[0]).total_cmp(&area(&b.1[0])))
-            .map(|(i, _)| i);
-        if let Some(i) = best {
-            groups[i].push(h);
-        }
-    }
-    groups
-}
-
-/// Formen (unten nach oben, je `(id, Ringe)`) in ihre Teilflächen zerlegen.
-pub fn atoms(shapes: &[(u64, Vec<Ring>)]) -> Vec<Atom> {
-    // (Fläche, Objekte darüber)
-    let mut regions: Vec<(Vec<Ring>, Vec<u64>)> = Vec::new();
-    let mut acc: Vec<Ring> = Vec::new();
-    for (id, s) in shapes {
-        if s.is_empty() {
-            continue;
-        }
-        let mut next = Vec::new();
-        for (r, cov) in regions {
-            let inter = boolean::rings_op(&r, s, Op::Intersection);
-            if rings_area(&inter) > MIN_AREA {
-                let mut c = cov.clone();
-                c.push(*id);
-                next.push((inter, c));
-            }
-            let diff = boolean::rings_op(&r, s, Op::Difference);
-            if rings_area(&diff) > MIN_AREA {
-                next.push((diff, cov));
-            }
-        }
-        let rest = if acc.is_empty() {
-            s.clone()
-        } else {
-            boolean::rings_op(s, &acc, Op::Difference)
-        };
-        if rings_area(&rest) > MIN_AREA {
-            next.push((rest, vec![*id]));
-        }
-        acc = if acc.is_empty() {
-            s.clone()
-        } else {
-            boolean::rings_op(&acc, s, Op::Union)
-        };
-        regions = next;
-    }
-    let mut out = Vec::new();
-    for (r, cov) in regions {
-        for comp in components(r) {
-            if rings_area(&comp) <= MIN_AREA {
-                continue;
-            }
-            out.push(Atom {
-                bbox: rings_bbox(&comp),
-                owner: *cov.last().unwrap_or(&0),
-                covers: cov.clone(),
-                rings: comp,
-            });
-        }
-    }
-    out
-}
-
-/// Liegt `p` in der Teilfläche?
-pub fn atom_contains(a: &Atom, p: Pt) -> bool {
-    p.x >= a.bbox.x0
-        && p.x <= a.bbox.x1
-        && p.y >= a.bbox.y0
-        && p.y <= a.bbox.y1
-        && boolean::contains(&a.rings, p)
 }
 
 /// Punkte einer Zeigerspur in gleichmäßigen Abständen (höchstens `step`).
@@ -443,6 +347,8 @@ pub struct Face {
     pub poly: Vec<Pt>,
     pub area: f64,
     pub bbox: Rect,
+    /// mittlere Breite (2 · Fläche / Umfang) – erkennt hauchdünne Streifen
+    pub width: f64,
 }
 
 impl Face {
@@ -472,6 +378,8 @@ pub struct Arrangement {
     pub faces: Vec<Face>,
     /// Vorzeichen der Fläche von Außenrändern (unbegrenzte Flächen)
     outer_sign: f64,
+    /// schmalere Flächen sind Rechenreste (z. B. zwischen deckungsgleichen Kanten)
+    min_width: f64,
 }
 
 fn reverse(c: &Cubic) -> Cubic {
@@ -664,11 +572,20 @@ pub fn arrangement(curves: &[Cubic], tol: f64) -> Arrangement {
         }
         let area = area(&poly);
         let bbox = rings_bbox(std::slice::from_ref(&poly));
+        let perimeter: f64 = (0..poly.len())
+            .map(|i| poly[i].dist(poly[(i + 1) % poly.len()]))
+            .sum();
+        let width = if perimeter > 0.0 {
+            2.0 * area.abs() / perimeter
+        } else {
+            0.0
+        };
         faces.push(Face {
             segs,
             poly,
             area,
             bbox,
+            width,
         });
     }
     let outer_sign = faces
@@ -676,27 +593,48 @@ pub fn arrangement(curves: &[Cubic], tol: f64) -> Arrangement {
         .max_by(|a, b| a.area.abs().total_cmp(&b.area.abs()))
         .map(|f| f.area.signum())
         .unwrap_or(1.0);
-    Arrangement { faces, outer_sign }
+    Arrangement {
+        faces,
+        outer_sign,
+        min_width: tol * 2.0,
+    }
 }
 
 impl Arrangement {
+    fn is_bounded(&self, f: &Face) -> bool {
+        f.area.signum() != self.outer_sign && f.area.abs() > 1e-6 && f.width > self.min_width
+    }
+
+    /// Ist Fläche `i` begrenzt (kein Außenrand)?
+    pub fn bounded(&self, i: usize) -> bool {
+        self.faces.get(i).is_some_and(|f| self.is_bounded(f))
+    }
+
     /// Fläche unter `p`: Außenrand und Löcher (Ränder darin liegender, getrennter
     /// Linienzüge) – jeweils als Kurvenstücke.
     pub fn region_at(&self, p: Pt) -> Option<Vec<Vec<Cubic>>> {
-        let inner = |f: &&Face| f.area.signum() != self.outer_sign && f.area.abs() > 1e-6;
-        let face = self
-            .faces
+        self.face_at(p).map(|i| self.region_of(i))
+    }
+
+    /// Nummer der kleinsten begrenzten Fläche unter `p`.
+    pub fn face_at(&self, p: Pt) -> Option<usize> {
+        self.faces
             .iter()
-            .filter(inner)
-            .filter(|f| f.contains(p))
-            .min_by(|a, b| a.area.abs().total_cmp(&b.area.abs()))?;
+            .enumerate()
+            .filter(|(_, f)| self.is_bounded(f) && f.contains(p))
+            .min_by(|a, b| a.1.area.abs().total_cmp(&b.1.area.abs()))
+            .map(|(i, _)| i)
+    }
+
+    /// Fläche `i` mit ihren Löchern als Kurvenstücke.
+    pub fn region_of(&self, i: usize) -> Vec<Vec<Cubic>> {
+        let face = &self.faces[i];
         // Außenränder anderer Linienzüge, die in der Fläche liegen, werden zu Löchern
         let mut holes: Vec<&Face> = self
             .faces
             .iter()
             .filter(|f| f.area.signum() == self.outer_sign)
             .filter(|f| f.area.abs() < face.area.abs())
-            .filter(|f| !f.contains(p))
             .filter(|f| face.contains(f.poly[0]))
             .collect();
         // nur die äußersten Löcher
@@ -707,8 +645,189 @@ impl Arrangement {
         });
         let mut out = vec![face.segs.clone()];
         out.extend(holes.into_iter().map(|h| h.segs.clone()));
-        Some(out)
+        out
     }
+
+    /// Fläche `i` (mit Löchern) als Vielecke zum Anzeigen.
+    pub fn region_polys(&self, i: usize) -> Vec<Vec<Pt>> {
+        self.region_of(i)
+            .iter()
+            .map(|segs| {
+                let mut pts = Vec::new();
+                for c in segs {
+                    flatten_cubic(c, &mut pts);
+                }
+                pts
+            })
+            .collect()
+    }
+}
+
+/// Mehrere Flächen eines ebenen Graphen vereinigen: gemeinsame Kanten fallen weg, die übrigen
+/// Kurvenstücke werden zu geschlossenen Rändern verkettet (echte Kurven bleiben erhalten).
+pub fn union_regions(regions: &[Vec<Vec<Cubic>>]) -> Vec<SubPath> {
+    let mut segs: Vec<Cubic> = regions.iter().flatten().flatten().copied().collect();
+    let same = |a: &Cubic, b: &Cubic| {
+        let e = 1e-6;
+        a.0.dist(b.3) < e && a.1.dist(b.2) < e && a.2.dist(b.1) < e && a.3.dist(b.0) < e
+    };
+    // gemeinsame Kanten (einmal vorwärts, einmal rückwärts) entfernen
+    let mut alive = vec![true; segs.len()];
+    for i in 0..segs.len() {
+        if !alive[i] {
+            continue;
+        }
+        if let Some(j) = (i + 1..segs.len()).find(|&j| alive[j] && same(&segs[i], &segs[j])) {
+            alive[i] = false;
+            alive[j] = false;
+        }
+    }
+    segs = segs
+        .into_iter()
+        .zip(alive)
+        .filter(|(_, a)| *a)
+        .map(|(s, _)| s)
+        .collect();
+    // verketten
+    let mut used = vec![false; segs.len()];
+    let mut out = Vec::new();
+    for start in 0..segs.len() {
+        if used[start] {
+            continue;
+        }
+        used[start] = true;
+        let mut chain = vec![segs[start]];
+        loop {
+            let end = chain.last().unwrap().3;
+            if end.dist(chain[0].0) < 1e-6 && chain.len() > 1 {
+                break;
+            }
+            match (0..segs.len()).find(|&k| !used[k] && segs[k].0.dist(end) < 1e-6) {
+                Some(k) => {
+                    used[k] = true;
+                    chain.push(segs[k]);
+                }
+                None => break,
+            }
+        }
+        if chain.len() >= 2 || chain[0].0.dist(chain[0].3) > 1e-6 {
+            out.push(segs_to_subpath(&chain));
+        }
+    }
+    out
+}
+
+impl Arrangement {
+    /// Begrenzte Flächen (ohne die Außenseiten der Linienzüge).
+    pub fn bounded_faces(&self) -> impl Iterator<Item = &Face> {
+        self.faces.iter().filter(move |f| self.is_bounded(f))
+    }
+}
+
+/// Ein Punkt sicher im Inneren eines Vielecks (Mitte des breitesten Abschnitts auf einer
+/// waagerechten Linie).
+pub fn interior_point(poly: &[Pt]) -> Option<Pt> {
+    let n = poly.len();
+    if n < 3 {
+        return None;
+    }
+    let (mut y0, mut y1) = (f64::MAX, f64::MIN);
+    for p in poly {
+        y0 = y0.min(p.y);
+        y1 = y1.max(p.y);
+    }
+    let mut best: Option<(f64, Pt)> = None;
+    for k in [0.5, 0.31, 0.69, 0.17, 0.83, 0.43, 0.57] {
+        let y = y0 + (y1 - y0) * k;
+        let mut xs: Vec<f64> = Vec::new();
+        for i in 0..n {
+            let (a, b) = (poly[i], poly[(i + 1) % n]);
+            if (a.y > y) != (b.y > y) {
+                xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+            }
+        }
+        xs.sort_by(|a, b| a.total_cmp(b));
+        for w in xs.chunks(2) {
+            if let [l, r] = w {
+                if best.map(|b| r - l > b.0).unwrap_or(true) {
+                    best = Some((r - l, Pt::new((l + r) / 2.0, y)));
+                }
+            }
+        }
+    }
+    best.filter(|b| b.0 > 1e-9).map(|b| b.1)
+}
+
+/// Gerade als Kurvenstück.
+pub fn line_cubic(a: Pt, b: Pt) -> Cubic {
+    (a, a.lerp(b, 1.0 / 3.0), a.lerp(b, 2.0 / 3.0), b)
+}
+
+/// Kurvenstücke als offener Teilpfad.
+pub fn segs_to_open(segs: &[Cubic]) -> SubPath {
+    let mut nodes: Vec<Node> = Vec::with_capacity(segs.len() + 1);
+    for (i, s) in segs.iter().enumerate() {
+        let h_in = if i == 0 { s.0 } else { segs[i - 1].2 };
+        nodes.push(Node {
+            p: s.0,
+            h_in,
+            h_out: s.1,
+            r: 0.0,
+        });
+    }
+    if let Some(l) = segs.last() {
+        nodes.push(Node {
+            p: l.3,
+            h_in: l.2,
+            h_out: l.3,
+            r: 0.0,
+        });
+    }
+    SubPath { nodes, closed: false }
+}
+
+/// Teilpfad an den Schnittpunkten mit `cutter` zerschneiden (Schere). `None`, wenn er nicht
+/// getroffen wird; sonst die offenen Stücke (ein geschlossener Pfad wird zuerst aufgetrennt).
+pub fn split_at_cuts(sp: &SubPath, cutter: &[Cubic], tol: f64) -> Option<Vec<SubPath>> {
+    let segs: Vec<Cubic> = sp.segments();
+    let mut pieces: Vec<(Cubic, bool)> = Vec::new();
+    let mut any = false;
+    for c in &segs {
+        let cb = ctrl_box(c);
+        let mut ts: Vec<f64> = cutter
+            .iter()
+            .filter(|k| boxes_touch(&cb, &ctrl_box(k), tol))
+            .flat_map(|k| intersect_cubics(c, k, tol * 0.25).into_iter().map(|x| x.0))
+            .filter(|t| *t > 1e-4 && *t < 1.0 - 1e-4)
+            .collect();
+        ts.sort_by(|a, b| a.total_cmp(b));
+        ts.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+        let mut t0 = 0.0;
+        for t in ts {
+            pieces.push((sub_cubic(c.0, c.1, c.2, c.3, t0, t), true));
+            t0 = t;
+            any = true;
+        }
+        pieces.push((sub_cubic(c.0, c.1, c.2, c.3, t0, 1.0), false));
+    }
+    if !any {
+        return None;
+    }
+    let mut runs: Vec<Vec<Cubic>> = vec![Vec::new()];
+    for (c, cut) in pieces {
+        runs.last_mut().unwrap().push(c);
+        if cut {
+            runs.push(Vec::new());
+        }
+    }
+    if sp.closed && runs.len() > 1 {
+        // geschlossen: das letzte Stück läuft über den Anfang ins erste weiter
+        let mut last = runs.pop().unwrap();
+        last.extend(runs.remove(0));
+        runs.insert(0, last);
+    }
+    runs.retain(|r| !r.is_empty());
+    Some(runs.iter().map(|r| segs_to_open(r)).collect())
 }
 
 /// Kurvenstücke eines Randes als geschlossener Teilpfad.
@@ -732,37 +851,6 @@ pub fn segs_to_subpath(segs: &[Cubic]) -> SubPath {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Shape;
-
-    fn rect(x: f64, y: f64, w: f64, h: f64) -> Vec<Ring> {
-        match (Shape::Rect { x, y, w, h, r: 0.0 }).to_path().unwrap() {
-            Shape::Path { subpaths, .. } => boolean::to_rings(&subpaths, 0.1),
-            _ => unreachable!(),
-        }
-    }
-
-    #[test]
-    fn atoms_of_two_rects() {
-        // zwei überlappende Quadrate: links, Mitte, rechts
-        let a = rect(0.0, 0.0, 20.0, 20.0);
-        let b = rect(10.0, 0.0, 20.0, 20.0);
-        let at = atoms(&[(1, a), (2, b)]);
-        assert_eq!(at.len(), 3, "{at:?}");
-        let mid = at.iter().find(|x| atom_contains(x, Pt::new(15.0, 10.0))).unwrap();
-        assert_eq!(mid.owner, 2);
-        assert_eq!(mid.covers, vec![1, 2]);
-        assert!((rings_area(&mid.rings) - 200.0).abs() < 1.0);
-        let left = at.iter().find(|x| atom_contains(x, Pt::new(5.0, 10.0))).unwrap();
-        assert_eq!(left.owner, 1);
-    }
-
-    #[test]
-    fn components_split() {
-        let a = rect(0.0, 0.0, 10.0, 10.0);
-        let mut both = a.clone();
-        both.extend(rect(20.0, 0.0, 10.0, 10.0));
-        assert_eq!(components(both).len(), 2);
-    }
 
     #[test]
     fn eraser_region_and_line() {

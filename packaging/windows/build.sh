@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Mondrian für Windows bauen und einen Installer erstellen.
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 Bendix Hüsing
 #
-# Ausführen in der MSYS2-Shell „UCRT64“ (https://www.msys2.org) im Mondrian-Ordner:
+# Stijl für Windows bauen und einen Installer erstellen.
+#
+# Ausführen in der MSYS2-Shell „UCRT64“ (https://www.msys2.org) im Stijl-Ordner:
 #
 #     bash packaging/windows/build.sh
 #
 # Ergebnis:
-#   target/windows/Mondrian/                     fertiger Programmordner (läuft auch ohne Installation)
-#   target/windows/Mondrian-<Version>-Setup.exe  Installer (wenn Inno Setup 6 installiert ist)
+#   target/windows/Stijl/                        fertiger Programmordner (läuft auch ohne Installation)
+#   target/windows/Stijl-<Version>-Setup.exe     Installer (wenn Inno Setup 6 installiert ist)
 #
 # SKIP_DEPS=1 überspringt die Installation der MSYS2-Pakete (z. B. in GitHub Actions).
 set -euo pipefail
@@ -21,7 +24,7 @@ if [[ "${MSYSTEM:-}" != "UCRT64" ]]; then
 fi
 PREFIX=${MINGW_PREFIX:-/ucrt64}
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
-echo "==> Mondrian $VERSION für Windows"
+echo "==> Stijl $VERSION für Windows"
 
 # ───── 1. Werkzeuge und Bibliotheken
 PKGS=(
@@ -45,12 +48,12 @@ echo "==> Übersetzen (cargo build --release)"
 cargo build --release
 
 # ───── 3. Programmordner zusammenstellen
-DIST=$ROOT/target/windows/Mondrian
+DIST=$ROOT/target/windows/Stijl
 echo "==> Programmordner $DIST"
 rm -rf "$DIST"
 mkdir -p "$DIST/bin" "$DIST/lib" "$DIST/share"
 
-cp target/release/mondrian.exe "$DIST/bin/"
+cp target/release/stijl.exe "$DIST/bin/"
 # Hilfsprogramme von GLib (Prozesse starten, D-Bus für „Datei im offenen Fenster öffnen“)
 for f in gdbus.exe gspawn-win64-helper.exe gspawn-win64-helper-console.exe; do
     if [[ -f "$PREFIX/bin/$f" ]]; then
@@ -107,17 +110,61 @@ if command -v gtk4-update-icon-cache >/dev/null; then
     gtk4-update-icon-cache -q -t -f "$DIST/share/icons/Adwaita" || true
 fi
 
-# deutsche Übersetzungen von GTK und libadwaita (Dateidialog, Tastenkürzel …)
-for mo in gtk40 gtk40-properties libadwaita glib20; do
-    src="$PREFIX/share/locale/de/LC_MESSAGES/$mo.mo"
-    if [[ -f "$src" ]]; then
-        mkdir -p "$DIST/share/locale/de/LC_MESSAGES"
-        cp "$src" "$DIST/share/locale/de/LC_MESSAGES/"
-    fi
+# Übersetzungen von GTK und libadwaita (Dateidialog, Tastenkürzel …): Deutsch und
+# britisches Englisch – Stijl selbst bringt seine Texte im Programm mit
+for lang in de en_GB; do
+    for mo in gtk40 gtk40-properties libadwaita glib20; do
+        src="$PREFIX/share/locale/$lang/LC_MESSAGES/$mo.mo"
+        if [[ -f "$src" ]]; then
+            mkdir -p "$DIST/share/locale/$lang/LC_MESSAGES"
+            cp "$src" "$DIST/share/locale/$lang/LC_MESSAGES/"
+        fi
+    done
 done
 
 cp LICENSE "$DIST/LICENSE.txt"
-cp data/mondrian.ico "$DIST/mondrian.ico"
+
+# Lizenzen der mitgelieferten Bibliotheken (GTK, libadwaita, Cairo, Pango … und Rust-Crates)
+echo "==> THIRD-PARTY.txt"
+{
+    echo "Stijl $VERSION"
+    echo "Copyright © 2026 Bendix Hüsing"
+    echo "Lizenz: GNU General Public License, Version 3 oder später (LICENSE.txt)"
+    echo
+    echo "Diese Ausgabe für Windows enthält Bibliotheken anderer Projekte. Sie stehen unter"
+    echo "ihren eigenen Lizenzen (überwiegend LGPL, MIT, BSD, Zlib). Die Bibliotheken stammen"
+    echo "unverändert aus MSYS2; Quelltexte und Bauanleitungen:"
+    echo "  https://packages.msys2.org"
+    echo "  https://github.com/msys2/MINGW-packages"
+    echo
+    echo "This Windows build contains libraries from other projects under their own licences"
+    echo "(mostly LGPL, MIT, BSD, Zlib), taken unmodified from MSYS2 (sources: see above)."
+    echo
+    echo "─── MSYS2-Pakete / MSYS2 packages"
+    for f in "$DIST/bin/"*.dll "$DIST/bin/"*.exe "$DIST/$PIXREL/loaders/"*.dll; do
+        [[ "$(basename "$f")" == stijl.exe ]] && continue
+        src="$PREFIX/${f#"$DIST/"}"
+        pacman -Qqo "$src" 2>/dev/null || true
+    done | sort -u | while read -r pkg; do
+        info=$(LC_ALL=C pacman -Qi "$pkg")
+        ver=$(sed -n 's/^Version *: //p' <<<"$info")
+        lic=$(sed -n 's/^Licenses *: //p' <<<"$info")
+        url=$(sed -n 's/^URL *: //p' <<<"$info")
+        printf '%s %s\n    Lizenz: %s\n    %s\n' "$pkg" "$ver" "$lic" "$url"
+    done
+    for t in Adwaita hicolor; do
+        pkg=$(pacman -Qqo "$PREFIX/share/icons/$t/index.theme" 2>/dev/null || true)
+        if [[ -n "$pkg" ]]; then
+            info=$(LC_ALL=C pacman -Qi "$pkg")
+            printf '%s (Symbole)\n    Lizenz: %s\n' "$pkg" "$(sed -n 's/^Licenses *: //p' <<<"$info")"
+        fi
+    done
+    echo
+    echo "─── Rust-Crates"
+    cargo tree -e normal --prefix none --format "{p}  –  {l}" 2>/dev/null \
+        | sed 's/ (\*)$//' | grep -v '^stijl ' | sort -u || true
+} >"$DIST/THIRD-PARTY.txt"
+cp data/stijl.ico "$DIST/stijl.ico"
 echo "    Größe: $(du -sh "$DIST" | cut -f1)"
 
 # ───── 4. Installer mit Inno Setup
@@ -133,7 +180,7 @@ fi
 if [[ -z "$ISCC" ]]; then
     echo
     echo "Inno Setup 6 nicht gefunden – es gibt nur den Programmordner:"
-    echo "    $DIST/bin/mondrian.exe"
+    echo "    $DIST/bin/stijl.exe"
     echo "Für den Installer Inno Setup installieren (https://jrsoftware.org/isdl.php)"
     echo "und dieses Skript noch einmal starten."
     exit 0
@@ -143,8 +190,8 @@ echo "==> Installer erstellen"
 MSYS2_ARG_CONV_EXCL="*" "$ISCC" /Q \
     "/DAppVersion=$VERSION" \
     "/DSourceDir=$(cygpath -w "$DIST")" \
-    "/DIconFile=$(cygpath -w "$ROOT/data/mondrian.ico")" \
+    "/DIconFile=$(cygpath -w "$ROOT/data/stijl.ico")" \
     "/O$(cygpath -w "$ROOT/target/windows")" \
-    "$(cygpath -w "$ROOT/packaging/windows/mondrian.iss")"
+    "$(cygpath -w "$ROOT/packaging/windows/stijl.iss")"
 echo
-echo "Fertig: target/windows/Mondrian-$VERSION-Setup.exe"
+echo "Fertig: target/windows/Stijl-$VERSION-Setup.exe"

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Öffnen von Adobe-Illustrator-Dateien (.ai).
 //!
 //! Eine .ai-Datei mit „PDF-kompatibler Datei“ ist ein PDF. Die erste Seite wird hier
@@ -10,6 +13,7 @@
 //! Farbräume (Gray, RGB, CMYK, ICC, Lab, Indexed, Separation, DeviceN).
 //! Nicht unterstützt: Deckkraftmasken, Strichelungen, Muster, Verlaufsgitter, CMYK-JPEG.
 
+use crate::i18n::tr;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
@@ -591,6 +595,8 @@ struct Gs {
     fs: f64,
     tr: u8,
     rise: f64,
+    /// Strichmuster (in Benutzereinheiten)
+    dash: Vec<f64>,
 }
 
 impl Gs {
@@ -616,6 +622,7 @@ impl Gs {
             fs: 1.0,
             tr: 0,
             rise: 0.0,
+            dash: Vec::new(),
         }
     }
 }
@@ -846,7 +853,7 @@ impl<'a> Interp<'a> {
                 Tok::Kw(k) => {
                     self.ops += 1;
                     if self.ops > 20_000_000 {
-                        self.note("Die Datei ist sehr groß; es wurde nur ein Teil gelesen.");
+                        self.note(tr("Die Datei ist sehr groß; es wurde nur ein Teil gelesen."));
                         break;
                     }
                     if k == "BI" {
@@ -891,11 +898,17 @@ impl<'a> Interp<'a> {
             "J" => self.gs.cap = n(0) as u8,
             "j" => self.gs.join = n(0) as u8,
             "d" => {
-                if let Some(Obj::Arr(d)) = a.first() {
-                    if d.iter().any(|x| x.num().unwrap_or(0.0) > 0.0) {
-                        self.note("Gestrichelte Linien werden durchgezogen dargestellt.");
+                self.gs.dash = match a.first() {
+                    Some(Obj::Arr(d)) => {
+                        let v: Vec<f64> = d.iter().map(|x| x.num().unwrap_or(0.0).max(0.0)).collect();
+                        if v.iter().any(|x| *x > 0.0) {
+                            v
+                        } else {
+                            Vec::new()
+                        }
                     }
-                }
+                    _ => Vec::new(),
+                };
             }
             "gs" => {
                 let name = a.first().and_then(Obj::name).unwrap_or("");
@@ -931,7 +944,7 @@ impl<'a> Interp<'a> {
                     }
                     if let Some(sm) = d.get("SMask") {
                         if pdf.res(sm).dict().is_some() {
-                            self.note("Deckkraftmasken wurden nicht übernommen.");
+                            self.note(tr("Deckkraftmasken wurden nicht übernommen."));
                         }
                     }
                     if let Obj::Arr(f) = pdf.get(d, "Font") {
@@ -1239,7 +1252,7 @@ impl<'a> Interp<'a> {
                 return Paint::Grad(Rc::new(sh));
             }
         }
-        self.note("Muster- und Netzfüllungen wurden vereinfacht.");
+        self.note(tr("Muster- und Netzfüllungen wurden vereinfacht."));
         Paint::Solid([0.6; 3])
     }
 
@@ -1248,7 +1261,7 @@ impl<'a> Interp<'a> {
         let d = sh.dict()?;
         let kind = pdf.num(d, "ShadingType")? as i32;
         if kind != 2 && kind != 3 {
-            self.note("Muster- und Netzfüllungen wurden vereinfacht.");
+            self.note(tr("Muster- und Netzfüllungen wurden vereinfacht."));
             return None;
         }
         let coords = pdf.nums(pdf.get(d, "Coords"));
@@ -1455,6 +1468,11 @@ impl<'a> Interp<'a> {
             2 => " stroke-linejoin=\"bevel\"",
             _ => "",
         });
+        if !g.dash.is_empty() {
+            let k = g.ctm.mean_scale();
+            let v: Vec<String> = g.dash.iter().map(|x| num(x * k)).collect();
+            s.push_str(&format!(" stroke-dasharray=\"{}\"", v.join(" ")));
+        }
         s
     }
 
@@ -1752,12 +1770,14 @@ impl<'a> Interp<'a> {
                 match jpeg_components(&data) {
                     Some(1) | Some(3) => ("image/jpeg", data),
                     _ => {
-                        self.note("CMYK-JPEG-Bilder wurden übersprungen.");
+                        self.note(tr("CMYK-JPEG-Bilder wurden übersprungen."));
                         return;
                     }
                 }
             } else {
-                self.note("Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen.");
+                self.note(tr(
+                    "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen.",
+                ));
                 return;
             }
         } else {
@@ -1768,7 +1788,7 @@ impl<'a> Interp<'a> {
             }
         };
         if mime == "image/jpeg" && dict.contains_key("SMask") {
-            self.note("Transparenz von JPEG-Bildern wurde nicht übernommen.");
+            self.note(tr("Transparenz von JPEG-Bildern wurde nicht übernommen."));
         }
         let blend = self.blend_attr();
         let op = if self.gs.fa < 0.999 {
@@ -2073,7 +2093,9 @@ impl<'a> Interp<'a> {
             }
         }
         if undecodable {
-            self.note("Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen.");
+            self.note(tr(
+                "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen.",
+            ));
         }
         if self.gs.tr == 3 || text.trim().is_empty() || self.gs.fs.abs() < 1e-9 {
             return;
@@ -2081,7 +2103,7 @@ impl<'a> Interp<'a> {
         if self.gs.tr >= 4 {
             return;
         }
-        self.note("Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen.");
+        self.note(tr("Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen."));
         let gm = self.glyph_matrix(&start_tm);
         let s = (gm.a * gm.a + gm.b * gm.b).sqrt();
         if s < 0.05 {
@@ -2214,7 +2236,7 @@ pub fn import(data: &[u8], exists: &dyn Fn(&str) -> bool) -> Result<Import, Stri
     let pdf = Pdf::load(data)?;
     let pages = pdf.pages();
     if pages.is_empty() {
-        return Err("Die Datei enthält keine Seiten.".into());
+        return Err(tr("Die Datei enthält keine Seiten.").into());
     }
     let mut ix = Interp::new(&pdf, exists);
     // ausgeblendete Ebenen
@@ -2337,7 +2359,7 @@ xmlns:mondrian=\"https://mondrian.invalid/ns\" width=\"{w}\" height=\"{h}\" view
     o.push_str("</svg>\n");
     if count == 0 {
         ix.notes
-            .insert("Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden.".into());
+            .insert(tr("Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden.").into());
     }
     if pages.len() > MAX_PAGES {
         ix.notes

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Pixelfilter für Bilder (ohne GTK): Farbfilter und Kunsteffekte.
 //!
 //! Die Puffer haben das Format von Cairo (ARGB32, vormultipliziert; als `u32` in der

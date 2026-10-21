@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Druckfertige PDF-Dateien (ohne GTK): Cairo schreibt das PDF in RGB, diese Stufe rechnet
 //! alle Farben nach CMYK um und macht auf Wunsch eine PDF/X-4-Datei daraus
 //! (Ausgabebedingung mit eingebettetem Profil, Endformat- und Anschnittrahmen, XMP-Daten).
@@ -6,6 +9,7 @@
 //! `sc`/`scn` in RGB), Verläufe (Funktionen vom Typ 0, 2 und 3), RGB-Bilder (8 Bit) und
 //! Transparenzgruppen. Graustufen (z. B. Masken) bleiben Grau.
 
+use crate::i18n::tr;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -322,7 +326,7 @@ fn convert_content(data: &[u8], conv: &Conv) -> Result<Vec<u8>, String> {
                     true
                 };
                 match k.as_str() {
-                    "BI" => return Err("eingebettete Bilder im Inhalt werden nicht unterstützt".into()),
+                    "BI" => return Err(tr("eingebettete Bilder im Inhalt werden nicht unterstützt").into()),
                     "q" => stack.push(rgb_cs),
                     "Q" => rgb_cs = stack.pop().unwrap_or((false, false)),
                     "rg" | "RG" if n >= 3 => {
@@ -618,7 +622,7 @@ fn pdf_text(s: &str) -> Obj {
 /// Cairo-PDF in CMYK (und auf Wunsch PDF/X-4) umwandeln.
 pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
     if opt.pdfx && opt.profile.is_none() {
-        return Err("Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht.".into());
+        return Err(tr("Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht.").into());
     }
     let mut pdf = Pdf::load(input)?;
     // Hilfsobjekte der Datei (Querverweise, Objektströme) werden neu geschrieben
@@ -680,7 +684,7 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
                 let is_image = sub == Some("Image");
                 if is_image && d.get("ColorSpace").map(|c| pdf.res(c)).is_some_and(is_rgb_name) {
                     let mut img = convert_image(&pdf, &s, &mut conv)
-                        .ok_or_else(|| "Ein Bild ließ sich nicht nach CMYK umrechnen.".to_string())?;
+                        .ok_or_else(|| tr("Ein Bild ließ sich nicht nach CMYK umrechnen.").to_string())?;
                     if let Obj::Stream(st) = &mut img {
                         let mut dd = st.dict.clone();
                         fix_dict(&mut dd, &mut functions, opt.pdfx);
@@ -699,7 +703,7 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
                     if content {
                         let (data, special) = pdf.stream_data(&s);
                         if special.is_some() {
-                            return Err("Ein Inhalt der Seite ließ sich nicht lesen.".into());
+                            return Err(tr("Ein Inhalt der Seite ließ sich nicht lesen.").into());
                         }
                         let conv_data = convert_content(&data, &conv)?;
                         dd.insert("Filter".into(), Obj::Name("FlateDecode".into()));
@@ -735,7 +739,7 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
         .filter(|(_, o)| o.dict().and_then(|d| d.get("Type")).and_then(Obj::name) == Some("Catalog"))
         .map(|(k, _)| *k)
         .min()
-        .ok_or("Die PDF-Datei hat keinen Katalog.")?;
+        .ok_or(tr("Die PDF-Datei hat keinen Katalog."))?;
     let mut next = pdf.objs.keys().max().copied().unwrap_or(0) + 1;
     let mut alloc = || {
         let n = next;
@@ -776,14 +780,14 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
     let (pdf_t, xmp_t) = pdf_date(opt.time);
     let mut info = Dict::new();
     info.insert("Title".into(), pdf_text(&opt.title));
-    info.insert("Creator".into(), pdf_text("Mondrian"));
-    info.insert("Producer".into(), pdf_text("Mondrian (Cairo)"));
+    info.insert("Creator".into(), pdf_text("Stijl"));
+    info.insert("Producer".into(), pdf_text("Stijl (Cairo)"));
     info.insert("CreationDate".into(), Obj::Str(pdf_t.clone().into_bytes()));
     info.insert("ModDate".into(), Obj::Str(pdf_t.into_bytes()));
     info.insert("Trapped".into(), Obj::Name("False".into()));
     let mut catalog = match pdf.objs.get(&catalog_id) {
         Some(Obj::Dict(d)) => d.clone(),
-        _ => return Err("Die PDF-Datei hat einen ungültigen Katalog.".into()),
+        _ => return Err(tr("Die PDF-Datei hat einen ungültigen Katalog.").into()),
     };
     if let Some((profile, icc)) = opt.profile {
         let desc = if profile.description.is_empty() {
@@ -862,12 +866,12 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
    <xmp:CreateDate>{xmp_t}</xmp:CreateDate>
    <xmp:ModifyDate>{xmp_t}</xmp:ModifyDate>
    <xmp:MetadataDate>{xmp_t}</xmp:MetadataDate>
-   <xmp:CreatorTool>Mondrian</xmp:CreatorTool>
+   <xmp:CreatorTool>Stijl</xmp:CreatorTool>
    <xmpMM:DocumentID>{uuid}</xmpMM:DocumentID>
    <xmpMM:InstanceID>{uuid}</xmpMM:InstanceID>
    <xmpMM:VersionID>1</xmpMM:VersionID>
    <xmpMM:RenditionClass>default</xmpMM:RenditionClass>
-   <pdf:Producer>Mondrian (Cairo)</pdf:Producer>
+   <pdf:Producer>Stijl (Cairo)</pdf:Producer>
    <pdf:Trapped>False</pdf:Trapped>
    <pdfxid:GTS_PDFXVersion>PDF/X-4</pdfxid:GTS_PDFXVersion>
   </rdf:Description>

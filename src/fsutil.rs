@@ -1,14 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Dateien sicher schreiben und Wiederherstellungsdateien verwalten (ohne GTK).
 //!
 //! `write_atomic` schreibt erst in eine temporäre Datei im selben Ordner und benennt sie
 //! danach um. Bricht das Schreiben ab (Absturz, Stromausfall, volle Platte), bleibt die
 //! alte Datei unverändert erhalten.
 //!
-//! Wiederherstellungsdateien liegen in einem eigenen Ordner (`~/.local/state/mondrian/recovery`).
+//! Wiederherstellungsdateien liegen in einem eigenen Ordner (`~/.local/state/stijl/recovery`).
 //! Jede besteht aus `<kennung>.svg` (Inhalt) und `<kennung>.info` (Herkunft). Die Kennung
 //! beginnt mit der Prozessnummer, so erkennt ein neu gestartetes Programm Dateien, die ein
 //! abgestürztes hinterlassen hat. Die Originaldatei wird dabei nie verändert.
 
+use crate::i18n::tr;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -27,7 +31,7 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     };
     let name = target
         .file_name()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "kein Dateiname"))?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, tr("kein Dateiname")))?
         .to_string_lossy()
         .to_string();
     let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));

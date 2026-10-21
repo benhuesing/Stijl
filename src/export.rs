@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Export als PNG, JPG, PDF oder SVG.
 
+use crate::i18n::{tr, trf};
 use std::path::Path;
 
 use gtk::{cairo, gdk_pixbuf, glib};
@@ -19,10 +23,10 @@ impl Format {
     pub const ALL: [Format; 4] = [Format::Png, Format::Jpeg, Format::Pdf, Format::Svg];
     pub fn label(self) -> &'static str {
         match self {
-            Format::Png => "PNG-Bild",
-            Format::Jpeg => "JPG-Bild",
-            Format::Pdf => "PDF-Dokument",
-            Format::Svg => "SVG-Datei",
+            Format::Png => tr("PNG-Bild"),
+            Format::Jpeg => tr("JPG-Bild"),
+            Format::Pdf => tr("PDF-Dokument"),
+            Format::Svg => tr("SVG-Datei"),
         }
     }
     pub fn ext(self) -> &'static str {
@@ -252,8 +256,8 @@ fn pdf_bytes(docs: &[Document], opt: &Options, background: bool) -> Result<Vec<u
     // 96 Pixel = 72 Punkte
     let k = 72.0 / 96.0;
     let bleed = opt.bleed_mm.max(0.0) * 72.0 / 25.4;
-    let first = docs.first().ok_or("Keine Zeichenfläche gewählt")?;
-    let tmp = std::env::temp_dir().join(format!("mondrian-export-{}.pdf", std::process::id()));
+    let first = docs.first().ok_or(tr("Keine Zeichenfläche gewählt"))?;
+    let tmp = std::env::temp_dir().join(format!("stijl-export-{}.pdf", std::process::id()));
     let prev_res = crate::render::set_effect_resolution(opt.effect_dpi / 72.0);
     let prev_text = crate::render::set_text_as_glyphs(opt.pdf_text);
     let result = (|| -> Result<(), String> {
@@ -293,12 +297,13 @@ fn pdf_bytes(docs: &[Document], opt: &Options, background: bool) -> Result<Vec<u
         return Ok(data);
     }
     let icc = match &opt.profile {
-        Some(p) => Some(std::fs::read(p).map_err(|e| format!("Farbprofil: {e}"))?),
+        Some(p) => Some(std::fs::read(p).map_err(|e| trf("Farbprofil: {}", &[&(e)]))?),
         None => None,
     };
     let profile = match &icc {
         Some(d) => Some(
-            crate::icc::CmykProfile::parse(d).ok_or("Das Farbprofil ist kein lesbares CMYK-Druckprofil.")?,
+            crate::icc::CmykProfile::parse(d)
+                .ok_or(tr("Das Farbprofil ist kein lesbares CMYK-Druckprofil."))?,
         ),
         None => None,
     };
@@ -321,8 +326,9 @@ fn pdf_bytes(docs: &[Document], opt: &Options, background: bool) -> Result<Vec<u
 /// Schriftdatei (TrueType/OpenType) zu einer Familie über fontconfig; `None`, wenn die
 /// Schrift fehlt, ersetzt würde, zu groß ist oder in einer Sammlung (.ttc) steckt.
 fn font_file(family: &str, bold: bool, italic: bool) -> Option<(Vec<u8>, &'static str)> {
-    // Fontconfig (fc-match) gibt es unter Windows nicht: Schriften werden dort nicht eingebettet
-    if cfg!(windows) {
+    // Fontconfig (fc-match) gibt es unter Windows und macOS nicht: Schriften werden dort nicht
+    // eingebettet
+    if cfg!(any(windows, target_os = "macos")) {
         return None;
     }
     let pattern = format!(
@@ -368,6 +374,14 @@ fn raster(doc: &Document, scale: f64, bg: Option<Color>) -> Result<cairo::ImageS
     }
     surface.flush();
     Ok(surface)
+}
+
+/// Dokument als PNG-Daten (z. B. für die Zwischenablage).
+pub fn png_bytes(doc: &Document, scale: f64, bg: Option<Color>) -> Result<Vec<u8>, String> {
+    let surface = raster(doc, scale, bg)?;
+    let mut png: Vec<u8> = Vec::new();
+    surface.write_to_png(&mut png).map_err(|e| e.to_string())?;
+    Ok(png)
 }
 
 pub fn export(doc: &Document, path: &Path, opt: &Options) -> Result<(), String> {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Eigene symbolische Symbole. Sie werden beim Start in den Cache geschrieben und
 //! als Suchpfad im Symbolthema registriert, damit GTK sie wie Systemsymbole
 //! einfärbt (hell/dunkel).
@@ -287,6 +290,10 @@ const ICONS: &[(&str, &str)] = &[
         r#"<path d="M11.1 1.4a2.3 2.3 0 0 1 3.5 3.5l-2 2-3.5-3.5z"/><path d="M8.3 3.5l4.2 4.2-1.2 1.2-4.2-4.2z"/><path d="M7.9 6.1l2 2-5.7 5.7-1.9.8-.9 1-.7-.7 1-.9.8-1.9z"/>"#,
     ),
     (
+        "mondrian-scissors-symbolic",
+        r#"<path fill-rule="evenodd" d="M4.5 9.2a2.8 2.8 0 1 0 0 5.6a2.8 2.8 0 1 0 0-5.6zm0 1.4a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z"/><path fill-rule="evenodd" d="M11.5 9.2a2.8 2.8 0 1 0 0 5.6a2.8 2.8 0 1 0 0-5.6zm0 1.4a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z"/><path d="M5.4 9.5 11.6 0.9 12.5 1.6 6.8 10.2z"/><path d="M10.6 9.5 4.4 0.9 3.5 1.6 9.2 10.2z"/>"#,
+    ),
+    (
         "mondrian-notebook-symbolic",
         r#"<path fill-rule="evenodd" d="M3.5 1h10A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-10zM5 2.5v11h8.5v-11z"/><path d="M1 3.5h4.5V5H1zM1 7.25h4.5v1.5H1zM1 11h4.5v1.5H1zM7.5 5h4.5v1.5H7.5z"/>"#,
     ),
@@ -317,7 +324,7 @@ const ICONS: &[(&str, &str)] = &[
 ];
 
 pub fn install() {
-    let dir = glib::user_cache_dir().join("mondrian").join("icons");
+    let dir = glib::user_cache_dir().join("stijl").join("icons");
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -329,13 +336,13 @@ pub fn install() {
         }
     }
     // farbiges App-Symbol (Startseite, Info-Dialog, Fenster)
-    let app = dir.join("io.github.mondrian.Mondrian.svg");
-    let content = include_str!("../data/io.github.mondrian.Mondrian.svg");
+    let app = dir.join("io.github.benhuesing.Stijl.svg");
+    let content = include_str!("../data/io.github.benhuesing.Stijl.svg");
     if std::fs::read_to_string(&app).ok().as_deref() != Some(content) {
         let _ = std::fs::write(&app, content);
     }
     if let Some(display) = gdk::Display::default() {
         gtk::IconTheme::for_display(&display).add_search_path(&dir);
-        gtk::Window::set_default_icon_name("io.github.mondrian.Mondrian");
+        gtk::Window::set_default_icon_name("io.github.benhuesing.Stijl");
     }
 }

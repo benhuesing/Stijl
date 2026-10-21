@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Bildnachzeichner: macht aus einem Bild mit flachen Farbflächen (Logo, Illustration)
 //! bearbeitbare Vektorpfade (ohne GTK).
 //!

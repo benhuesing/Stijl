@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! SVG lesen und schreiben. Ebenen werden als Gruppen mit dem verbreiteten
 //! `inkscape:groupmode="layer"` gespeichert, damit andere Programme sie erkennen.
 
+use crate::i18n::{tr, trf};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -251,8 +255,19 @@ fn style_attrs(s: &Style) -> String {
         if s.join != LineJoin::Miter {
             a.push_str(&format!(" stroke-linejoin=\"{}\"", s.join.css()));
         }
-        if s.cap != LineCap::Butt {
-            a.push_str(&format!(" stroke-linecap=\"{}\"", s.cap.css()));
+        // Punkte brauchen runde Enden, auch in anderen Programmen
+        let cap = if s.dash.round_caps() {
+            LineCap::Round
+        } else {
+            s.cap
+        };
+        if cap != LineCap::Butt {
+            a.push_str(&format!(" stroke-linecap=\"{}\"", cap.css()));
+        }
+        let pat = s.dash.pattern(s.width);
+        if !pat.is_empty() {
+            let v: Vec<String> = pat.iter().map(|x| num(*x)).collect();
+            a.push_str(&format!(" stroke-dasharray=\"{}\"", v.join(" ")));
         }
     }
     if s.opacity < 0.999 {
@@ -771,6 +786,9 @@ pub fn object_to_svg(obj: &Object) -> String {
     {
         marker_attr.push_str(&format!(" mondrian:fill-gradient=\"{}\"", g.to_attr()));
     }
+    if obj.style.dash != crate::model::Dash::Solid && obj.style.stroke.is_some() {
+        marker_attr.push_str(&format!(" mondrian:dash=\"{}\"", obj.style.dash.name()));
+    }
     if obj.style.stroke_align != crate::model::StrokeAlign::Center {
         marker_attr.push_str(&format!(
             " mondrian:stroke-align=\"{}\"",
@@ -839,7 +857,7 @@ pub fn object_to_svg(obj: &Object) -> String {
             num(b.y)
         ),
         Shape::Path { subpaths, evenodd } => {
-            // Lebendige Ecken: gerundete Form in d, Grundform und Radien zusätzlich für Mondrian
+            // Lebendige Ecken: gerundete Form in d, Grundform und Radien zusätzlich für Stijl
             let live = if subpaths.iter().any(|s| s.has_radii()) {
                 let radii: Vec<String> = subpaths
                     .iter()
@@ -1227,6 +1245,8 @@ struct Ctx {
     blend: Blend,
     join: LineJoin,
     cap: LineCap,
+    /// stroke-dasharray (leer: durchgezogen)
+    dash: Vec<f64>,
     align: Align,
     /// Zeichenabstand in px
     letter_spacing: f64,
@@ -1256,6 +1276,7 @@ impl Default for Ctx {
             blend: Blend::Normal,
             join: LineJoin::Miter,
             cap: LineCap::Butt,
+            dash: Vec::new(),
             align: Align::Left,
             letter_spacing: 0.0,
             line_factor: None,
@@ -1784,6 +1805,16 @@ fn apply_prop(ctx: &mut Ctx, key: &str, val: &str) {
                 ctx.cap = c;
             }
         }
+        "stroke-dasharray" => {
+            ctx.dash = if val.trim() == "none" {
+                Vec::new()
+            } else {
+                val.split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|t| !t.is_empty())
+                    .filter_map(parse_length)
+                    .collect()
+            };
+        }
         "fill-opacity" => {
             if let Ok(v) = val.parse() {
                 ctx.fill_op = v;
@@ -1880,6 +1911,7 @@ fn style_from_ctx(c: &Ctx) -> Style {
         fx: crate::model::Effects::default(),
         shadow_gradient: None,
         stroke_align: crate::model::StrokeAlign::Center,
+        dash: crate::model::Dash::from_array(&c.dash, c.width),
     }
 }
 
@@ -2167,7 +2199,7 @@ fn read_text_frame(el: &Element) -> TextFrame {
 
 fn read_text(el: &Element, ctx: &Ctx, ids: &PathIds) -> Option<Shape> {
     let fmt = text_format(el, ctx);
-    // Textfeld (von Mondrian geschrieben)
+    // Textfeld (von Stijl geschrieben)
     if let Some(area) = el.attr_local("area") {
         let v = parse_numbers(area);
         if v.len() >= 2 {
@@ -2461,6 +2493,9 @@ fn collect(
             style.shadow = own(child, "shadow").and_then(crate::model::Shadow::from_attr);
             style.stroke_gradient = own(child, "stroke-gradient").and_then(Gradient::from_attr);
             style.shadow_gradient = own(child, "shadow-gradient").and_then(Gradient::from_attr);
+            if let Some(d) = own(child, "dash").and_then(crate::model::Dash::from_name) {
+                style.dash = d;
+            }
             style.stroke_align = own(child, "stroke-align")
                 .and_then(crate::model::StrokeAlign::from_name)
                 .unwrap_or_default();
@@ -2530,7 +2565,7 @@ pub fn read(text: &str) -> Result<Document, String> {
 }
 
 /// Wie `read`; `base` ist der Ordner der Datei (für verlinkte Bilder mit relativem Pfad).
-/// Liefert zusätzlich Hinweise auf Inhalte, die Mondrian nicht übernehmen kann (nur bei
+/// Liefert zusätzlich Hinweise auf Inhalte, die Stijl nicht übernehmen kann (nur bei
 /// Dateien anderer Programme; eigene Dateien enthalten nichts davon).
 pub fn read_with(text: &str, base: Option<&std::path::Path>) -> Result<(Document, Vec<String>), String> {
     BASE_DIR.with(|b| *b.borrow_mut() = base.map(|p| p.to_path_buf()));
@@ -2542,7 +2577,7 @@ pub fn read_with(text: &str, base: Option<&std::path::Path>) -> Result<(Document
     r.map(|d| (d, notes))
 }
 
-/// Inhalte suchen, die Mondrian nicht übernimmt (und die beim Speichern verloren gingen).
+/// Inhalte suchen, die Stijl nicht übernimmt (und die beim Speichern verloren gingen).
 fn scan_unsupported(root: &Element) {
     let mut patterns: Vec<String> = Vec::new();
     let mut stack = vec![root];
@@ -2561,8 +2596,8 @@ fn scan_unsupported(root: &Element) {
                 "defs" | "metadata" | "style" | "title" | "desc" | "namedview" | "clipPath" | "mask"
                 | "symbol" | "marker" | "pattern" | "linearGradient" | "radialGradient" | "filter"
                 | "script" => continue,
-                "use" => note("wiederverwendete Elemente (<use>)".into()),
-                "foreignObject" => note("eingebettete HTML-Inhalte".into()),
+                "use" => note(tr("wiederverwendete Elemente (<use>)").into()),
+                "foreignObject" => note(tr("eingebettete HTML-Inhalte").into()),
                 _ => {}
             }
             let style = c.attr("style").unwrap_or("");
@@ -2574,16 +2609,16 @@ fn scan_unsupported(root: &Element) {
                     })
             };
             if has("clip-path") {
-                note("Schnittpfade (clip-path)".into());
+                note(tr("Schnittpfade (clip-path)").into());
             }
             if has("mask") {
-                note("Masken".into());
+                note(tr("Masken").into());
             }
             if has("filter") {
-                note("Filter (z. B. Weichzeichner oder Schatten anderer Programme)".into());
+                note(tr("Filter (z. B. Weichzeichner oder Schatten anderer Programme)").into());
             }
             if has("marker-start") || has("marker-mid") || has("marker-end") {
-                note("Linienenden anderer Programme (Marker)".into());
+                note(tr("Linienenden anderer Programme (Marker)").into());
             }
             let paint = format!(
                 "{} {} {style}",
@@ -2591,12 +2626,12 @@ fn scan_unsupported(root: &Element) {
                 c.attr("stroke").unwrap_or("")
             );
             if patterns.iter().any(|p| paint.contains(p.as_str())) {
-                note("Muster anderer Programme".into());
+                note(tr("Muster anderer Programme").into());
             }
             match name {
                 "g" => {
                     if gdepth >= 2 {
-                        note("verschachtelte Gruppen (werden zu einer Gruppe zusammengefasst)".into());
+                        note(tr("verschachtelte Gruppen (werden zu einer Gruppe zusammengefasst)").into());
                     }
                     walk(c, gdepth + 1, patterns);
                 }
@@ -2619,7 +2654,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
         .any(|(k, _)| matches!(k.as_str(), "xmlns:mondrian" | "xmlns:silhouettes" | "xmlns:linea"));
     if !own {
         if !css_ok {
-            note("Teile der CSS-Formatierung".into());
+            note(tr("Teile der CSS-Formatierung").into());
         }
         scan_unsupported(&root);
     }
@@ -2629,7 +2664,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
     gather_gradients(&root, &mut grads);
     GRADS.with(|g| *g.borrow_mut() = grads);
     if root.local() != "svg" {
-        return Err("Die Datei ist kein SVG-Dokument.".into());
+        return Err(tr("Die Datei ist kein SVG-Dokument.").into());
     }
     let vb: Vec<f64> = root.attr("viewBox").map(parse_numbers).unwrap_or_default();
     let vb = (vb.len() == 4 && vb[2] > 0.0 && vb[3] > 0.0).then(|| (vb[0], vb[1], vb[2], vb[3]));
@@ -2692,7 +2727,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
             .filter_map(|e| {
                 let num = |k: &str| e.attr(k).and_then(|v| v.parse::<f64>().ok());
                 Some(crate::model::Artboard {
-                    name: e.attr("name").unwrap_or("Zeichenfläche").to_string(),
+                    name: e.attr("name").unwrap_or(tr("Zeichenfläche")).to_string(),
                     x: num("x")?,
                     y: num("y")?,
                     w: num("width")?.max(1.0),
@@ -2793,7 +2828,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
         doc.layers.push(Layer {
             id,
             color: 0,
-            name: "Ebene 1".into(),
+            name: tr("Ebene 1").into(),
             visible: true,
             locked: false,
             objects: Vec::new(),
@@ -2860,10 +2895,19 @@ fn read_image(el: &Element, ctx: &Ctx) -> Option<Shape> {
                 .with(|b| b.borrow().as_ref().map(|d| d.join(&path)))
                 .unwrap_or(path)
         };
-        match std::fs::read(&path) {
-            Ok(d) => d,
-            Err(_) => {
-                note(format!("Bild „{href}“ (Datei nicht gefunden)"));
+        // nur gewöhnliche Dateien, die wirklich Bilder sind: eine präparierte Datei soll weder
+        // fremde Dateien (z. B. Schlüssel) ins Dokument holen noch an /dev/zero hängen bleiben
+        let usable = std::fs::metadata(&path)
+            .map(|m| m.is_file() && m.len() <= MAX_LINKED_IMAGE)
+            .unwrap_or(false);
+        match usable.then(|| std::fs::read(&path).ok()).flatten() {
+            Some(d) if looks_like_image(&d) => d,
+            Some(_) => {
+                note(trf("Bild „{}“ (keine Bilddatei)", &[&(href)]));
+                return None;
+            }
+            None => {
+                note(trf("Bild „{}“ (Datei nicht gefunden)", &[&(href)]));
                 return None;
             }
         }
@@ -2893,6 +2937,18 @@ fn read_image(el: &Element, ctx: &Ctx) -> Option<Shape> {
     })
 }
 
+/// Größte verlinkte Bilddatei, die beim Öffnen eingelesen wird.
+const MAX_LINKED_IMAGE: u64 = 200 << 20;
+
+/// Sind die Daten ein Bild (Rastergrafik oder SVG)?
+fn looks_like_image(data: &[u8]) -> bool {
+    if sniff_mime(data) != "image/svg+xml" {
+        return true;
+    }
+    let head = &data[..data.len().min(4096)];
+    String::from_utf8_lossy(head).contains("<svg")
+}
+
 /// MIME-Typ anhand der ersten Bytes erkennen.
 pub fn sniff_mime(data: &[u8]) -> &'static str {
     if data.starts_with(&[0x89, b'P', b'N', b'G']) {
@@ -2905,6 +2961,8 @@ pub fn sniff_mime(data: &[u8]) -> &'static str {
         "image/webp"
     } else if data.starts_with(b"BM") {
         "image/bmp"
+    } else if data.starts_with(b"II*\0") || data.starts_with(b"MM\0*") {
+        "image/tiff"
     } else {
         "image/svg+xml"
     }
@@ -3826,6 +3884,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("mein bild.png"), b"\x89PNG-Daten").unwrap();
         let t = r#"<svg xmlns="http://www.w3.org/2000/svg" width="1e2" height="50"><image href="mein%20bild.png" x="1" y="2" width="10" height="20"/></svg>"#;
+        // verlinkte Nicht-Bilder und Geräte werden nicht eingelesen
+        let evil = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="/etc/hostname" width="4" height="4"/><image href="/dev/zero" width="4" height="4"/></svg>"#;
+        let (d, notes) = read_with(evil, None).unwrap();
+        assert!(d.layers.iter().all(|l| l.objects.is_empty()), "{notes:?}");
+        assert_eq!(notes.len(), 2, "{notes:?}");
         let (d, notes) = read_with(t, Some(&dir)).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(d.width, 100.0);
@@ -3893,6 +3956,45 @@ mod tests {
         assert_eq!(r, r#"<tspan font-weight="bold">We</tspan>lt"#);
         let r = rich_range("Hallo Welt", &rich, &TextFormat::default(), 0, 5);
         assert_eq!(r, r#"Ha<tspan font-weight="bold">llo</tspan>"#);
+    }
+
+    #[test]
+    fn dashes_round_trip_and_foreign() {
+        let mut d = Document::new(200.0, 100.0, None);
+        for (i, dash) in crate::model::Dash::ALL.into_iter().enumerate() {
+            d.layers[0].objects.push(Object {
+                id: i as u64 + 1,
+                shape: Shape::Rect {
+                    x: 10.0 * i as f64,
+                    y: 0.0,
+                    w: 5.0,
+                    h: 5.0,
+                    r: 0.0,
+                },
+                style: Style {
+                    dash,
+                    width: 3.0,
+                    ..Style::default()
+                },
+                angle: 0.0,
+                group: 0,
+                locked: false,
+                name: String::new(),
+            });
+        }
+        let text = write(&d, false);
+        assert!(text.contains("stroke-dasharray=\"9 6\""), "{text}");
+        let back = read(&text).unwrap();
+        let got: Vec<_> = back.layers[0].objects.iter().map(|o| o.style.dash).collect();
+        assert_eq!(got, crate::model::Dash::ALL.to_vec());
+        // fremde Datei ohne Stijl-Angaben: Muster wird zugeordnet
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+            <line x1="0" y1="0" x2="10" y2="0" stroke="black" stroke-width="2" stroke-dasharray="6,4"/>
+            <line x1="0" y1="5" x2="10" y2="5" stroke="black" stroke-width="2" stroke-dasharray="0 4" stroke-linecap="round"/>
+            </svg>"#;
+        let doc = read(svg).unwrap();
+        let ds: Vec<_> = doc.layers[0].objects.iter().map(|o| o.style.dash).collect();
+        assert_eq!(ds, vec![crate::model::Dash::Dashed, crate::model::Dash::Dotted]);
     }
 
     #[test]

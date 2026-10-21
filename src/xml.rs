@@ -1,4 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Minimaler XML-Parser, ausreichend für SVG-Dateien.
+
+use crate::i18n::{tr, trf};
 
 #[derive(Debug, Clone)]
 pub enum XNode {
@@ -119,7 +124,13 @@ fn unescape(s: &str) -> String {
 struct Parser<'a> {
     s: &'a str,
     i: usize,
+    /// Verschachtelungstiefe der Elemente
+    depth: u32,
 }
+
+/// Tiefer verschachtelte Dateien werden abgelehnt (sonst könnte eine präparierte Datei den
+/// Stapel überlaufen lassen; echte Zeichnungen kommen mit wenigen Dutzend Ebenen aus).
+const MAX_DEPTH: u32 = 256;
 
 impl<'a> Parser<'a> {
     fn rest(&self) -> &'a str {
@@ -143,7 +154,7 @@ impl<'a> Parser<'a> {
                 self.i += j + pat.len();
                 Ok(())
             }
-            None => Err(format!("Unerwartetes Dateiende, „{pat}“ fehlt")),
+            None => Err(trf("Unerwartetes Dateiende, „{}“ fehlt", &[&(pat)])),
         }
     }
     fn name(&mut self) -> Result<String, String> {
@@ -188,6 +199,16 @@ impl<'a> Parser<'a> {
     }
 
     fn element(&mut self) -> Result<Element, String> {
+        if self.depth >= MAX_DEPTH {
+            return Err(tr("Die Datei ist zu tief verschachtelt.").into());
+        }
+        self.depth += 1;
+        let r = self.element_inner();
+        self.depth -= 1;
+        r
+    }
+
+    fn element_inner(&mut self) -> Result<Element, String> {
         // Aufrufer garantiert '<'
         self.i += 1;
         let name = self.name()?;
@@ -213,12 +234,15 @@ impl<'a> Parser<'a> {
             }
             self.i += 1;
             self.skip_ws();
-            let q = self.rest().chars().next().ok_or("Attributwert fehlt")?;
+            let q = self.rest().chars().next().ok_or(tr("Attributwert fehlt"))?;
             if q != '"' && q != '\'' {
-                return Err(format!("Anführungszeichen erwartet bei Position {}", self.i));
+                return Err(trf("Anführungszeichen erwartet bei Position {}", &[&(self.i)]));
             }
             self.i += 1;
-            let end = self.rest().find(q).ok_or("Attributwert nicht abgeschlossen")?;
+            let end = self
+                .rest()
+                .find(q)
+                .ok_or(tr("Attributwert nicht abgeschlossen"))?;
             let v = unescape(&self.rest()[..end]);
             self.i += end + 1;
             el.attrs.push((an, v));
@@ -240,7 +264,7 @@ impl<'a> Parser<'a> {
             }
             if self.starts("<![CDATA[") {
                 self.i += 9;
-                let end = self.rest().find("]]>").ok_or("CDATA nicht abgeschlossen")?;
+                let end = self.rest().find("]]>").ok_or(tr("CDATA nicht abgeschlossen"))?;
                 el.children.push(XNode::Text(self.rest()[..end].to_string()));
                 self.i += end + 3;
                 continue;
@@ -263,11 +287,11 @@ impl<'a> Parser<'a> {
 
 pub fn parse(s: &str) -> Result<Element, String> {
     let s = s.strip_prefix('\u{feff}').unwrap_or(s);
-    let mut p = Parser { s, i: 0 };
+    let mut p = Parser { s, i: 0, depth: 0 };
     loop {
         p.skip_ws();
         if p.i >= s.len() {
-            return Err("Kein Wurzelelement gefunden".into());
+            return Err(tr("Kein Wurzelelement gefunden").into());
         }
         if p.skip_misc()? {
             continue;
@@ -275,13 +299,22 @@ pub fn parse(s: &str) -> Result<Element, String> {
         if p.starts("<") {
             return p.element();
         }
-        return Err("Ungültiger Dateianfang".into());
+        return Err(tr("Ungültiger Dateianfang").into());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_nesting_is_an_error_not_a_crash() {
+        let n = 100_000;
+        let s = format!("<a>{}{}</a>", "<b>".repeat(n), "</b>".repeat(n));
+        assert!(parse(&s).is_err());
+        let ok = format!("<a>{}{}</a>", "<b>".repeat(200), "</b>".repeat(200));
+        assert!(parse(&ok).is_ok());
+    }
 
     #[test]
     fn basic() {

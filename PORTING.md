@@ -1,16 +1,16 @@
-# Mondrian auf Windows und macOS – Merkzettel
+# Stijl auf Windows und macOS – Merkzettel
 
-Mondrian ist und bleibt ein GNOME-Programm. Auf Windows und macOS darf es nach GNOME
+Stijl ist und bleibt ein GNOME-Programm. Auf Windows und macOS darf es nach GNOME
 aussehen (Kopfleiste, Adwaita-Stil, Knöpfe rechts oben).
 
 ## Stand
 
 **Windows (seit 0.9.35):** Bau und Installer über MSYS2 und Inno Setup
-(`packaging/windows/`, GitHub Actions: `.github/workflows/windows.yml`; Anleitung im README).
+(`packaging/windows/`, GitHub Actions: `.github/workflows/release.yml`; Anleitung im README).
 Schon angepasst:
-- kein Konsolenfenster (`windows_subsystem`), Programmsymbol in der .exe (`build.rs`, `data/mondrian.ico`)
+- kein Konsolenfenster (`windows_subsystem`), Programmsymbol in der .exe (`build.rs`, `data/stijl.ico`)
 - keine Aufrufe von `fc-list`/`fc-match` unter Windows (Strichstärke-Regler und Schrifteinbettung in SVG entfallen dort)
-- Wiederherstellungsdateien unter `%LOCALAPPDATA%\mondrian\recovery`
+- Wiederherstellungsdateien unter `%LOCALAPPDATA%\stijl\recovery`
 - Farbprofile auch aus `C:\Windows\System32\spool\drivers\color` (und den macOS-Ordnern)
 - Grundschrift Segoe UI (macOS: Helvetica Neue)
 - „Öffnen mit“ für SVG/AI/PDF über den Installer; `gdbus.exe` liegt bei, damit Dateien möglichst im offenen Fenster landen
@@ -18,7 +18,19 @@ Schon angepasst:
 Noch offen für Windows: Schrifteinbettung und variable Schriften ohne Fontconfig (z. B. über
 Pango ≥ 1.44 `FontFamily::is_variable()`), Signatur des Installers (sonst warnt SmartScreen).
 
-**macOS:** noch nicht umgesetzt; die Tabelle unten gilt weiter.
+**macOS (seit 0.9.40, ungetestet):** App-Bundle und Disk-Image über Homebrew
+(`packaging/macos/`, GitHub Actions: `.github/workflows/release.yml`). Schon angepasst:
+- Apple Silicon, ab der macOS-Version des Bau-Rechners (Runner `macos-15` → macOS 15+)
+- Bibliotheken per `dylibbundler` im Bundle, ad hoc signiert; Laufzeitpfade für Symbole,
+  Schemas und Bildlader setzt `main.rs` (`mac_bundle_env`)
+- Tastenkürzel: `<Control>` der Belegung wird zu `<Primary>` (⌘), Beschriftungen als ⇧⌘S
+- Programmmenü: Aktionen `app.about`, `app.preferences`, `app.quit`
+- keine Aufrufe von `fc-list`/`fc-match`
+- „Öffnen mit“ für SVG, AI und PDF (`Info.plist`)
+
+Noch offen für macOS: Signatur mit Developer ID und Notarisierung (99 $/Jahr bei Apple,
+sonst Warnung beim ersten Start), Intel-Macs, Übersetzungen von GTK/libadwaita im Bundle
+(deren Texte bleiben dort englisch), Test auf echter Hardware.
 
 ## Was schon passt
 
@@ -26,7 +38,7 @@ Pango ≥ 1.44 `FontFamily::is_variable()`), Signatur des Installers (sonst warn
   oder gvsbuild, macOS über Homebrew). Der Rust-Code nutzt dieselben Crates.
 - **Ordner für Einstellungen, Bibliotheken und zuletzt geöffnete Dateien** kommen über
   `glib::user_config_dir()` / `glib::user_data_dir()`. Das liefert unter Windows `%LOCALAPPDATA%`
-  und unter macOS `~/Library/Application Support`.
+  und unter macOS (GLib folgt dort den XDG-Vorgaben) `~/.config` bzw. `~/.local/share`.
 - **Sicheres Speichern** (`fsutil::write_atomic`) nutzt nur `std::fs`. `rename` ersetzt
   auch unter Windows eine vorhandene Datei. Es scheitert aber, wenn ein anderes Programm
   die Datei gerade offen hält. Dann kommt eine Fehlermeldung, und die alte Datei bleibt
@@ -41,16 +53,14 @@ Pango ≥ 1.44 `FontFamily::is_variable()`), Signatur des Installers (sonst warn
 | `window.rs`: `font_is_variable` | ruft `fc-list` auf; unter Windows und macOS gibt es Fontconfig meist nicht, dann fehlt nur der Strichstärke-Regler | Pango ≥ 1.44 kennt `FontFamily::is_variable()` (Crate-Feature `v1_44`). Das ist besser für alle Systeme |
 | `export.rs`: `font_file` | `fc-match` sucht die Schriftdatei zum Einbetten in SVG | Pango-Fontmap fragen (`pangocairo`/`pango_fc_font` gibt es nur mit Fontconfig) oder eine Rust-Bibliothek wie `font-kit` nutzen |
 | `std::process::Command` (fc-list, fc-match) | unter Windows blitzt bei GUI-Programmen ein Konsolenfenster auf | `CREATE_NO_WINDOW` setzen (`std::os::windows::process::CommandExt`) oder die Aufrufe ganz ersetzen (siehe oben) |
-| Wiederherstellungsordner (`window.rs`, `$XDG_STATE_HOME` bzw. `~/.local/state`) | unter Windows und macOS unüblich | dort `glib::user_data_dir()/mondrian/recovery` nehmen |
+| Wiederherstellungsordner (`window.rs`, `$XDG_STATE_HOME` bzw. `~/.local/state`) | unter Windows und macOS unüblich | dort `glib::user_data_dir()/stijl/recovery` nehmen |
 | `export.rs`: `find_profiles` | sucht ICC-Profile nur in Linux-Ordnern | Windows: `C:\Windows\System32\spool\drivers\color`; macOS: `/Library/ColorSync/Profiles`, `~/Library/ColorSync/Profiles` |
 | Grundschrift „Cantarell“ (`editor.rs`, `text_defaults`) | fehlt außerhalb von GNOME, Pango nimmt dann eine Ersatzschrift | je System eine Vorgabe (Windows „Segoe UI“, macOS „Helvetica Neue“) oder Cantarell mitliefern |
-| Tastenkürzel (`keys.rs`) | `<Primary>` wird zu `<Control>` normalisiert; auf dem Mac erwartet man ⌘ | auf macOS `<Primary>` als `<Meta>` behandeln und die Beschriftung „Strg“ durch „⌘“ ersetzen. Eigene Kürzel in `shortcuts.ini` bleiben gültig |
 | Nur eine Instanz (Dateien als Tab im offenen Fenster) | `GApplication` erkennt eine laufende Instanz über D-Bus, das gibt es unter Windows/macOS nicht | Windows: GLib ≥ 2.74 kann das teilweise selbst, sonst eine benannte Pipe. macOS: Dateien kommen über `open`-Ereignisse an dieselbe Instanz (GTK-macOS-Backend prüfen) |
-| `install.sh` / `.desktop`-Datei | nur Linux | Windows: Installer (z. B. Inno Setup, MSIX) mit Dateizuordnung `.svg`/`.ai`. macOS: App-Bundle mit `Info.plist` (Dokumenttypen), ggf. `gtk-mac-bundler` |
 | Symbole | eigene Symbole werden zur Laufzeit erzeugt (`icons.rs`), die übrigen kommen aus dem Adwaita-Symbolthema | das Adwaita-Icon-Theme (und `hicolor`) mitliefern |
 | Dunkles Design | libadwaita folgt unter Linux dem System über das Portal | unter Windows/macOS testen. Notfalls die Einstellung „Hell/Dunkel“ nutzen, die es schon gibt |
 | Ordner öffnen (Bibliothek ⋮ › Ordner öffnen) | `gtk::FileLauncher` | sollte funktionieren, testen |
-| Drucken | Mondrian druckt nicht selbst (Export als PDF) | nichts nötig |
+| Drucken | Stijl druckt nicht selbst (Export als PDF) | nichts nötig |
 
 ## Bauen und Verteilen (Stichworte)
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Bibliotheken: gesammelte Farben, Stile und Textstile,
 //! die sich mit einem Klick auf andere Objekte übertragen lassen.
 //!
@@ -6,6 +9,7 @@
 //! Deckkraft, Mischmodus, Linienenden, Schrift – ohne eigenes Dateiformat erhalten.
 
 use crate::geom::{Affine, Pt};
+use crate::i18n::{tr, trf};
 use crate::model::{
     Color, Document, Gradient, Layer, Marker, Node, Object, Shape, Style, SubPath, TextFormat,
 };
@@ -56,9 +60,9 @@ pub struct Library {
 }
 
 /// Name der mitgelieferten Standardbibliothek.
-pub const BUILTIN_NAME: &str = "Mondrian";
+pub const BUILTIN_NAME: &str = "Stijl";
 
-/// Standardbibliothek „Mondrian“: Grundfarben und drei Textstile.
+/// Standardbibliothek „Stijl“: Grundfarben und drei Textstile.
 pub fn builtin() -> Library {
     let mut lib = Library::new(BUILTIN_NAME);
     lib.locked = true;
@@ -87,10 +91,11 @@ pub fn builtin() -> Library {
         name: name.into(),
     };
     lib.styles
-        .push(text("Überschrift", "Sans", 48.0, true, false, dark));
-    lib.styles.push(text("Text", "Sans", 16.0, false, false, dark));
+        .push(text(tr("Überschrift"), "Sans", 48.0, true, false, dark));
+    lib.styles
+        .push(text(tr("Text"), "Sans", 16.0, false, false, dark));
     lib.styles.push(text(
-        "Zitat",
+        tr("Zitat"),
         "Serif",
         22.0,
         false,
@@ -152,7 +157,7 @@ impl Library {
             return false;
         }
         let name = if name.trim().is_empty() {
-            format!("Grafik {}", self.graphics.len() + 1)
+            trf("Grafik {}", &[&(self.graphics.len() + 1)])
         } else {
             name.trim().to_string()
         };
@@ -388,7 +393,7 @@ pub fn file_name(name: &str) -> String {
         })
         .collect();
     let clean = clean.trim();
-    format!("{}.svg", if clean.is_empty() { "Bibliothek" } else { clean })
+    format!("{}.svg", if clean.is_empty() { tr("Bibliothek") } else { clean })
 }
 
 #[cfg(test)]

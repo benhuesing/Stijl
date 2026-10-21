@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Boolesche Pfadoperationen (Vereinigen, Abziehen, Schnittmenge, Ausschließen).
 //!
 //! Die Pfade werden zu Polygonen abgeflacht, an allen Schnittpunkten geteilt; jedes

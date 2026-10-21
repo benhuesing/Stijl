@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Zeichnen mit Cairo/Pango: Dokument, Zeichenfläche und Bearbeitungshilfen.
 
+use crate::i18n::{tr, trf};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::f64::consts::TAU;
@@ -1760,7 +1764,7 @@ pub fn area_export_lines(shape: &Shape) -> Option<Vec<crate::svg::TextLine>> {
 }
 
 /// Ein Objekt samt Effekten (bei Glas mit dem gebrochenen Hintergrund) als PNG, für
-/// Programme, die Mondrians Effekte nicht kennen. `res`: Bildpixel je Dokumenteinheit.
+/// Programme, die die Effekte von Stijl nicht kennen. `res`: Bildpixel je Dokumenteinheit.
 /// Liefert die PNG-Daten und die Lage im Dokument.
 pub fn rasterize_object(doc: &Document, id: u64, res: f64) -> Option<(Vec<u8>, Rect)> {
     let obj = doc
@@ -2671,6 +2675,14 @@ fn draw_filled(cr: &cairo::Context, obj: &Object) {
         cr.set_line_width(obj.style.width);
         cr.set_line_join(cairo_join(obj.style.join));
         cr.set_line_cap(cairo_cap(obj.style.cap));
+        // Strichmuster (Punkte brauchen runde Enden)
+        let dash = obj.style.dash.pattern(obj.style.width);
+        if !dash.is_empty() {
+            cr.set_dash(&dash, 0.0);
+            if obj.style.dash.round_caps() {
+                cr.set_line_cap(cairo::LineCap::Round);
+            }
+        }
         let mk = obj.style.marker;
         match open_subpaths(&obj.shape).filter(|_| mk != Marker::None) {
             Some(subs) => {
@@ -2692,6 +2704,8 @@ fn draw_filled(cr: &cairo::Context, obj: &Object) {
                 cr.new_path();
                 path_subpaths(cr, &trimmed);
                 let _ = cr.stroke();
+                // Pfeilspitzen & Co. immer durchgezogen
+                cr.set_dash(&[], 0.0);
                 for sp in &subs {
                     if let Some((a, b)) = crate::model::subpath_ends(sp) {
                         if ends.start() {
@@ -2741,6 +2755,7 @@ fn draw_filled(cr: &cairo::Context, obj: &Object) {
                 }
             },
         }
+        cr.set_dash(&[], 0.0);
     }
     cr.new_path();
 }
@@ -4201,9 +4216,9 @@ impl Backdrop {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Backdrop::Default => "Standard",
-            Backdrop::Dark => "Dunkel",
-            Backdrop::Checker => "Schachbrett",
+            Backdrop::Default => tr("Standard"),
+            Backdrop::Dark => tr("Dunkel"),
+            Backdrop::Checker => tr("Schachbrett"),
         }
     }
     pub fn from_name(s: &str) -> Backdrop {
@@ -4702,13 +4717,15 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
         for rings in &marks {
             cr.new_path();
             ring_path(cr, rings);
-            cr.set_fill_rule(cairo::FillRule::Winding);
+            // Fläche mit Löchern
+            cr.set_fill_rule(cairo::FillRule::EvenOdd);
             if del {
                 cr.set_source_rgba(0.88, 0.11, 0.14, 0.3);
             } else {
                 accent(cr, 0.3);
             }
             let _ = cr.fill_preserve();
+            cr.set_fill_rule(cairo::FillRule::Winding);
             if del {
                 cr.set_source_rgba(0.88, 0.11, 0.14, 0.9);
             } else {
@@ -4738,33 +4755,6 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
             let _ = cr.stroke();
             cr.set_line_cap(cairo::LineCap::Butt);
             cr.set_line_join(cairo::LineJoin::Miter);
-        }
-    }
-
-    // Farbeimer: geschlossene Fläche unter dem Zeiger
-    if ed.tool == Tool::Bucket {
-        let rings = ed.bucket_marks();
-        if !rings.is_empty() {
-            cr.new_path();
-            for r in &rings {
-                for (i, p) in r.iter().enumerate() {
-                    let q = v.to_screen(*p);
-                    if i == 0 {
-                        cr.move_to(q.x, q.y);
-                    } else {
-                        cr.line_to(q.x, q.y);
-                    }
-                }
-                cr.close_path();
-            }
-            // gleiche Markierung wie Formerstellung und Effektwerkzeug
-            cr.set_fill_rule(cairo::FillRule::EvenOdd);
-            accent(cr, 0.3);
-            let _ = cr.fill_preserve();
-            cr.set_fill_rule(cairo::FillRule::Winding);
-            accent(cr, 0.9);
-            cr.set_line_width(1.5);
-            let _ = cr.stroke();
         }
     }
 
@@ -4803,6 +4793,29 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
             cr.set_source_rgba(0.1, 0.1, 0.1, 0.9);
             cr.set_line_width(1.0);
             let _ = cr.stroke();
+        }
+    }
+
+    // Schere: gestrichelte Schnittlinie
+    if ed.tool == Tool::Scissors {
+        if let Drag::Erase { pts } = &ed.drag {
+            cr.new_path();
+            for (i, p) in pts.iter().enumerate() {
+                let q = v.to_screen(*p);
+                if i == 0 {
+                    cr.move_to(q.x, q.y);
+                } else {
+                    cr.line_to(q.x, q.y);
+                }
+            }
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.9);
+            cr.set_line_width(3.0);
+            let _ = cr.stroke_preserve();
+            cr.set_source_rgba(0.88, 0.11, 0.14, 1.0);
+            cr.set_line_width(1.5);
+            cr.set_dash(&[6.0, 4.0], 0.0);
+            let _ = cr.stroke();
+            cr.set_dash(&[], 0.0);
         }
     }
 
@@ -5247,11 +5260,11 @@ impl Unit {
     /// Name für Auswahllisten, z. B. „Zoll (in)“.
     pub fn label(self) -> &'static str {
         match self {
-            Unit::Px => "Pixel (px)",
-            Unit::Mm => "Millimeter (mm)",
-            Unit::Cm => "Zentimeter (cm)",
-            Unit::In => "Zoll (in)",
-            Unit::Pt => "Punkt (pt)",
+            Unit::Px => tr("Pixel (px)"),
+            Unit::Mm => tr("Millimeter (mm)"),
+            Unit::Cm => tr("Zentimeter (cm)"),
+            Unit::In => tr("Zoll (in)"),
+            Unit::Pt => tr("Punkt (pt)"),
         }
     }
 
@@ -5327,7 +5340,7 @@ fn draw_badge(cr: &cairo::Context, ed: &Editor, unit: Unit, w: f64, h: f64) {
             } else {
                 v.round()
             };
-            format!("Radius {} {}", v, unit.name())
+            trf("Radius {} {}", &[&(v), &(unit.name())])
         }
         crate::editor::Badge::Angle(a) => {
             let a = (a * 10.0).round() / 10.0;

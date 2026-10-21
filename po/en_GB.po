@@ -1,0 +1,3122 @@
+# Stijl – British English translation.
+# Copyright © 2026 Bendix Hüsing
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Ausgangssprache ist Deutsch (msgid). Bearbeiten z. B. mit Poedit; neue Texte im Programm
+# erscheinen hier erst, wenn sie ergänzt werden – bis dahin steht der deutsche Text.
+msgid ""
+msgstr ""
+"Project-Id-Version: Stijl\n"
+"Language: en_GB\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ai.rs:853
+msgid "Die Datei ist sehr groß; es wurde nur ein Teil gelesen."
+msgstr "The file is very large; only part of it was read."
+
+#: ai.rs:944
+msgid "Deckkraftmasken wurden nicht übernommen."
+msgstr "Opacity masks were not imported."
+
+#: ai.rs:1252 ai.rs:1261
+msgid "Muster- und Netzfüllungen wurden vereinfacht."
+msgstr "Pattern and mesh fills were simplified."
+
+#: ai.rs:1770
+msgid "CMYK-JPEG-Bilder wurden übersprungen."
+msgstr "CMYK JPEG images were skipped."
+
+#: ai.rs:1775
+msgid "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen."
+msgstr "Images with special compression (JPEG 2000, JBIG2, CCITT) were skipped."
+
+#: ai.rs:1786
+msgid "Transparenz von JPEG-Bildern wurde nicht übernommen."
+msgstr "Transparency of JPEG images was not imported."
+
+#: ai.rs:2091
+msgid "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen."
+msgstr "Text with an unknown character encoding was partly skipped."
+
+#: ai.rs:2099
+msgid "Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen."
+msgstr "Fonts are replaced by installed fonts; line breaks stay as separate lines of text."
+
+#: ai.rs:2232
+msgid "Die Datei enthält keine Seiten."
+msgstr "The file contains no pages."
+
+#: ai.rs:2355
+msgid "Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden."
+msgstr "No displayable content was found on the first page."
+
+#: editor.rs:1411
+msgid "Die Ebene „{}“ ist ausgeblendet."
+msgstr "The layer “{}” is hidden."
+
+#: editor.rs:1415
+msgid "Die Ebene „{}“ ist gesperrt."
+msgstr "The layer “{}” is locked."
+
+#: editor.rs:2249 library.rs:92 model.rs:343
+msgid "Text"
+msgstr "Text"
+
+#: editor.rs:2810 editor.rs:6675 editor.rs:6901
+msgid "Hilfslinie"
+msgstr "Guide"
+
+#: editor.rs:3796 editor.rs:3920 editor.rs:3972
+msgid "Gesperrte Objekte lassen sich nicht verändern."
+msgstr "Locked objects cannot be changed."
+
+#: editor.rs:3849
+msgid "Gesperrte Objekte lassen sich nicht löschen."
+msgstr "Locked objects cannot be deleted."
+
+#: editor.rs:4148
+msgid "Dafür mindestens zwei Objekte auswählen."
+msgstr "Select at least two objects for this."
+
+#: editor.rs:4162
+msgid "Das Ergebnis wäre leer."
+msgstr "The result would be empty."
+
+#: editor.rs:4578
+msgid "Die Ebene „{}“ ist gesperrt oder ausgeblendet."
+msgstr "The layer “{}” is locked or hidden."
+
+#: editor.rs:4620
+msgid "Klicke auf einen Pfad oder eine Form, um Text daran auszurichten."
+msgstr "Click a path or shape to align text along it."
+
+#: editor.rs:4629
+msgid "Text lässt sich nicht an einem Bild ausrichten."
+msgstr "Text cannot be aligned along an image."
+
+#: editor.rs:4638 editor.rs:4989 model.rs:344
+msgid "Text auf Pfad"
+msgstr "Text on Path"
+
+#: editor.rs:4736 editor.rs:4740
+msgid "Ebene {}"
+msgstr "Layer {}"
+
+#: editor.rs:4765
+msgid "Die letzte Ebene kann nicht gelöscht werden."
+msgstr "The last layer cannot be deleted."
+
+#: editor.rs:4983 window.rs:3470 window.rs:10466
+msgid "Auswahl"
+msgstr "Select"
+
+#: editor.rs:4984
+msgid "Knoten bearbeiten"
+msgstr "Edit Nodes"
+
+#: editor.rs:4985
+msgid "Neue Form"
+msgstr "New Shape"
+
+#: editor.rs:4986
+msgid "Zeichenstift"
+msgstr "Pen"
+
+#: editor.rs:4987 window.rs:4212
+msgid "Freihand"
+msgstr "Freehand"
+
+#: editor.rs:4988
+msgid "Neuer Text"
+msgstr "New Text"
+
+#: editor.rs:4990
+msgid "Neues Textfeld"
+msgstr "New Text Box"
+
+#: editor.rs:4991
+msgid "Kurvenzeichner"
+msgstr "Curvature Pen"
+
+#: editor.rs:4992 window.rs:4258 window.rs:10917
+msgid "Hilfslinien"
+msgstr "Guides"
+
+#: editor.rs:4993 window.rs:4201
+msgid "Radierer"
+msgstr "Eraser"
+
+#: editor.rs:4994
+msgid "Schere"
+msgstr "Scissors"
+
+#: editor.rs:4995
+msgid "Formerstellung"
+msgstr "Shape Builder"
+
+#: editor.rs:4998
+msgid "Bild mit Rahmen"
+msgstr "Framed Image"
+
+#: editor.rs:5001
+msgid "{} Objekte"
+msgstr "{} objects"
+
+#: editor.rs:5100
+msgid "Im Bild wurden keine Flächen gefunden."
+msgstr "No areas were found in the image."
+
+#: editor.rs:5167
+msgid "Nachgezeichnet"
+msgstr "Traced"
+
+#: editor.rs:5395
+msgid "Hier ist keine geschlossene Fläche."
+msgstr "There is no closed area here."
+
+#: editor.rs:6571
+msgid "Kantenmitte"
+msgstr "Edge centre"
+
+#: editor.rs:6585
+msgid "Ecke"
+msgstr "Corner"
+
+#: editor.rs:6585 window.rs:3839
+msgid "Mitte"
+msgstr "Centre"
+
+#: editor.rs:6592
+msgid "Ankerpunkt"
+msgstr "Anchor point"
+
+#: editor.rs:6623
+msgid "Seitenecke"
+msgstr "Page corner"
+
+#: editor.rs:6623
+msgid "Seitenmitte"
+msgstr "Page centre"
+
+#: editor.rs:6719 model.rs:342
+msgid "Pfad"
+msgstr "Path"
+
+#: editor.rs:7034
+msgid "Die aktuelle Ebene ist gesperrt."
+msgstr "The current layer is locked."
+
+#: editor.rs:8042
+msgid "Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern."
+msgstr "A blend only works between shapes and paths, not with text or images."
+
+#: export.rs:23
+msgid "PNG-Bild"
+msgstr "PNG image"
+
+#: export.rs:24
+msgid "JPG-Bild"
+msgstr "JPG image"
+
+#: export.rs:25
+msgid "PDF-Dokument"
+msgstr "PDF document"
+
+#: export.rs:26
+msgid "SVG-Datei"
+msgstr "SVG file"
+
+#: export.rs:256
+msgid "Keine Zeichenfläche gewählt"
+msgstr "No artboard selected"
+
+#: export.rs:297
+msgid "Farbprofil: {}"
+msgstr "Colour profile: {}"
+
+#: export.rs:302
+msgid "Das Farbprofil ist kein lesbares CMYK-Druckprofil."
+msgstr "The colour profile is not a readable CMYK print profile."
+
+#: fsutil.rs:31
+msgid "kein Dateiname"
+msgstr "no file name"
+
+#: keys.rs:542
+msgid "Diese Taste ist fest."
+msgstr "This key is fixed."
+
+#: keys.rs:548
+msgid "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe."
+msgstr "Shortcuts need Ctrl or Alt (or a function key), otherwise they get in the way of typing."
+
+#: keys.rs:553
+msgid "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt."
+msgstr "Tool keys can only be a single key, with or without Shift."
+
+#: keys.rs:557
+msgid "Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig."
+msgstr "A letter, digit or character is needed here."
+
+#: keys.rs:572
+msgid "Strg"
+msgstr "Ctrl"
+
+#: keys.rs:573
+msgid "Umschalt"
+msgstr "Shift"
+
+#: keys.rs:574
+msgid "Alt"
+msgstr "Alt"
+
+#: keys.rs:575
+msgid "Super"
+msgstr "Super"
+
+#: keys.rs:591
+msgid "Num +"
+msgstr "Num +"
+
+#: keys.rs:592
+msgid "Num −"
+msgstr "Num −"
+
+#: keys.rs:593
+msgid "Leertaste"
+msgstr "Space"
+
+#: keys.rs:594
+msgid "Entf"
+msgstr "Del"
+
+#: keys.rs:596
+msgid "Esc"
+msgstr "Esc"
+
+#: keys.rs:597
+msgid "Enter"
+msgstr "Enter"
+
+#: keys.rs:603
+msgid "Bild ↓"
+msgstr "Page ↓"
+
+#: keys.rs:604
+msgid "Bild ↑"
+msgstr "Page ↑"
+
+#: library.rs:91
+msgid "Überschrift"
+msgstr "Heading"
+
+#: library.rs:94
+msgid "Zitat"
+msgstr "Quote"
+
+#: library.rs:156
+msgid "Grafik {}"
+msgstr "Graphic {}"
+
+#: library.rs:392 window.rs:1794 window.rs:4562
+msgid "Bibliothek"
+msgstr "Library"
+
+#: model.rs:339
+msgid "Rechteck"
+msgstr "Rectangle"
+
+#: model.rs:340 window.rs:2532
+msgid "Ellipse"
+msgstr "Ellipse"
+
+#: model.rs:341 window.rs:3881
+msgid "Linie"
+msgstr "Line"
+
+#: model.rs:345 window.rs:2585
+msgid "Textfeld"
+msgstr "Text Box"
+
+#: model.rs:346 window.rs:4133 window.rs:4150
+msgid "Bild"
+msgstr "Image"
+
+#: model.rs:1340 window.rs:3872
+msgid "Spitze Ecken"
+msgstr "Mitred corners"
+
+#: model.rs:1341 window.rs:3873
+msgid "Runde Ecken"
+msgstr "Round corners"
+
+#: model.rs:1342 window.rs:3874
+msgid "Abgeschrägte Ecken"
+msgstr "Bevelled corners"
+
+#: model.rs:1370 window.rs:3886
+msgid "Gerade Enden"
+msgstr "Butt ends"
+
+#: model.rs:1371 window.rs:3887
+msgid "Runde Enden"
+msgstr "Round ends"
+
+#: model.rs:1372 window.rs:3888
+msgid "Überstehende Enden"
+msgstr "Square ends"
+
+#: model.rs:1460
+msgid "Durchgezogen"
+msgstr "Solid"
+
+#: model.rs:1461
+msgid "Gestrichelt"
+msgstr "Dashed"
+
+#: model.rs:1462
+msgid "Gepunktet"
+msgstr "Dotted"
+
+#: model.rs:1463
+msgid "Strich-Punkt"
+msgstr "Dash-dot"
+
+#: model.rs:1464
+msgid "Lange Striche"
+msgstr "Long dashes"
+
+#: model.rs:1521 model.rs:1922 window.rs:1632
+msgid "Keine"
+msgstr "None"
+
+#: model.rs:1522
+msgid "Pfeil"
+msgstr "Arrow"
+
+#: model.rs:1523
+msgid "Offener Pfeil"
+msgstr "Open arrow"
+
+#: model.rs:1524
+msgid "Punkt"
+msgstr "Dot"
+
+#: model.rs:1525
+msgid "Querstrich"
+msgstr "Bar"
+
+#: model.rs:1923
+msgid "• Punkte"
+msgstr "• Bullets"
+
+#: model.rs:1924
+msgid "▪ Quadrate"
+msgstr "▪ Squares"
+
+#: model.rs:1925
+msgid "– Striche"
+msgstr "– Dashes"
+
+#: model.rs:1926
+msgid "1. Nummeriert"
+msgstr "1. Numbered"
+
+#: model.rs:2384
+msgid "Körnung"
+msgstr "Grain"
+
+#: model.rs:2385
+msgid "Pixel"
+msgstr "Pixels"
+
+#: model.rs:2386
+msgid "Wasserfarben"
+msgstr "Watercolour"
+
+#: model.rs:2413
+msgid "Sepia"
+msgstr "Sepia"
+
+#: model.rs:2414
+msgid "Schwarz-Weiß"
+msgstr "Black & white"
+
+#: model.rs:2415
+msgid "Farben invertieren"
+msgstr "Invert colours"
+
+#: model.rs:2453
+msgid "Regentropfen"
+msgstr "Raindrop"
+
+#: model.rs:2454
+msgid "Kugel"
+msgstr "Sphere"
+
+#: model.rs:2455
+msgid "Kristall"
+msgstr "Crystal"
+
+#: model.rs:2456
+msgid "Pyramide"
+msgstr "Pyramid"
+
+#: model.rs:2486
+msgid "Milchglas"
+msgstr "Frosted glass"
+
+#: model.rs:2487
+msgid "Gebürstetes Metall"
+msgstr "Brushed metal"
+
+#: model.rs:2488
+msgid "Hochglanz"
+msgstr "Gloss"
+
+#: model.rs:2687
+msgid "Überdecken"
+msgstr "Cover"
+
+#: model.rs:2688
+msgid "Abdunkeln"
+msgstr "Darken"
+
+#: model.rs:2689
+msgid "Aufhellen"
+msgstr "Lighten"
+
+#: model.rs:2690
+msgid "Ineinanderkopieren"
+msgstr "Overlay"
+
+#: model.rs:2691
+msgid "Abdunkeln (dunklere Farbe)"
+msgstr "Darken (darker colour)"
+
+#: model.rs:2692
+msgid "Aufhellen (hellere Farbe)"
+msgstr "Lighten (lighter colour)"
+
+#: model.rs:2693
+msgid "Farbig abwedeln"
+msgstr "Colour dodge"
+
+#: model.rs:2694
+msgid "Farbig nachbelichten"
+msgstr "Colour burn"
+
+#: model.rs:2695
+msgid "Hartes Licht"
+msgstr "Hard light"
+
+#: model.rs:2696
+msgid "Weiches Licht"
+msgstr "Soft light"
+
+#: model.rs:2697
+msgid "Differenz"
+msgstr "Difference"
+
+#: model.rs:2698
+msgid "Ausschluss"
+msgstr "Exclusion"
+
+#: model.rs:2699
+msgid "Farbton"
+msgstr "Hue"
+
+#: model.rs:2700
+msgid "Sättigung"
+msgstr "Saturation"
+
+#: model.rs:2701 window.rs:917 window.rs:1796
+msgid "Farbe"
+msgstr "Colour"
+
+#: model.rs:2702
+msgid "Luminanz"
+msgstr "Luminosity"
+
+#: model.rs:2755
+msgid "Weich"
+msgstr "Soft"
+
+#: model.rs:2756
+msgid "Gekörnt"
+msgstr "Grainy"
+
+#: model.rs:2757
+msgid "Grobe Pixel"
+msgstr "Coarse pixels"
+
+#: model.rs:2817 window.rs:963
+msgid "Linear"
+msgstr "Linear"
+
+#: model.rs:2818 window.rs:964
+msgid "Kreisförmig"
+msgstr "Radial"
+
+#: model.rs:2819 render.rs:4218
+msgid "Schachbrett"
+msgstr "Chequerboard"
+
+#: model.rs:2820
+msgid "Punkte"
+msgstr "Dots"
+
+#: model.rs:2821
+msgid "Streifen"
+msgstr "Stripes"
+
+#: model.rs:3211
+msgid "Zeichenfläche 1"
+msgstr "Artboard 1"
+
+#: model.rs:3234
+msgid "Zeichenfläche {}"
+msgstr "Artboard {}"
+
+#: model.rs:3282 svg.rs:2828
+msgid "Ebene 1"
+msgstr "Layer 1"
+
+#: pdf.rs:865
+msgid "Diese Datei enthält keine PDF-Daten. Die Illustrator-Datei muss mit der Option „PDF-kompatible Datei erstellen“ gespeichert sein."
+msgstr "This file contains no PDF data. The Illustrator file must be saved with the option “Create PDF Compatible File”."
+
+#: pdf.rs:986
+msgid "Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen."
+msgstr "The file is encrypted (password-protected) and cannot be opened."
+
+#: pdf.rs:1001
+msgid "Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog)."
+msgstr "The PDF structure of the file is damaged (no document catalogue)."
+
+#: pdfx.rs:326
+msgid "eingebettete Bilder im Inhalt werden nicht unterstützt"
+msgstr "embedded inline images are not supported"
+
+#: pdfx.rs:622
+msgid "Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht."
+msgstr "PDF/X needs a colour profile for the printing condition."
+
+#: pdfx.rs:684
+msgid "Ein Bild ließ sich nicht nach CMYK umrechnen."
+msgstr "An image could not be converted to CMYK."
+
+#: pdfx.rs:703
+msgid "Ein Inhalt der Seite ließ sich nicht lesen."
+msgstr "Some page content could not be read."
+
+#: pdfx.rs:739
+msgid "Die PDF-Datei hat keinen Katalog."
+msgstr "The PDF file has no catalogue."
+
+#: pdfx.rs:787
+msgid "Die PDF-Datei hat einen ungültigen Katalog."
+msgstr "The PDF file has an invalid catalogue."
+
+#: render.rs:4216
+msgid "Standard"
+msgstr "Default"
+
+#: render.rs:4217 window.rs:3164
+msgid "Dunkel"
+msgstr "Dark"
+
+#: render.rs:5260
+msgid "Pixel (px)"
+msgstr "Pixels (px)"
+
+#: render.rs:5261
+msgid "Millimeter (mm)"
+msgstr "Millimetres (mm)"
+
+#: render.rs:5262
+msgid "Zentimeter (cm)"
+msgstr "Centimetres (cm)"
+
+#: render.rs:5263
+msgid "Zoll (in)"
+msgstr "Inches (in)"
+
+#: render.rs:5264
+msgid "Punkt (pt)"
+msgstr "Points (pt)"
+
+#: render.rs:5340
+msgid "Radius {} {}"
+msgstr "Radius {} {}"
+
+#: svg.rs:2596
+msgid "wiederverwendete Elemente (<use>)"
+msgstr "reused elements (<use>)"
+
+#: svg.rs:2597
+msgid "eingebettete HTML-Inhalte"
+msgstr "embedded HTML content"
+
+#: svg.rs:2609
+msgid "Schnittpfade (clip-path)"
+msgstr "clipping paths (clip-path)"
+
+#: svg.rs:2612
+msgid "Masken"
+msgstr "masks"
+
+#: svg.rs:2615
+msgid "Filter (z. B. Weichzeichner oder Schatten anderer Programme)"
+msgstr "filters (e.g. blur or shadows from other programs)"
+
+#: svg.rs:2618
+msgid "Linienenden anderer Programme (Marker)"
+msgstr "line ends from other programs (markers)"
+
+#: svg.rs:2626
+msgid "Muster anderer Programme"
+msgstr "patterns from other programs"
+
+#: svg.rs:2631
+msgid "verschachtelte Gruppen (werden zu einer Gruppe zusammengefasst)"
+msgstr "nested groups (merged into one group)"
+
+#: svg.rs:2654
+msgid "Teile der CSS-Formatierung"
+msgstr "parts of the CSS styling"
+
+#: svg.rs:2664
+msgid "Die Datei ist kein SVG-Dokument."
+msgstr "The file is not an SVG document."
+
+#: svg.rs:2727 window.rs:4779 window.rs:8625
+msgid "Zeichenfläche"
+msgstr "Artboard"
+
+#: svg.rs:2898
+msgid "Bild „{}“ (Datei nicht gefunden)"
+msgstr "Image “{}” (file not found)"
+
+#: window.rs:225
+msgid "Deckkraft der Farbe"
+msgstr "Colour opacity"
+
+#: window.rs:231
+msgid "Farbwert, z. B. #3584E4"
+msgstr "Colour value, e.g. #3584E4"
+
+#: window.rs:242
+msgid "Deckkraft in Prozent – Wert eintippen"
+msgstr "Opacity in per cent – type a value"
+
+#: window.rs:579
+msgid "Wert eintippen"
+msgstr "Type a value"
+
+#: window.rs:626 window.rs:3973 window.rs:3982
+msgid "Stärke"
+msgstr "Strength"
+
+#: window.rs:679
+msgid "Auf- oder zuklappen"
+msgstr "Expand or collapse"
+
+#: window.rs:918 window.rs:1648 window.rs:1796
+msgid "Verlauf"
+msgstr "Gradient"
+
+#: window.rs:926
+msgid "Muster"
+msgstr "Pattern"
+
+#: window.rs:945
+msgid "Pipette: Farbe aus dem Dokument oder einem Foto aufnehmen (Esc bricht ab)"
+msgstr "Eyedropper: pick a colour from the document or a photo (Esc cancels)"
+
+#: window.rs:958
+msgid "Klick auf die Leiste: Farbstopp hinzufügen · Farbstopp ziehen: verschieben · Entf: entfernen"
+msgstr "Click the bar: add a colour stop · Drag a colour stop: move it · Del: remove it"
+
+#: window.rs:960 window.rs:3817
+msgid "Winkel des Verlaufs in Grad"
+msgstr "Gradient angle in degrees"
+
+#: window.rs:973 window.rs:1024 window.rs:3819
+msgid "Winkel (°)"
+msgstr "Angle (°)"
+
+#: window.rs:1008
+msgid "Grundfarbe"
+msgstr "Base colour"
+
+#: window.rs:1008
+msgid "Musterfarbe"
+msgstr "Pattern colour"
+
+#: window.rs:1010 window.rs:2230 window.rs:10238
+msgid "Farben"
+msgstr "Colours"
+
+#: window.rs:1017
+msgid "Größe des Musters"
+msgstr "Pattern size"
+
+#: window.rs:1018
+msgid "Winkel des Musters in Grad"
+msgstr "Pattern angle in degrees"
+
+#: window.rs:1023 window.rs:3912 window.rs:4210
+msgid "Größe"
+msgstr "Size"
+
+#: window.rs:1038 window.rs:1043
+msgid "Farbwahl auf- oder zuklappen"
+msgstr "Expand or collapse the colour picker"
+
+#: window.rs:1651
+msgid "Eigene Farbe – „+“ nimmt sie in die Bibliothek auf"
+msgstr "Custom colour – “+” adds it to the library"
+
+#: window.rs:1712
+msgid "Aktuelle Farbe zur Bibliothek hinzufügen"
+msgstr "Add the current colour to the library"
+
+#: window.rs:1722
+msgid "Keine Farbe gewählt"
+msgstr "No colour selected"
+
+#: window.rs:1762
+msgid "Meine Bibliothek (neu)"
+msgstr "My Library (new)"
+
+#: window.rs:1771
+msgid "Name (freiwillig)"
+msgstr "Name (optional)"
+
+#: window.rs:1799
+msgid "Neue Farbe für die Bibliothek"
+msgstr "New colour for the library"
+
+#: window.rs:1801
+msgid "{} zur Bibliothek hinzufügen"
+msgstr "Add {} to the Library"
+
+#: window.rs:1806 window.rs:2298 window.rs:8941
+msgid "_Abbrechen"
+msgstr "_Cancel"
+
+#: window.rs:1807 window.rs:12723 window.rs:13125
+msgid "_Hinzufügen"
+msgstr "_Add"
+
+#: window.rs:2066 window.rs:3962 window.rs:12711
+msgid "Farbüberlagerung"
+msgstr "Colour overlay"
+
+#: window.rs:2071 window.rs:3971
+msgid "Textur"
+msgstr "Texture"
+
+#: window.rs:2077
+msgid "Kunsteffekte"
+msgstr "Artistic effects"
+
+#: window.rs:2083
+msgid "3D-Effekte"
+msgstr "3D effects"
+
+#: window.rs:2090 window.rs:4014
+msgid "Bildfilter"
+msgstr "Image filters"
+
+#: window.rs:2093 window.rs:3933
+msgid "Schatten"
+msgstr "Shadow"
+
+#: window.rs:2094 window.rs:4005
+msgid "Spiegelung"
+msgstr "Reflection"
+
+#: window.rs:2095
+msgid "Extras"
+msgstr "Extras"
+
+#: window.rs:2158
+msgid "Gruppieren"
+msgstr "Group"
+
+#: window.rs:2159
+msgid "Gruppieren (Strg G)"
+msgstr "Group (Ctrl G)"
+
+#: window.rs:2164
+msgid "Gruppierung auflösen"
+msgstr "Ungroup"
+
+#: window.rs:2165
+msgid "Gruppierung auflösen (Strg Umschalt G)"
+msgstr "Ungroup (Ctrl Shift G)"
+
+#: window.rs:2171 window.rs:2417 window.rs:8530
+msgid "Sperren"
+msgstr "Lock"
+
+#: window.rs:2172
+msgid "Duplizieren (Strg D)"
+msgstr "Duplicate (Ctrl D)"
+
+#: window.rs:2175
+msgid "Zur Bibliothek hinzufügen …"
+msgstr "Add to Library …"
+
+#: window.rs:2178
+msgid "Löschen (Entf)"
+msgstr "Delete (Del)"
+
+#: window.rs:2181
+msgid "Effekte – für alle ausgewählten Objekte"
+msgstr "Effects – for all selected objects"
+
+#: window.rs:2199
+msgid "Übergang"
+msgstr "Blend"
+
+#: window.rs:2200
+msgid "Übergang zwischen den beiden Formen erzeugen"
+msgstr "Create a blend between the two shapes"
+
+#: window.rs:2202
+msgid "Anzahl der Zwischenschritte"
+msgstr "Number of intermediate steps"
+
+#: window.rs:2204 window.rs:9730
+msgid "Erstellen"
+msgstr "Create"
+
+#: window.rs:2211
+msgid "Schritte"
+msgstr "Steps"
+
+#: window.rs:2218 window.rs:2223
+msgid "Nachzeichnen"
+msgstr "Trace"
+
+#: window.rs:2219
+msgid "Bild in bearbeitbare Vektorflächen umwandeln"
+msgstr "Convert the image into editable vector areas"
+
+#: window.rs:2221
+msgid "Anzahl der Farben im Bild"
+msgstr "Number of colours in the image"
+
+#: window.rs:2237
+msgid "Verteilen"
+msgstr "Distribute"
+
+#: window.rs:2238
+msgid "Objekte mit gleichen Abständen verteilen"
+msgstr "Distribute objects with equal spacing"
+
+#: window.rs:2241
+msgid "Horizontal verteilen"
+msgstr "Distribute horizontally"
+
+#: window.rs:2242
+msgid "Vertikal verteilen"
+msgstr "Distribute vertically"
+
+#: window.rs:2257
+msgid "Weitere Möglichkeiten"
+msgstr "More options"
+
+#: window.rs:2295
+msgid "Zur Bibliothek hinzufügen"
+msgstr "Add to Library"
+
+#: window.rs:2296
+msgid "Was soll aus der Auswahl in die Bibliothek übernommen werden?"
+msgstr "What should be taken from the selection into the library?"
+
+#: window.rs:2299
+msgid "_Farbe hinzufügen"
+msgstr "Add _Colour"
+
+#: window.rs:2303
+msgid "_Textstil hinzufügen"
+msgstr "Add _Text Style"
+
+#: window.rs:2305
+msgid "_Stil hinzufügen"
+msgstr "Add _Style"
+
+#: window.rs:2308
+msgid "Als _Grafik"
+msgstr "As _Graphic"
+
+#: window.rs:2417
+msgid "Entsperren"
+msgstr "Unlock"
+
+#: window.rs:2460 window.rs:9045
+msgid "Unbenannt"
+msgstr "Untitled"
+
+#: window.rs:2514
+msgid "Auswahl (V)"
+msgstr "Select (V)"
+
+#: window.rs:2519
+msgid "Knoten bearbeiten (A)"
+msgstr "Edit Nodes (A)"
+
+#: window.rs:2526
+msgid "Rechteck (R)"
+msgstr "Rectangle (R)"
+
+#: window.rs:2538
+msgid "Vieleck"
+msgstr "Polygon"
+
+#: window.rs:2544
+msgid "Stern"
+msgstr "Star"
+
+#: window.rs:2551
+msgid "Formerstellung (Umschalt M oder K) – Klick in eine Fläche macht sie zur Form, Ziehen über Flächen vereinigt sie, mit Alt löschen"
+msgstr "Shape Builder (Shift M or K) – click an area to make it a shape, drag across areas to merge them, hold Alt to delete"
+
+#: window.rs:2554
+msgid "Zeichenstift (P)"
+msgstr "Pen (P)"
+
+#: window.rs:2559
+msgid "Kurvenzeichner (Umschalt P)"
+msgstr "Curvature Pen (Shift P)"
+
+#: window.rs:2562
+msgid "Freihand (N)"
+msgstr "Freehand (N)"
+
+#: window.rs:2568
+msgid "Radierer (Umschalt E) – Größe mit [ und ]"
+msgstr "Eraser (Shift E) – size with [ and ]"
+
+#: window.rs:2574
+msgid "Schere (C) – eine Linie ziehen zerschneidet Formen und Pfade"
+msgstr "Scissors (C) – draw a line to cut shapes and paths"
+
+#: window.rs:2578
+msgid "Text (T)"
+msgstr "Text (T)"
+
+#: window.rs:2583
+msgid "Text auf Pfad (Umschalt T)"
+msgstr "Text on Path (Shift T)"
+
+#: window.rs:2591
+msgid "Hilfslinien (G) – klicken und ziehen, Umschalt rastet den Winkel ein"
+msgstr "Guides (G) – click and drag, Shift snaps the angle"
+
+#: window.rs:2896
+msgid "Schriftart"
+msgstr "Font"
+
+#: window.rs:3162
+msgid "System"
+msgstr "System"
+
+#: window.rs:3163
+msgid "Hell"
+msgstr "Light"
+
+#: window.rs:3352
+msgid "Ausschneiden"
+msgstr "Cut"
+
+#: window.rs:3353
+msgid "Kopieren"
+msgstr "Copy"
+
+#: window.rs:3355
+msgid "Als Bild kopieren"
+msgstr "Copy as Image"
+
+#: window.rs:3359 window.rs:12191
+msgid "Einfügen"
+msgstr "Paste"
+
+#: window.rs:3362
+msgid "Skalieren …"
+msgstr "Scale …"
+
+#: window.rs:3367
+msgid "In den Vordergrund"
+msgstr "Bring to Front"
+
+#: window.rs:3372
+msgid "Schritt nach vorne"
+msgstr "Bring Forward"
+
+#: window.rs:3377
+msgid "Schritt nach hinten"
+msgstr "Send Backward"
+
+#: window.rs:3382
+msgid "In den Hintergrund"
+msgstr "Send to Back"
+
+#: window.rs:3386
+msgid "Anordnen"
+msgstr "Arrange"
+
+#: window.rs:3390 window.rs:4232
+msgid "Vereinigen"
+msgstr "Unite"
+
+#: window.rs:3391 window.rs:4235
+msgid "Vorderes abziehen"
+msgstr "Subtract Front"
+
+#: window.rs:3392 window.rs:4240
+msgid "Schnittmenge"
+msgstr "Intersect"
+
+#: window.rs:3393 window.rs:4245
+msgid "Überlappung entfernen"
+msgstr "Exclude Overlap"
+
+#: window.rs:3394 window.rs:4228
+msgid "Pfadoperationen"
+msgstr "Path Operations"
+
+#: window.rs:3396
+msgid "Pfade verbinden"
+msgstr "Join Paths"
+
+#: window.rs:3425
+msgid "Auf Ebene verschieben"
+msgstr "Move to Layer"
+
+#: window.rs:3433
+msgid "Neu"
+msgstr "New"
+
+#: window.rs:3434
+msgid "Öffnen…"
+msgstr "Open…"
+
+#: window.rs:3437
+msgid "Speichern"
+msgstr "Save"
+
+#: window.rs:3438
+msgid "Speichern unter…"
+msgstr "Save As…"
+
+#: window.rs:3439 window.rs:10329
+msgid "Exportieren…"
+msgstr "Export…"
+
+#: window.rs:3440
+msgid "Auswahl exportieren…"
+msgstr "Export Selection…"
+
+#: window.rs:3444
+msgid "Bild einfügen…"
+msgstr "Insert Image…"
+
+#: window.rs:3451 window.rs:11261 window.rs:11272
+msgid "Einstellungen"
+msgstr "Preferences"
+
+#: window.rs:3455
+msgid "Fehler melden…"
+msgstr "Report a Problem…"
+
+#: window.rs:3456
+msgid "Über Stijl"
+msgstr "About Stijl"
+
+#: window.rs:3475
+msgid "Nichts ausgewählt"
+msgstr "Nothing selected"
+
+#: window.rs:3478
+msgid "Klicke ein Objekt an, um es zu bearbeiten."
+msgstr "Click an object to edit it."
+
+#: window.rs:3492
+msgid "Form"
+msgstr "Shape"
+
+#: window.rs:3496
+msgid "Art"
+msgstr "Type"
+
+#: window.rs:3497
+msgid "Anzahl der Ecken"
+msgstr "Number of corners"
+
+#: window.rs:3498 window.rs:3883 window.rs:10918
+msgid "Ecken"
+msgstr "Corners"
+
+#: window.rs:3500
+msgid "Eckenradius in px"
+msgstr "Corner radius in px"
+
+#: window.rs:3501
+msgid "Eckenradius"
+msgstr "Corner radius"
+
+#: window.rs:3552 window.rs:12428
+msgid "Schriftgröße in px"
+msgstr "Font size in px"
+
+#: window.rs:3559 window.rs:12480
+msgid "Schnitt"
+msgstr "Style"
+
+#: window.rs:3564
+msgid "Strichstärke (variable Schrift)"
+msgstr "Weight (variable font)"
+
+#: window.rs:3565
+msgid "Strichstärke"
+msgstr "Weight"
+
+#: window.rs:3574
+msgid "Unterstrichen"
+msgstr "Underline"
+
+#: window.rs:3575
+msgid "Durchgestrichen"
+msgstr "Strikethrough"
+
+#: window.rs:3579
+msgid "Kapitälchen: Kleinbuchstaben als kleine Großbuchstaben"
+msgstr "Small caps: lower-case letters as small capitals"
+
+#: window.rs:3583
+msgid "Ligaturen (fi, fl …) verwenden, soweit die Schrift sie hat"
+msgstr "Use ligatures (fi, fl …) where the font has them"
+
+#: window.rs:3594
+msgid "Aufzählung"
+msgstr "List"
+
+#: window.rs:3604
+msgid "Aufzählungszeichen wählen"
+msgstr "Choose list style"
+
+#: window.rs:3615
+msgid "Einzug verkleinern"
+msgstr "Decrease indent"
+
+#: window.rs:3619
+msgid "Einzug vergrößern"
+msgstr "Increase indent"
+
+#: window.rs:3659
+msgid "Linksbündig"
+msgstr "Align left"
+
+#: window.rs:3660 window.rs:12481
+msgid "Zentriert"
+msgstr "Centre"
+
+#: window.rs:3661
+msgid "Rechtsbündig"
+msgstr "Align right"
+
+#: window.rs:3662 window.rs:12481
+msgid "Blocksatz"
+msgstr "Justify"
+
+#: window.rs:3674
+msgid "Im Feld oben"
+msgstr "Top of the box"
+
+#: window.rs:3675
+msgid "Im Feld mittig"
+msgstr "Middle of the box"
+
+#: window.rs:3676
+msgid "Im Feld unten"
+msgstr "Bottom of the box"
+
+#: window.rs:3685
+msgid "Zeilenabstand in % der Schriftgröße"
+msgstr "Line spacing in % of the font size"
+
+#: window.rs:3688
+msgid "Zeilenabstand (%)"
+msgstr "Line spacing (%)"
+
+#: window.rs:3692 window.rs:12515
+msgid "Zeichenabstand in 1/1000 Geviert"
+msgstr "Letter spacing in 1/1000 em"
+
+#: window.rs:3694
+msgid "Zeichenabstand (1/1000 Geviert)"
+msgstr "Letter spacing (1/1000 em)"
+
+#: window.rs:3705
+msgid "Abstand zwischen Absätzen in % der Schriftgröße"
+msgstr "Space between paragraphs in % of the font size"
+
+#: window.rs:3707
+msgid "Absatzabstand"
+msgstr "Paragraph spacing"
+
+#: window.rs:3714
+msgid "Spaltenzahl – der Text läuft von Spalte zu Spalte"
+msgstr "Number of columns – the text flows from column to column"
+
+#: window.rs:3716
+msgid "Spalten"
+msgstr "Columns"
+
+#: window.rs:3718
+msgid "Abstand vom Pfadanfang in px"
+msgstr "Distance from the start of the path in px"
+
+#: window.rs:3719
+msgid "Versatz auf dem Pfad"
+msgstr "Offset along the path"
+
+#: window.rs:3724
+msgid "Text unter dem Pfad statt darüber"
+msgstr "Text below the path instead of above"
+
+#: window.rs:3729
+msgid "Laufrichtung umkehren (Text andersherum, z. B. unten am Kreis lesbar)"
+msgstr "Reverse direction (text the other way round, e.g. readable at the bottom of a circle)"
+
+#: window.rs:3736
+msgid "Am Pfad"
+msgstr "On the path"
+
+#: window.rs:3740
+msgid "Knoten"
+msgstr "Nodes"
+
+#: window.rs:3741
+msgid "Eckig"
+msgstr "Corner"
+
+#: window.rs:3743
+msgid "Glatt"
+msgstr "Smooth"
+
+#: window.rs:3746
+msgid "Knoten löschen (Entf)"
+msgstr "Delete nodes (Del)"
+
+#: window.rs:3759
+msgid "Radius für die gewählten Ecken (ohne Auswahl: alle Ecken)"
+msgstr "Radius for the selected corners (without a selection: all corners)"
+
+#: window.rs:3767 window.rs:3770 window.rs:5876
+msgid "Füllung"
+msgstr "Fill"
+
+#: window.rs:3773
+msgid "Temperatur: −100 % kalt, 0 % Original, 100 % warm"
+msgstr "Temperature: −100 % cool, 0 % original, 100 % warm"
+
+#: window.rs:3774
+msgid "Temperatur"
+msgstr "Temperature"
+
+#: window.rs:3779
+msgid "Farbverlauf hinzufügen"
+msgstr "Add gradient"
+
+#: window.rs:3781
+msgid "Füllung als Verlauf; im Dokument erscheint die Verlaufslinie"
+msgstr "Fill as a gradient; the gradient line appears in the document"
+
+#: window.rs:3789
+msgid "Farbstopp anklicken zum Auswählen, ziehen zum Verschieben; Klick auf den Balken fügt eine Farbe hinzu"
+msgstr "Click a colour stop to select it, drag to move it; clicking the bar adds a colour"
+
+#: window.rs:3793
+msgid "Farbe des gewählten Farbstopps"
+msgstr "Colour of the selected stop"
+
+#: window.rs:3795
+msgid "Weitere Farbe hinzufügen"
+msgstr "Add another colour"
+
+#: window.rs:3798
+msgid "Gewählte Farbe entfernen"
+msgstr "Remove the selected colour"
+
+#: window.rs:3810
+msgid "Farbstopp"
+msgstr "Colour stop"
+
+#: window.rs:3824
+msgid "Verlauf entfernen"
+msgstr "Remove gradient"
+
+#: window.rs:3828 window.rs:5879 window.rs:12546
+msgid "Kontur"
+msgstr "Stroke"
+
+#: window.rs:3833 window.rs:12639
+msgid "Linienstärke in px"
+msgstr "Stroke width in px"
+
+#: window.rs:3834 window.rs:4184 window.rs:12648
+msgid "Linienstärke"
+msgstr "Stroke width"
+
+#: window.rs:3839
+msgid "Kontur mittig auf der Linie"
+msgstr "Stroke centred on the line"
+
+#: window.rs:3840
+msgid "Innen"
+msgstr "Inside"
+
+#: window.rs:3840
+msgid "Kontur innen"
+msgstr "Stroke inside"
+
+#: window.rs:3841
+msgid "Außen"
+msgstr "Outside"
+
+#: window.rs:3841
+msgid "Kontur außen"
+msgstr "Stroke outside"
+
+#: window.rs:3850
+msgid "Lage"
+msgstr "Position"
+
+#: window.rs:3880
+msgid "Durchgezogen, gestrichelt oder gepunktet"
+msgstr "Solid, dashed or dotted"
+
+#: window.rs:3890 window.rs:12680
+msgid "Enden"
+msgstr "Ends"
+
+#: window.rs:3896
+msgid "Form der Linienenden, z. B. Pfeil"
+msgstr "Shape of the line ends, e.g. arrow"
+
+#: window.rs:3898
+msgid "Linienende"
+msgstr "Line end"
+
+#: window.rs:3902
+msgid "Anfang"
+msgstr "Start"
+
+#: window.rs:3902
+msgid "Ende"
+msgstr "End"
+
+#: window.rs:3902
+msgid "Beide"
+msgstr "Both"
+
+#: window.rs:3910
+msgid "Größe der Linienenden"
+msgstr "Size of the line ends"
+
+#: window.rs:3916
+msgid "Kontur in Fläche umwandeln"
+msgstr "Convert Stroke to Fill"
+
+#: window.rs:3919
+msgid "Die Kontur wird ein eigenes Objekt – skalierbar, mit eigener Füllung und Kontur"
+msgstr "The stroke becomes an object of its own – scalable, with its own fill and stroke"
+
+#: window.rs:3936
+msgid "Deckkraft des Schattens"
+msgstr "Shadow opacity"
+
+#: window.rs:3937
+msgid "Unschärfe des Schattens"
+msgstr "Shadow blur"
+
+#: window.rs:3938
+msgid "Unschärfe"
+msgstr "Blur"
+
+#: window.rs:3939
+msgid "Versatz nach rechts in px"
+msgstr "Offset to the right in px"
+
+#: window.rs:3940
+msgid "Versatz nach unten in px"
+msgstr "Offset downwards in px"
+
+#: window.rs:3950
+msgid "Versatz"
+msgstr "Offset"
+
+#: window.rs:3954
+msgid "Schatten entfernen"
+msgstr "Remove shadow"
+
+#: window.rs:3959 window.rs:12683
+msgid "Deckkraft in Prozent"
+msgstr "Opacity in per cent"
+
+#: window.rs:3966
+msgid "Farbüberlagerung entfernen"
+msgstr "Remove colour overlay"
+
+#: window.rs:3975
+msgid "Textur entfernen"
+msgstr "Remove texture"
+
+#: window.rs:3980
+msgid "Kunsteffekt"
+msgstr "Artistic effect"
+
+#: window.rs:3984
+msgid "Kunsteffekt entfernen"
+msgstr "Remove artistic effect"
+
+#: window.rs:3989
+msgid "3D-Effekt"
+msgstr "3D effect"
+
+#: window.rs:3991
+msgid "Tiefe"
+msgstr "Depth"
+
+#: window.rs:3992
+msgid "Beleuchtung"
+msgstr "Lighting"
+
+#: window.rs:3993
+msgid "3D-Effekt entfernen"
+msgstr "Remove 3D effect"
+
+#: window.rs:4000
+msgid "Tiefe: −100 % eingedrückt, 100 % herausgedrückt"
+msgstr "Depth: −100 % pressed in, 100 % raised"
+
+#: window.rs:4003
+msgid "Stärke von Licht und Schatten"
+msgstr "Strength of light and shadow"
+
+#: window.rs:4009
+msgid "Spiegelung entfernen"
+msgstr "Remove reflection"
+
+#: window.rs:4018
+msgid "Bildfilter entfernen"
+msgstr "Remove image filter"
+
+#: window.rs:4033 window.rs:4266
+msgid "Position"
+msgstr "Position"
+
+#: window.rs:4041
+msgid "Drehwinkel in Grad (gegen den Uhrzeigersinn) – eintippen oder mit − und + ändern"
+msgstr "Rotation in degrees (anticlockwise) – type a value or change it with − and +"
+
+#: window.rs:4049
+msgid "90° nach links drehen"
+msgstr "Rotate 90° left"
+
+#: window.rs:4054
+msgid "90° nach rechts drehen"
+msgstr "Rotate 90° right"
+
+#: window.rs:4059
+msgid "Horizontal spiegeln (Umschalt H)"
+msgstr "Flip horizontally (Shift H)"
+
+#: window.rs:4064
+msgid "Vertikal spiegeln (Umschalt V)"
+msgstr "Flip vertically (Shift V)"
+
+#: window.rs:4078
+msgid "Ausrichten"
+msgstr "Align"
+
+#: window.rs:4081
+msgid "an der Auswahl"
+msgstr "to the selection"
+
+#: window.rs:4081
+msgid "an der Seite"
+msgstr "to the page"
+
+#: window.rs:4082
+msgid "Mehrere Objekte aneinander oder an der Seite ausrichten"
+msgstr "Align several objects to each other or to the page"
+
+#: window.rs:4090
+msgid "Links ausrichten"
+msgstr "Align left"
+
+#: window.rs:4093
+msgid "Waagerecht mittig ausrichten"
+msgstr "Centre horizontally"
+
+#: window.rs:4098
+msgid "Rechts ausrichten"
+msgstr "Align right"
+
+#: window.rs:4103
+msgid "Oben ausrichten"
+msgstr "Align top"
+
+#: window.rs:4106
+msgid "Senkrecht mittig ausrichten"
+msgstr "Centre vertically"
+
+#: window.rs:4111
+msgid "Unten ausrichten"
+msgstr "Align bottom"
+
+#: window.rs:4129
+msgid "Text in Pfade umwandeln"
+msgstr "Convert Text to Paths"
+
+#: window.rs:4134
+msgid "Zuschneiden"
+msgstr "Crop"
+
+#: window.rs:4136
+msgid "Rahmen um das Bild legen und anpassen"
+msgstr "Put a frame around the image and adjust it"
+
+#: window.rs:4148
+msgid "Alles"
+msgstr "All"
+
+#: window.rs:4148
+msgid "Rahmen und Bild gemeinsam bearbeiten"
+msgstr "Edit frame and image together"
+
+#: window.rs:4149
+msgid "Rahmen"
+msgstr "Frame"
+
+#: window.rs:4149
+msgid "Nur den Rahmen ändern (zuschneiden)"
+msgstr "Change only the frame (crop)"
+
+#: window.rs:4150
+msgid "Nur das Bild im Rahmen verschieben oder skalieren"
+msgstr "Only move or scale the image inside the frame"
+
+#: window.rs:4159
+msgid "Rahmen lösen"
+msgstr "Release frame"
+
+#: window.rs:4165 window.rs:4171
+msgid "Rahmenfüllung"
+msgstr "Frame fill"
+
+#: window.rs:4166 window.rs:4177
+msgid "Rahmenkontur"
+msgstr "Frame stroke"
+
+#: window.rs:4183
+msgid "Linienstärke des Rahmens in px"
+msgstr "Stroke width of the frame in px"
+
+#: window.rs:4187
+msgid "Abstand des Textes zum Rahmen"
+msgstr "Distance between text and frame"
+
+#: window.rs:4188
+msgid "Abstand zum Rahmen"
+msgstr "Padding"
+
+#: window.rs:4193
+msgid "Form lösen"
+msgstr "Release shape"
+
+#: window.rs:4196
+msgid "Text wieder rechteckig umbrechen; die Form bleibt als eigenes Objekt"
+msgstr "Wrap the text in a rectangle again; the shape stays as an object of its own"
+
+#: window.rs:4208
+msgid "Durchmesser des Radierers ( [ und ] ändern ihn )"
+msgstr "Eraser diameter ( [ and ] change it )"
+
+#: window.rs:4214
+msgid "Wie stark zittrige Striche geglättet werden"
+msgstr "How much shaky strokes are smoothed"
+
+#: window.rs:4215
+msgid "Glättung"
+msgstr "Smoothing"
+
+#: window.rs:4222
+msgid "Liegen Anfang und Ende näher beieinander, wird die Form geschlossen (0 = nie)"
+msgstr "If start and end are closer than this, the shape is closed (0 = never)"
+
+#: window.rs:4224
+msgid "Schließen bis"
+msgstr "Close within"
+
+#: window.rs:4259
+msgid "Winkel der Hilfslinie in Grad"
+msgstr "Guide angle in degrees"
+
+#: window.rs:4263
+msgid "Lage der gewählten Hilfslinie"
+msgstr "Position of the selected guide"
+
+#: window.rs:4276
+msgid "Anzeigen"
+msgstr "Show"
+
+#: window.rs:4281
+msgid "Einrasten"
+msgstr "Snap"
+
+#: window.rs:4282
+msgid "Löschen"
+msgstr "Delete"
+
+#: window.rs:4285
+msgid "Alle löschen"
+msgstr "Delete all"
+
+#: window.rs:4448
+msgid "Rückgängig (Strg Z)"
+msgstr "Undo (Ctrl Z)"
+
+#: window.rs:4449
+msgid "Wiederholen (Strg Umschalt Z)"
+msgstr "Redo (Ctrl Shift Z)"
+
+#: window.rs:4453
+msgid "Werkzeugnamen ein-/ausblenden"
+msgstr "Show or hide tool names"
+
+#: window.rs:4464
+msgid "Hauptmenü"
+msgstr "Main menu"
+
+#: window.rs:4471
+msgid "Neues Dokument (Strg N)"
+msgstr "New document (Ctrl N)"
+
+#: window.rs:4514 window.rs:7168
+msgid "{} – Rechtsklick für weitere"
+msgstr "{} – right-click for more"
+
+#: window.rs:4554
+msgid "Eigenschaften (F9)"
+msgstr "Properties (F9)"
+
+#: window.rs:4556
+msgid "Eigenschaften"
+msgstr "Properties"
+
+#: window.rs:4559
+msgid "Ebenen und Zeichenflächen"
+msgstr "Layers and Artboards"
+
+#: window.rs:4561 window.rs:4751
+msgid "Ebenen"
+msgstr "Layers"
+
+#: window.rs:4589
+msgid "Originalgröße (Strg 1)"
+msgstr "Actual size (Ctrl 1)"
+
+#: window.rs:4655
+msgid "Seite 1 von 1"
+msgstr "Page 1 of 1"
+
+#: window.rs:4661
+msgid "Vorige Seite (Bild ↑)"
+msgstr "Previous page (Page ↑)"
+
+#: window.rs:4667
+msgid "Nächste Seite (Bild ↓)"
+msgstr "Next page (Page ↓)"
+
+#: window.rs:4675
+msgid "Notizheft: eine Seite nach der anderen"
+msgstr "Notebook: one page after another"
+
+#: window.rs:4683
+msgid "Verkleinern (Strg −)"
+msgstr "Zoom out (Ctrl −)"
+
+#: window.rs:4689
+msgid "Vergrößern (Strg +)"
+msgstr "Zoom in (Ctrl +)"
+
+#: window.rs:4694
+msgid "Ganze Seite (Strg 0)"
+msgstr "Whole page (Ctrl 0)"
+
+#: window.rs:4774
+msgid "Neue Ebene"
+msgstr "New Layer"
+
+#: window.rs:4776
+msgid "Neue Ebene über der aktuellen anlegen"
+msgstr "Add a new layer above the current one"
+
+#: window.rs:4781
+msgid "Weitere Zeichenfläche rechts daneben anlegen"
+msgstr "Add another artboard to the right"
+
+#: window.rs:4784 window.rs:10147
+msgid "Zeichenflächen"
+msgstr "Artboards"
+
+#: window.rs:4786
+msgid "Solange diese Leiste offen ist, lassen sich Zeichenflächen am Namen verschieben und an den Anfassern in der Größe ändern"
+msgstr "While this panel is open, artboards can be moved by their name and resized with their handles"
+
+#: window.rs:5202
+msgid "Das ist keine Illustrator- oder PDF-Datei."
+msgstr "This is not an Illustrator or PDF file."
+
+#: window.rs:5221
+msgid "Öffnen fehlgeschlagen: {}"
+msgstr "Opening failed: {}"
+
+#: window.rs:5254
+msgid "Nicht alles wird übernommen"
+msgstr "Not everything can be imported"
+
+#: window.rs:5255
+msgid ""
+"Diese SVG-Datei enthält Inhalte, die Stijl nicht darstellen oder bearbeiten kann:\n"
+"{}\n"
+"\n"
+"Damit dabei nichts verloren geht, bleibt die Originaldatei unverändert: Speichern legt eine neue SVG-Datei an."
+msgstr ""
+"This SVG file contains content that Stijl cannot display or edit:\n"
+"{}\n"
+"\n"
+"So that nothing is lost, the original file stays unchanged: saving creates a new SVG file."
+
+#: window.rs:5262
+msgid "Datei importiert und als SVG geöffnet. Speichern legt eine neue SVG-Datei an."
+msgstr "File imported and opened as SVG. Saving creates a new SVG file."
+
+#: window.rs:5264
+msgid "Importiert. {}"
+msgstr "Imported. {}"
+
+#: window.rs:5266
+msgid " (+{} weitere Hinweise)"
+msgstr " (+{} more notes)"
+
+#: window.rs:5458
+msgid "Nicht gespeichert"
+msgstr "Not saved"
+
+#: window.rs:5459
+msgid "Nicht gespeichert · {}"
+msgstr "Not saved · {}"
+
+#: window.rs:5460
+msgid "Gespeichert · {}"
+msgstr "Saved · {}"
+
+#: window.rs:5463
+msgid "{} – Stijl"
+msgstr "{} – Stijl"
+
+#: window.rs:5474
+msgid "Seite {} von {}"
+msgstr "Page {} of {}"
+
+#: window.rs:5577
+msgid "Aufzählung ({})"
+msgstr "List ({})"
+
+#: window.rs:5876
+msgid "Textfüllung"
+msgstr "Text fill"
+
+#: window.rs:5879
+msgid "Textkontur"
+msgstr "Text stroke"
+
+#: window.rs:5921
+msgid "Position {} ({})"
+msgstr "Position {} ({})"
+
+#: window.rs:6143
+msgid ""
+"Ein Vektorzeichenprogramm, benannt nach der niederländischen Kunstbewegung De Stijl, der auch Piet Mondrian angehörte.\n"
+"\n"
+"Mit Hilfe von KI (Claude von Anthropic) geschrieben."
+msgstr ""
+"A vector drawing program, named after the Dutch art movement De Stijl, to which Piet Mondrian belonged.\n"
+"\n"
+"Written with the help of AI (Claude by Anthropic)."
+
+#: window.rs:6480
+msgid "Hier ist keine Farbe – auf die Seite klicken"
+msgstr "There is no colour here – click on the page"
+
+#: window.rs:6661
+msgid "Das Bild lässt sich nicht lesen."
+msgstr "The image cannot be read."
+
+#: window.rs:8546
+msgid "Ein-/Ausblenden"
+msgstr "Show/hide"
+
+#: window.rs:8567
+msgid "Ebene löschen"
+msgstr "Delete layer"
+
+#: window.rs:8636
+msgid "Zeichenfläche bearbeiten"
+msgstr "Edit artboard"
+
+#: window.rs:8642
+msgid "Zeichenfläche entfernen (die Objekte bleiben)"
+msgstr "Remove artboard (the objects stay)"
+
+#: window.rs:8764
+msgid "{} – Doppelklick zum Umbenennen"
+msgstr "{} – double-click to rename"
+
+#: window.rs:8938
+msgid "Änderungen an „{}“ speichern?"
+msgstr "Save changes to “{}”?"
+
+#: window.rs:8939
+msgid "Wenn du nicht speicherst, gehen die Änderungen verloren."
+msgstr "If you don’t save, your changes will be lost."
+
+#: window.rs:8942 window.rs:9319
+msgid "_Verwerfen"
+msgstr "_Discard"
+
+#: window.rs:8943
+msgid "_Speichern"
+msgstr "_Save"
+
+#: window.rs:9158
+msgid ""
+"**Was habe ich zuletzt gemacht?**\n"
+"\n"
+"\n"
+msgstr ""
+"**What was I doing just before?**\n"
+"\n"
+"\n"
+
+#: window.rs:9159
+msgid ""
+"**Absturzbericht**\n"
+"```\n"
+msgstr ""
+"**Crash report**\n"
+"```\n"
+
+#: window.rs:9166
+msgid ""
+"**Was ist passiert?**\n"
+"\n"
+"\n"
+msgstr ""
+"**What happened?**\n"
+"\n"
+"\n"
+
+#: window.rs:9167
+msgid ""
+"**Was hätte passieren sollen?**\n"
+"\n"
+"\n"
+msgstr ""
+"**What should have happened?**\n"
+"\n"
+"\n"
+
+#: window.rs:9168
+msgid ""
+"**Schritte zum Nachstellen**\n"
+"1. \n"
+"2. \n"
+"\n"
+msgstr ""
+"**Steps to reproduce**\n"
+"1. \n"
+"2. \n"
+"\n"
+
+#: window.rs:9172
+msgid "Absturz: "
+msgstr "Crash: "
+
+#: window.rs:9221
+msgid "Stijl ist abgestürzt"
+msgstr "Stijl crashed"
+
+#: window.rs:9223
+msgid "Beim letzten Mal ist ein Fehler aufgetreten. Möchtest du einen Fehlerbericht senden? Er enthält nur technische Angaben (Version, System, Fehlerstelle) – keine Zeichnungen."
+msgstr "An error occurred last time. Would you like to send a problem report? It only contains technical details (version, system, where the error happened) – no drawings."
+
+#: window.rs:9237
+msgid "Bericht ansehen"
+msgstr "Show report"
+
+#: window.rs:9240
+msgid "_Nicht senden"
+msgstr "_Don’t Send"
+
+#: window.rs:9241
+msgid "_Kopieren"
+msgstr "_Copy"
+
+#: window.rs:9242
+msgid "_Senden"
+msgstr "_Send"
+
+#: window.rs:9252
+msgid "Bericht in die Zwischenablage kopiert"
+msgstr "Report copied to the clipboard"
+
+#: window.rs:9284 window.rs:9293
+msgid "Kopieren fehlgeschlagen: {}"
+msgstr "Copying failed: {}"
+
+#: window.rs:9291
+msgid "Als Bild kopiert"
+msgstr "Copied as image"
+
+#: window.rs:9307
+msgid ""
+"Stijl wurde beim letzten Mal nicht richtig beendet. Diese ungespeicherten Dokumente lassen sich wiederherstellen:\n"
+msgstr ""
+"Stijl was not closed properly last time. These unsaved documents can be recovered:\n"
+
+#: window.rs:9317
+msgid ""
+"\n"
+"\n"
+"Die Originaldateien wurden nicht verändert."
+msgstr ""
+"\n"
+"\n"
+"The original files were not changed."
+
+#: window.rs:9318
+msgid "Dokumente wiederherstellen?"
+msgstr "Recover documents?"
+
+#: window.rs:9320
+msgid "_Später"
+msgstr "_Later"
+
+#: window.rs:9321
+msgid "_Wiederherstellen"
+msgstr "_Recover"
+
+#: window.rs:9352
+msgid "„{}“ ließ sich nicht wiederherstellen: {}"
+msgstr "“{}” could not be recovered: {}"
+
+#: window.rs:9380
+msgid "Gespeichert"
+msgstr "Saved"
+
+#: window.rs:9385
+msgid "Speichern fehlgeschlagen: {}"
+msgstr "Saving failed: {}"
+
+#: window.rs:9419
+msgid "Speichern unter"
+msgstr "Save As"
+
+#: window.rs:9423
+msgid "SVG-Dateien"
+msgstr "SVG files"
+
+#: window.rs:9441
+msgid "Öffnen"
+msgstr "Open"
+
+#: window.rs:9443
+msgid "SVG, Illustrator (.ai) und PDF"
+msgstr "SVG, Illustrator (.ai) and PDF"
+
+#: window.rs:9571
+msgid "Eigene Größe"
+msgstr "Custom size"
+
+#: window.rs:9574 window.rs:10191
+msgid "Format"
+msgstr "Format"
+
+#: window.rs:9578 window.rs:10895
+msgid "Einheit"
+msgstr "Unit"
+
+#: window.rs:9674
+msgid "Breite ({})"
+msgstr "Width ({})"
+
+#: window.rs:9675
+msgid "Höhe ({})"
+msgstr "Height ({})"
+
+#: window.rs:9714 window.rs:9863
+msgid "Neues Dokument"
+msgstr "New Document"
+
+#: window.rs:9722
+msgid "Weißer Hintergrund"
+msgstr "White background"
+
+#: window.rs:9723
+msgid "Ausgeschaltet ist der Hintergrund transparent"
+msgstr "When switched off, the background is transparent"
+
+#: window.rs:9830
+msgid "Start"
+msgstr "Start"
+
+#: window.rs:9848
+msgid "Zuletzt geöffnet"
+msgstr "Recently opened"
+
+#: window.rs:9865
+msgid "Print"
+msgstr "Print"
+
+#: window.rs:9866
+msgid "Online"
+msgstr "Online"
+
+#: window.rs:9874
+msgid "Format suchen, z. B. „A5“ oder „Story“"
+msgstr "Search formats, e.g. “A5” or “Story”"
+
+#: window.rs:9892
+msgid "Kein passendes Format – „Eigenes Format …“ legt jede Größe an."
+msgstr "No matching format – “Custom Format …” creates any size."
+
+#: window.rs:9941
+msgid "Eigenes Format …"
+msgstr "Custom Format …"
+
+#: window.rs:9942
+msgid "Größe frei wählen"
+msgstr "Choose any size"
+
+#: window.rs:9945
+msgid "Dokument in beliebiger Größe anlegen"
+msgstr "Create a document of any size"
+
+#: window.rs:10072 window.rs:10472 window.rs:10527
+msgid "Erst etwas auswählen"
+msgstr "Select something first"
+
+#: window.rs:10085 window.rs:10442
+msgid "Exportieren"
+msgstr "Export"
+
+#: window.rs:10123
+msgid "Klicken zum Aus- oder Abwählen"
+msgstr "Click to select or deselect"
+
+#: window.rs:10132
+msgid "Nur die Auswahl"
+msgstr "Selection only"
+
+#: window.rs:10149
+msgid "PDF: eine Seite je Zeichenfläche. Andere Formate: eine Datei je Zeichenfläche."
+msgstr "PDF: one page per artboard. Other formats: one file per artboard."
+
+#: window.rs:10152
+msgid "Alle"
+msgstr "All"
+
+#: window.rs:10196
+msgid "Hintergrund mitspeichern"
+msgstr "Include background"
+
+#: window.rs:10210
+msgid "Auflösung"
+msgstr "Resolution"
+
+#: window.rs:10215
+msgid "JPG-Qualität"
+msgstr "JPG quality"
+
+#: window.rs:10218
+msgid "Schriften einbetten"
+msgstr "Embed fonts"
+
+#: window.rs:10219
+msgid "Die verwendeten Schriften werden in die SVG-Datei gelegt (größere Datei)"
+msgstr "The fonts used are stored in the SVG file (larger file)"
+
+#: window.rs:10223
+msgid "Qualität der Effekte"
+msgstr "Effect quality"
+
+#: window.rs:10224
+msgid "Auflösung von Schatten, Glas-, 3D- und Kunsteffekten"
+msgstr "Resolution of shadows, glass, 3D and artistic effects"
+
+#: window.rs:10226
+msgid "Klein (150 dpi)"
+msgstr "Low (150 dpi)"
+
+#: window.rs:10227
+msgid "Mittel (300 dpi)"
+msgstr "Medium (300 dpi)"
+
+#: window.rs:10228
+msgid "Hoch (600 dpi)"
+msgstr "High (600 dpi)"
+
+#: window.rs:10234
+msgid "Durchsuchbar"
+msgstr "Searchable"
+
+#: window.rs:10234
+msgid "In Umrisse umwandeln"
+msgstr "Convert to outlines"
+
+#: window.rs:10240
+msgid "RGB (Bildschirm)"
+msgstr "RGB (screen)"
+
+#: window.rs:10241
+msgid "CMYK (Druck)"
+msgstr "CMYK (print)"
+
+#: window.rs:10242
+msgid "PDF/X-4 (Druckerei)"
+msgstr "PDF/X-4 (print shop)"
+
+#: window.rs:10253
+msgid "Farbprofil"
+msgstr "Colour profile"
+
+#: window.rs:10254
+msgid "Wählen…"
+msgstr "Choose…"
+
+#: window.rs:10262
+msgid "Keins gefunden – z. B. „PSO Coated v3“ von eci.org laden und wählen"
+msgstr "None found – e.g. download “PSO Coated v3” from eci.org and choose it"
+
+#: window.rs:10271
+msgid "Farbprofil wählen"
+msgstr "Choose colour profile"
+
+#: window.rs:10275
+msgid "ICC-Farbprofile"
+msgstr "ICC colour profiles"
+
+#: window.rs:10305
+msgid "Das ist kein CMYK-Druckprofil (ICC)."
+msgstr "This is not a CMYK print profile (ICC)."
+
+#: window.rs:10312
+msgid "Beschnittzugabe (mm)"
+msgstr "Bleed (mm)"
+
+#: window.rs:10354
+msgid "JPG unterstützt keine Transparenz – es wird Weiß verwendet"
+msgstr "JPG does not support transparency – white is used instead"
+
+#: window.rs:10356
+msgid "Dieses Dokument hat einen transparenten Hintergrund"
+msgstr "This document has a transparent background"
+
+#: window.rs:10395
+msgid "Für PDF/X zuerst ein Farbprofil wählen"
+msgstr "Choose a colour profile for PDF/X first"
+
+#: window.rs:10411
+msgid "Mindestens eine Zeichenfläche auswählen"
+msgstr "Select at least one artboard"
+
+#: window.rs:10484
+msgid "Export"
+msgstr "Export"
+
+#: window.rs:10513
+msgid "Exportiert: {}"
+msgstr "Exported: {}"
+
+#: window.rs:10515
+msgid "{} Dateien exportiert"
+msgstr "{} files exported"
+
+#: window.rs:10516
+msgid "Export fehlgeschlagen: {}"
+msgstr "Export failed: {}"
+
+#: window.rs:10530 window.rs:10554
+msgid "Skalieren"
+msgstr "Scale"
+
+#: window.rs:10533
+msgid "Größe (%)"
+msgstr "Size (%)"
+
+#: window.rs:10536
+msgid "Breite und Höhe getrennt"
+msgstr "Width and height separately"
+
+#: window.rs:10539
+msgid "Breite (%)"
+msgstr "Width (%)"
+
+#: window.rs:10542
+msgid "Höhe (%)"
+msgstr "Height (%)"
+
+#: window.rs:10545
+msgid "Konturen und Schatten mitskalieren"
+msgstr "Scale strokes and shadows too"
+
+#: window.rs:10608
+msgid "Name"
+msgstr "Name"
+
+#: window.rs:10616
+msgid "Hintergrundfarbe"
+msgstr "Background colour"
+
+#: window.rs:10617
+msgid "Ausgeschaltet ist die Zeichenfläche transparent"
+msgstr "When switched off, the artboard is transparent"
+
+#: window.rs:10631
+msgid "Hintergrund (alle Zeichenflächen)"
+msgstr "Background (all artboards)"
+
+#: window.rs:10633 window.rs:10846
+msgid "Hintergrund"
+msgstr "Background"
+
+#: window.rs:10640 window.rs:12117
+msgid "Übernehmen"
+msgstr "Apply"
+
+#: window.rs:10709
+msgid "Jetzt die neue Tastenkombination drücken …"
+msgstr "Now press the new key combination …"
+
+#: window.rs:10712
+msgid "Esc bricht ab, ⌫ entfernt das Kürzel."
+msgstr "Esc cancels, ⌫ removes the shortcut."
+
+#: window.rs:10762
+msgid "{} ist schon vergeben für „{}“. Eine andere Kombination wählen oder Esc drücken."
+msgstr "{} is already used for “{}”. Choose another combination or press Esc."
+
+#: window.rs:10825
+msgid "Darstellung"
+msgstr "Appearance"
+
+#: window.rs:10827
+msgid "Farbschema"
+msgstr "Colour scheme"
+
+#: window.rs:10843
+msgid "farbschema system hell dunkel darstellung theme design"
+msgstr "colour color scheme system light dark appearance theme design"
+
+#: window.rs:10865
+msgid "hintergrund standard dunkel schachbrett transparent arbeitsbereich"
+msgstr "background default dark chequerboard checkerboard transparent workspace"
+
+#: window.rs:10868
+msgid "Ansicht"
+msgstr "View"
+
+#: window.rs:10869
+msgid "Notizheft: eine Seite nach der anderen, Scrollen blättert um"
+msgstr "Notebook: one page after another, scrolling turns the page"
+
+#: window.rs:10870
+msgid "Notizheft"
+msgstr "Notebook"
+
+#: window.rs:10878
+msgid "ansicht zeichenfläche notizheft seiten blättern seite canva"
+msgstr "view artboard notebook pages turn page canva"
+
+#: window.rs:10881
+msgid "Lineale"
+msgstr "Rulers"
+
+#: window.rs:10882
+msgid "Ein Klick in die Ecke der Lineale wechselt die Einheit"
+msgstr "Clicking the corner of the rulers changes the unit"
+
+#: window.rs:10890
+msgid "lineale oben links einheit"
+msgstr "rulers top left unit"
+
+#: window.rs:10893
+msgid "Maßeinheit"
+msgstr "Unit of measurement"
+
+#: window.rs:10896
+msgid "Voreinstellung; jedes Dokument merkt sich seine eigene Einheit"
+msgstr "Default; every document remembers its own unit"
+
+#: window.rs:10907
+msgid "maßeinheit einheit pixel px millimeter mm zentimeter cm zoll inch in punkt pt metrisch imperial"
+msgstr "unit of measurement unit pixel px millimetre mm centimetre cm inch in point pt metric imperial"
+
+#: window.rs:10911
+msgid "Einrasten an"
+msgstr "Snap to"
+
+#: window.rs:10914
+msgid "einrasten {}"
+msgstr "snap {}"
+
+#: window.rs:10918
+msgid "ecken objekte punkte"
+msgstr "corners objects points"
+
+#: window.rs:10920
+msgid "Mitten"
+msgstr "Centres"
+
+#: window.rs:10922
+msgid "mitten mitte kantenmitten objekte punkte"
+msgstr "centres centre edge centres objects points"
+
+#: window.rs:10924
+msgid "Ankerpunkte"
+msgstr "Anchor points"
+
+#: window.rs:10924
+msgid "ankerpunkte pfade punkte"
+msgstr "anchor points paths points"
+
+#: window.rs:10925
+msgid "Seite"
+msgstr "Page"
+
+#: window.rs:10925
+msgid "seite zeichenfläche rand"
+msgstr "page artboard edge"
+
+#: window.rs:10926
+msgid "Pfade"
+msgstr "Paths"
+
+#: window.rs:10926
+msgid "pfade konturen linien"
+msgstr "paths strokes lines"
+
+#: window.rs:10927
+msgid "Abstände"
+msgstr "Spacing"
+
+#: window.rs:10927
+msgid "abstände gleiche lücken reihe"
+msgstr "spacing equal gaps row"
+
+#: window.rs:10928
+msgid "Raster"
+msgstr "Grid"
+
+#: window.rs:10928
+msgid "raster gitter"
+msgstr "grid"
+
+#: window.rs:10940
+msgid "Alle an"
+msgstr "All on"
+
+#: window.rs:10941
+msgid "Alle aus"
+msgstr "All off"
+
+#: window.rs:10957
+msgid "Rasterweite (px)"
+msgstr "Grid spacing (px)"
+
+#: window.rs:10965
+msgid "rasterweite raster gitter px"
+msgstr "grid spacing grid px"
+
+#: window.rs:10967
+msgid "Einsetzen in Formen"
+msgstr "Placing in shapes"
+
+#: window.rs:10970
+msgid "Wartezeit (s)"
+msgstr "Delay (s)"
+
+#: window.rs:10972
+msgid "So lange ein Bild oder Textfeld über einer Form gehalten werden muss, bis es eingesetzt wird"
+msgstr "How long an image or text box has to be held over a shape before it is placed inside"
+
+#: window.rs:10980
+msgid "wartezeit einsetzen formen bild textfeld halten rahmen"
+msgstr "delay place shapes image text box hold frame"
+
+#: window.rs:10985
+msgid "Alle zurücksetzen"
+msgstr "Reset all"
+
+#: window.rs:10987
+msgid "Standardbelegung"
+msgstr "Default shortcuts"
+
+#: window.rs:10995
+msgid "standardbelegung alle zurücksetzen shortcuts tastenkürzel tastenkombination"
+msgstr "default shortcuts reset all keyboard shortcuts key combination"
+
+#: window.rs:11018
+msgid "Nicht belegt"
+msgstr "Not assigned"
+
+#: window.rs:11041
+msgid "Auf den Standard zurücksetzen"
+msgstr "Reset to default"
+
+#: window.rs:11047
+msgid "Tastenkombination ändern"
+msgstr "Change key combination"
+
+#: window.rs:11246 window.rs:11253
+msgid "Einstellung suchen"
+msgstr "Search preferences"
+
+#: window.rs:11307
+msgid "Suchergebnisse"
+msgstr "Search results"
+
+#: window.rs:11365
+msgid "Bild konnte nicht gelesen werden: {}"
+msgstr "The image could not be read: {}"
+
+#: window.rs:11370
+msgid "Dieses Bildformat wird nicht unterstützt."
+msgstr "This image format is not supported."
+
+#: window.rs:11381
+msgid "Bild einfügen"
+msgstr "Insert Image"
+
+#: window.rs:11385
+msgid "Bilder"
+msgstr "Images"
+
+#: window.rs:11458
+msgid "Aus der Liste entfernen"
+msgstr "Remove from the list"
+
+#: window.rs:11473
+msgid "Öffnen …"
+msgstr "Open …"
+
+#: window.rs:11475
+msgid "Dokument öffnen (Strg O)"
+msgstr "Open document (Ctrl O)"
+
+#: window.rs:11526
+msgid "Bibliotheken"
+msgstr "Libraries"
+
+#: window.rs:11585
+msgid "{} (eigene)"
+msgstr "{} (custom)"
+
+#: window.rs:11589 window.rs:12297 window.rs:13306
+msgid "Meine Bibliothek"
+msgstr "My Library"
+
+#: window.rs:11608
+msgid "Bibliothek – Farben und Stile sammeln und übernehmen"
+msgstr "Library – collect and apply colours and styles"
+
+#: window.rs:11623
+msgid "Neue Bibliothek"
+msgstr "New Library"
+
+#: window.rs:11624
+msgid "Umbenennen …"
+msgstr "Rename …"
+
+#: window.rs:11625
+msgid "Löschen …"
+msgstr "Delete …"
+
+#: window.rs:11628
+msgid "Importieren …"
+msgstr "Import …"
+
+#: window.rs:11629
+msgid "Exportieren …"
+msgstr "Export …"
+
+#: window.rs:11630
+msgid "Ordner öffnen"
+msgstr "Open folder"
+
+#: window.rs:11631
+msgid "Neu einlesen"
+msgstr "Reload"
+
+#: window.rs:11636
+msgid "Bibliotheken verwalten"
+msgstr "Manage libraries"
+
+#: window.rs:11644
+msgid "Bibliothek wählen"
+msgstr "Choose library"
+
+#: window.rs:11675
+msgid "Noch keine Farben"
+msgstr "No colours yet"
+
+#: window.rs:11677
+msgid "Noch keine Stile"
+msgstr "No styles yet"
+
+#: window.rs:11679
+msgid "Noch keine Textstile"
+msgstr "No text styles yet"
+
+#: window.rs:11686
+msgid "Die Standardbibliothek „Stijl“ lässt sich nicht ändern. Für eigene Farben und Stile über ⋮ eine neue Bibliothek anlegen."
+msgstr "The default library “Stijl” cannot be changed. For your own colours and styles, create a new library via ⋮."
+
+#: window.rs:11693 window.rs:12144
+msgid "Neue Farbe …"
+msgstr "New colour …"
+
+#: window.rs:11694 window.rs:12145
+msgid "Füllfarbe der Auswahl"
+msgstr "Fill colour of the selection"
+
+#: window.rs:11695 window.rs:12146
+msgid "Konturfarbe der Auswahl"
+msgstr "Stroke colour of the selection"
+
+#: window.rs:11702
+msgid "Stile"
+msgstr "Styles"
+
+#: window.rs:11704 window.rs:12154
+msgid "Neuer Stil …"
+msgstr "New style …"
+
+#: window.rs:11705 window.rs:12155
+msgid "Stil der Auswahl"
+msgstr "Style of the selection"
+
+#: window.rs:11712
+msgid "Textstile"
+msgstr "Text styles"
+
+#: window.rs:11714 window.rs:12163
+msgid "Neuer Textstil …"
+msgstr "New text style …"
+
+#: window.rs:11715 window.rs:12164
+msgid "Textstil der Auswahl"
+msgstr "Text style of the selection"
+
+#: window.rs:11722
+msgid "Grafiken"
+msgstr "Graphics"
+
+#: window.rs:11893
+msgid "Hinzufügen"
+msgstr "Add"
+
+#: window.rs:11963
+msgid "{}{} {} px – Klick übernimmt den Textstil (beim Bearbeiten nur für den markierten Text)"
+msgstr "{}{} {} px – click applies the text style (while editing, only to the selected text)"
+
+#: window.rs:12032
+msgid "{}{} – Klick: Füllung, Umschalt-Klick: Kontur"
+msgstr "{}{} – click: fill, Shift-click: stroke"
+
+#: window.rs:12054
+msgid "Als Füllung"
+msgstr "As fill"
+
+#: window.rs:12055
+msgid "Als Kontur"
+msgstr "As stroke"
+
+#: window.rs:12058 window.rs:12120 window.rs:12194
+msgid "Benennen …"
+msgstr "Name …"
+
+#: window.rs:12060 window.rs:12122 window.rs:12196
+msgid "Aus der Bibliothek entfernen"
+msgstr "Remove from the library"
+
+#: window.rs:12095
+msgid "{}{} {} px{}{} – Klick übernimmt den Textstil"
+msgstr "{}{} {} px{}{} – click applies the text style"
+
+#: window.rs:12098
+msgid ", kursiv"
+msgstr ", italic"
+
+#: window.rs:12099
+msgid "{}Stil – Klick übernimmt Füllung, Kontur, Deckkraft …"
+msgstr "{}Style – click applies fill, stroke, opacity …"
+
+#: window.rs:12177
+msgid "{} – Klick fügt ein, oder ins Dokument ziehen"
+msgstr "{} – click to insert, or drag into the document"
+
+#: window.rs:12217
+msgid "Auswahl als Grafik …"
+msgstr "Selection as graphic …"
+
+#: window.rs:12232
+msgid "Die Standardbibliothek „Stijl“ lässt sich nicht ändern"
+msgstr "The default library “Stijl” cannot be changed"
+
+#: window.rs:12255
+msgid "ohne Namen"
+msgstr "unnamed"
+
+#: window.rs:12260
+msgid "Der Name ist freiwillig und erscheint unter dem Feld."
+msgstr "The name is optional and appears below the swatch."
+
+#: window.rs:12264
+msgid "_Übernehmen"
+msgstr "_Apply"
+
+#: window.rs:12317
+msgid "{} zu „{}“ hinzugefügt"
+msgstr "{} added to “{}”"
+
+#: window.rs:12322
+msgid "{} ist schon in „{}“"
+msgstr "{} is already in “{}”"
+
+#: window.rs:12427
+msgid "Schrift"
+msgstr "Font"
+
+#: window.rs:12441
+msgid "Größe (px)"
+msgstr "Size (px)"
+
+#: window.rs:12481
+msgid "Links"
+msgstr "Left"
+
+#: window.rs:12481
+msgid "Rechts"
+msgstr "Right"
+
+#: window.rs:12500
+msgid "Ausrichtung"
+msgstr "Alignment"
+
+#: window.rs:12501
+msgid "Zeilenabstand (Vielfaches der Schriftgröße)"
+msgstr "Line spacing (multiple of the font size)"
+
+#: window.rs:12514
+msgid "Zeilenabstand"
+msgstr "Line spacing"
+
+#: window.rs:12528
+msgid "Zeichenabstand"
+msgstr "Letter spacing"
+
+#: window.rs:12530
+msgid "Textfarbe"
+msgstr "Text colour"
+
+#: window.rs:12557
+msgid "Keine Farbe"
+msgstr "No colour"
+
+#: window.rs:12692
+msgid "Deckkraft (%)"
+msgstr "Opacity (%)"
+
+#: window.rs:12713
+msgid "Neuer Textstil"
+msgstr "New Text Style"
+
+#: window.rs:12713
+msgid "Neuer Stil"
+msgstr "New Style"
+
+#: window.rs:12734 window.rs:12991
+msgid "Textstil"
+msgstr "Text style"
+
+#: window.rs:12734 window.rs:12991
+msgid "Stil"
+msgstr "Style"
+
+#: window.rs:12822
+msgid "Bibliothek exportieren"
+msgstr "Export library"
+
+#: window.rs:12826 window.rs:12846
+msgid "Stijl-Bibliothek (SVG)"
+msgstr "Stijl library (SVG)"
+
+#: window.rs:12834
+msgid "„{}“ exportiert"
+msgstr "“{}” exported"
+
+#: window.rs:12835
+msgid "Exportieren fehlgeschlagen: {}"
+msgstr "Export failed: {}"
+
+#: window.rs:12842
+msgid "Bibliothek importieren"
+msgstr "Import library"
+
+#: window.rs:12864
+msgid "In dieser Datei ist keine Bibliothek"
+msgstr "There is no library in this file"
+
+#: window.rs:12868
+msgid "Importieren fehlgeschlagen: {}"
+msgstr "Import failed: {}"
+
+#: window.rs:12898
+msgid "„{}“ importiert"
+msgstr "“{}” imported"
+
+#: window.rs:12964
+msgid "Erst ein Objekt mit dieser Farbe auswählen"
+msgstr "Select an object with this colour first"
+
+#: window.rs:12984
+msgid "Erst einen Text auswählen"
+msgstr "Select a text first"
+
+#: window.rs:12986
+msgid "Erst eine Form oder einen Pfad auswählen"
+msgstr "Select a shape or path first"
+
+#: window.rs:13069
+msgid "Grafik benennen"
+msgstr "Name graphic"
+
+#: window.rs:13097
+msgid "Erst die Objekte der Grafik auswählen"
+msgstr "Select the objects of the graphic first"
+
+#: window.rs:13101
+msgid "Name, z. B. Logo"
+msgstr "Name, e.g. Logo"
+
+#: window.rs:13120
+msgid "Als Grafik in die Bibliothek"
+msgstr "Add to Library as Graphic"
+
+#: window.rs:13121
+msgid "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren."
+msgstr "The selected objects can later be copied into any document by dragging."
+
+#: window.rs:13137
+msgid "Grafik"
+msgstr "Graphic"
+
+#: window.rs:13148
+msgid "Farbe benennen"
+msgstr "Name colour"
+
+#: window.rs:13161
+msgid "Textstil benennen"
+msgstr "Name text style"
+
+#: window.rs:13163
+msgid "Stil benennen"
+msgstr "Name style"
+
+#: window.rs:13208 window.rs:13211
+msgid "Bibliothek {}"
+msgstr "Library {}"
+
+#: window.rs:13231
+msgid "Die Standardbibliothek „Stijl“ lässt sich nicht umbenennen"
+msgstr "The default library “Stijl” cannot be renamed"
+
+#: window.rs:13241
+msgid "Bibliothek umbenennen"
+msgstr "Rename library"
+
+#: window.rs:13244
+msgid "_Umbenennen"
+msgstr "_Rename"
+
+#: window.rs:13258
+msgid "Eine Bibliothek mit diesem Namen gibt es schon"
+msgstr "A library with this name already exists"
+
+#: window.rs:13276
+msgid "Die Standardbibliothek „Stijl“ lässt sich nicht löschen"
+msgstr "The default library “Stijl” cannot be deleted"
+
+#: window.rs:13286
+msgid "Bibliothek löschen?"
+msgstr "Delete library?"
+
+#: window.rs:13287
+msgid "„{}“ mit allen Farben und Stilen wird gelöscht."
+msgstr "“{}” and all its colours and styles will be deleted."
+
+#: window.rs:13290
+msgid "_Löschen"
+msgstr "_Delete"
+
+#: xml.rs:147
+msgid "Unerwartetes Dateiende, „{}“ fehlt"
+msgstr "Unexpected end of file, “{}” is missing"
+
+#: xml.rs:217
+msgid "Attributwert fehlt"
+msgstr "Attribute value missing"
+
+#: xml.rs:219
+msgid "Anführungszeichen erwartet bei Position {}"
+msgstr "Quotation mark expected at position {}"
+
+#: xml.rs:222
+msgid "Attributwert nicht abgeschlossen"
+msgstr "Attribute value not closed"
+
+#: xml.rs:244
+msgid "CDATA nicht abgeschlossen"
+msgstr "CDATA not closed"
+
+#: xml.rs:271
+msgid "Kein Wurzelelement gefunden"
+msgstr "No root element found"
+
+#: xml.rs:279
+msgid "Ungültiger Dateianfang"
+msgstr "Invalid start of file"
+
+msgid "Datei"
+msgstr "File"
+
+msgid "Bearbeiten"
+msgstr "Edit"
+
+msgid "Werkzeuge"
+msgstr "Tools"
+
+msgid "Feste Tasten"
+msgstr "Fixed keys"
+
+msgid "Auswahl exportieren"
+msgstr "Export selection"
+
+msgid "Tab schließen"
+msgstr "Close tab"
+
+msgid "Rückgängig"
+msgstr "Undo"
+
+msgid "Wiederholen"
+msgstr "Redo"
+
+msgid "Duplizieren"
+msgstr "Duplicate"
+
+msgid "Waagerecht spiegeln"
+msgstr "Flip horizontally"
+
+msgid "Senkrecht spiegeln"
+msgstr "Flip vertically"
+
+msgid "Vergrößern"
+msgstr "Zoom in"
+
+msgid "Verkleinern"
+msgstr "Zoom out"
+
+msgid "Originalgröße"
+msgstr "Actual size"
+
+msgid "Ganze Seite"
+msgstr "Whole page"
+
+msgid "Notizheft-Ansicht ein/aus"
+msgstr "Notebook view on/off"
+
+msgid "Eigenschaften ein-/ausblenden"
+msgstr "Show/hide properties"
+
+msgid "Kurvenstift"
+msgstr "Curvature pen"
+
+msgid "Bleistift"
+msgstr "Pencil"
+
+msgid "Auswahl löschen"
+msgstr "Delete selection"
+
+msgid "Abbrechen, Auswahl aufheben"
+msgstr "Cancel, deselect"
+
+msgid "Zeichnen beenden"
+msgstr "Finish drawing"
+
+msgid "Auswahl verschieben (mit Umschalt: 10 px)"
+msgstr "Move selection (with Shift: 10 px)"
+
+msgid "Ansicht verschieben (gedrückt halten, ziehen)"
+msgstr "Pan the view (hold and drag)"
+
+msgid "Nächste/vorige Seite (Notizheft)"
+msgstr "Next/previous page (notebook)"
+
+msgid "Alles auswählen"
+msgstr "Select all"
+
+msgid "Tabulator im Text"
+msgstr "Tab in text"
+
+msgid "Neue Zeile im Absatz (Textfeld)"
+msgstr "New line within a paragraph (text box)"
+
+msgid "Druck"
+msgstr "Print"
+
+msgid "A4 Hochformat"
+msgstr "A4 portrait"
+
+msgid "A4 Querformat"
+msgstr "A4 landscape"
+
+msgid "A3 Hochformat"
+msgstr "A3 portrait"
+
+msgid "A5 Hochformat"
+msgstr "A5 portrait"
+
+msgid "A6 Hochformat"
+msgstr "A6 portrait"
+
+msgid "US Letter"
+msgstr "US Letter"
+
+msgid "Postkarte"
+msgstr "Postcard"
+
+msgid "Visitenkarte"
+msgstr "Business card"
+
+msgid "DIN lang (Flyer)"
+msgstr "DL (flyer)"
+
+msgid "Instagram Post"
+msgstr "Instagram post"
+
+msgid "Instagram Hochformat"
+msgstr "Instagram portrait"
+
+msgid "Instagram Story / Reel"
+msgstr "Instagram story / reel"
+
+msgid "Facebook Post"
+msgstr "Facebook post"
+
+msgid "Facebook Titelbild"
+msgstr "Facebook cover"
+
+msgid "X / Twitter Post"
+msgstr "X / Twitter post"
+
+msgid "LinkedIn Post"
+msgstr "LinkedIn post"
+
+msgid "YouTube Thumbnail"
+msgstr "YouTube thumbnail"
+
+msgid "YouTube Banner"
+msgstr "YouTube banner"
+
+msgid "Pinterest Pin"
+msgstr "Pinterest pin"
+
+msgid "TikTok Video"
+msgstr "TikTok video"
+
+msgid "Bildschirm"
+msgstr "Screen"
+
+msgid "Full HD"
+msgstr "Full HD"
+
+msgid "4K UHD"
+msgstr "4K UHD"
+
+msgid "Shortcuts"
+msgstr "Shortcuts"
+
+#: window.rs (Sprache)
+msgid "Sprache"
+msgstr "Language"
+
+msgid "Die Sprache wechselt beim nächsten Start von Stijl"
+msgstr "The language changes the next time Stijl starts"
+
+msgid "Stijl {} ist verfügbar"
+msgstr "Stijl {} is available"
+
+msgid "Herunterladen"
+msgstr "Download"
+
+msgid "Stijl ist auf dem neuesten Stand"
+msgstr "Stijl is up to date"
+
+msgid "Keine Verbindung zu GitHub"
+msgstr "Could not reach GitHub"
+
+msgid "Updates"
+msgstr "Updates"
+
+msgid "Nach neuen Versionen suchen"
+msgstr "Check for new versions"
+
+msgid "Einmal am Tag bei GitHub nachsehen"
+msgstr "Checks GitHub once a day"
+
+msgid "Jetzt suchen"
+msgstr "Check now"
+
+msgid "updates aktualisierung neue version github"
+msgstr "updates update new version github"
+
+msgid "Dokument öffnen"
+msgstr "Open document"
+
+msgid "Bild „{}“ (keine Bilddatei)"
+msgstr "Image “{}” (not an image file)"
+
+msgid "Die Datei ist zu tief verschachtelt."
+msgstr "The file is nested too deeply."

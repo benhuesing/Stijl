@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Minimaler PDF-Leser für den Import von Illustrator-Dateien (.ai sind PDF-Dateien).
 //!
 //! Enthalten sind: Objektleser, eigenes Inflate (Flate), die üblichen Filter, Funktionen
 //! (Typ 0, 2, 3, 4) und Farbräume. Der Inhalt der Seiten wird in `ai.rs` ausgewertet.
 //! Verschlüsselte Dateien werden nicht unterstützt.
 
+use crate::i18n::tr;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -508,7 +512,13 @@ pub struct Lex<'a> {
     pub d: &'a [u8],
     pub pos: usize,
     refs: bool,
+    /// Verschachtelungstiefe von Arrays und Dictionaries
+    depth: u32,
 }
+
+/// Tiefer verschachtelte Arrays/Dictionaries werden nicht gelesen (sonst könnte eine
+/// präparierte Datei den Stapel überlaufen lassen).
+const MAX_NEST: u32 = 100;
 
 fn parse_number(t: &[u8]) -> Option<f64> {
     if t.is_empty() || !t.iter().all(|c| matches!(c, b'0'..=b'9' | b'+' | b'-' | b'.')) {
@@ -526,7 +536,12 @@ fn parse_number(t: &[u8]) -> Option<f64> {
 
 impl<'a> Lex<'a> {
     pub fn new(d: &'a [u8], refs: bool) -> Lex<'a> {
-        Lex { d, pos: 0, refs }
+        Lex {
+            d,
+            pos: 0,
+            refs,
+            depth: 0,
+        }
     }
 
     pub fn skip_ws(&mut self) {
@@ -553,7 +568,15 @@ impl<'a> Lex<'a> {
     }
 
     pub fn next(&mut self) -> Tok {
-        self.skip_ws();
+        // einzelne „)“ und „>“ ohne Gegenstück überspringen (in einer Schleife, nicht rekursiv)
+        loop {
+            self.skip_ws();
+            match (self.d.get(self.pos), self.d.get(self.pos + 1)) {
+                (Some(b')'), _) => self.pos += 1,
+                (Some(b'>'), n) if n != Some(&b'>') => self.pos += 1,
+                _ => break,
+            }
+        }
         let Some(&c) = self.d.get(self.pos) else {
             return Tok::Eof;
         };
@@ -639,6 +662,10 @@ impl<'a> Lex<'a> {
             b'<' => {
                 if self.d.get(self.pos + 1) == Some(&b'<') {
                     self.pos += 2;
+                    if self.depth >= MAX_NEST {
+                        return Tok::O(Obj::Null);
+                    }
+                    self.depth += 1;
                     let mut dict = Dict::new();
                     loop {
                         match self.next() {
@@ -655,6 +682,7 @@ impl<'a> Lex<'a> {
                             _ => {}
                         }
                     }
+                    self.depth -= 1;
                     Tok::O(Obj::Dict(dict))
                 } else {
                     self.pos += 1;
@@ -694,6 +722,10 @@ impl<'a> Lex<'a> {
             }
             b'[' => {
                 self.pos += 1;
+                if self.depth >= MAX_NEST {
+                    return Tok::O(Obj::Null);
+                }
+                self.depth += 1;
                 let mut a = Vec::new();
                 loop {
                     match self.next() {
@@ -703,6 +735,7 @@ impl<'a> Lex<'a> {
                         Tok::Kw(_) => {}
                     }
                 }
+                self.depth -= 1;
                 Tok::O(Obj::Arr(a))
             }
             b']' => {
@@ -861,7 +894,7 @@ impl Pdf {
 
     pub fn load(file: &[u8]) -> Result<Pdf, String> {
         let start = find(file, b"%PDF-", 0).ok_or_else(|| {
-            "Diese Datei enthält keine PDF-Daten. Die Illustrator-Datei muss mit der Option „PDF-kompatible Datei erstellen“ gespeichert sein."
+            tr("Diese Datei enthält keine PDF-Daten. Die Illustrator-Datei muss mit der Option „PDF-kompatible Datei erstellen“ gespeichert sein.")
                 .to_string()
         })?;
         let data = &file[start..];
@@ -982,7 +1015,7 @@ impl Pdf {
         }
         if trailers.iter().any(|t| t.contains_key("Encrypt")) {
             return Err(
-                "Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen.".into(),
+                tr("Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen.").into(),
             );
         }
         let root = trailers
@@ -997,7 +1030,9 @@ impl Pdf {
                     .find(|d| d.get("Type").and_then(Obj::name) == Some("Catalog"))
                     .cloned()
             })
-            .ok_or_else(|| "Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog).".to_string())?;
+            .ok_or_else(|| {
+                tr("Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog).").to_string()
+            })?;
         pdf.root = root;
         Ok(pdf)
     }
@@ -1838,6 +1873,20 @@ impl Cs {
                 }
             }
             _ => Cs::Gray,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deep_or_stray_tokens_do_not_overflow() {
+        let n = 200_000;
+        for data in ["[".repeat(n), "<< /A ".repeat(n), ")".repeat(n), "> ) ".repeat(n)] {
+            let mut lex = Lex::new(data.as_bytes(), true);
+            while !matches!(lex.next(), Tok::Eof) {}
         }
     }
 }

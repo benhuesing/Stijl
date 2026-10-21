@@ -1,8 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Editorzustand und Werkzeuglogik, unabhängig von GTK (dadurch testbar).
 //!
 //! Die Oberfläche übergibt Zeigerereignisse in Bildschirmkoordinaten; Schriftmetriken
 //! und Trefferprüfung kommen über das `Metrics`-Trait aus dem Cairo-Renderer.
 
+use crate::i18n::{tr, trf};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -118,10 +122,10 @@ pub enum Tool {
     Guide,
     /// Radierer (Umschalt E)
     Eraser,
+    /// Schere (C): eine gezogene Linie zerschneidet Formen und Pfade
+    Scissors,
     /// Formerstellung (Umschalt M)
     Builder,
-    /// Farbeimer (K): geschlossene Zwischenräume zu Formen machen
-    Bucket,
 }
 
 impl Tool {
@@ -135,7 +139,8 @@ impl Tool {
             'n' => Tool::Pencil,
             't' => Tool::Text,
             'g' => Tool::Guide,
-            'k' => Tool::Bucket,
+            'k' => Tool::Builder,
+            'c' => Tool::Scissors,
             _ => return None,
         })
     }
@@ -181,6 +186,154 @@ pub fn flatten_subpath(sp: &SubPath, n: usize) -> Vec<Pt> {
             out.push(p);
         }
     }
+    out
+}
+
+/// Punkt im Vieleck (gerade-ungerade-Regel)?
+fn point_in_poly(p: Pt, poly: &[Pt]) -> bool {
+    let mut inside = false;
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let mut j = n - 1;
+    for i in 0..n {
+        let (a, b) = (poly[i], poly[j]);
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+fn poly_area(poly: &[Pt]) -> f64 {
+    let n = poly.len();
+    (0..n)
+        .map(|i| {
+            let (a, b) = (poly[i], poly[(i + 1) % n]);
+            a.x * b.y - b.x * a.y
+        })
+        .sum::<f64>()
+        .abs()
+        / 2.0
+}
+
+/// Umriss eines Textes in einzelne Buchstaben aufteilen: Löcher (o, a …) bleiben bei
+/// ihrem Buchstaben, ebenso übereinanderliegende Teile wie i-Punkte, Umlaute, „:“ oder „=“.
+/// `frame`: Lage des Textes (dort läuft er waagerecht), `em`: Schriftgröße.
+pub fn glyph_parts(subs: Vec<SubPath>, frame: Option<Affine>, em: f64) -> Vec<Vec<SubPath>> {
+    let back = frame.map(|f| f.invert()).unwrap_or(Affine::IDENTITY);
+    let polys: Vec<Vec<Pt>> = subs
+        .iter()
+        .map(|sp| {
+            flatten_subpath(sp, 8)
+                .into_iter()
+                .map(|p| back.apply(p))
+                .collect()
+        })
+        .collect();
+    let areas: Vec<f64> = polys.iter().map(|p| poly_area(p)).collect();
+    let n = subs.len();
+    // jeder Teilpfad gehört zum kleinsten größeren Teilpfad, in dem er liegt (Löcher, ®)
+    let parent: Vec<Option<usize>> = (0..n)
+        .map(|i| {
+            let p0 = *polys[i].first()?;
+            (0..n)
+                .filter(|&j| j != i && areas[j] > areas[i] && point_in_poly(p0, &polys[j]))
+                .min_by(|&a, &b| areas[a].total_cmp(&areas[b]))
+        })
+        .collect();
+    let root = |mut i: usize| {
+        let mut guard = 0;
+        while let Some(p) = parent[i] {
+            i = p;
+            guard += 1;
+            if guard > n {
+                break;
+            }
+        }
+        i
+    };
+    // Inseln: ein äußerer Umriss mit allem, was darin liegt
+    let mut island_of: Vec<usize> = (0..n).map(root).collect();
+    let bbox = |idx: &[usize]| -> Option<Rect> {
+        idx.iter()
+            .flat_map(|&i| polys[i].iter().copied())
+            .fold(None, |r: Option<Rect>, p| {
+                Some(match r {
+                    Some(r) => r.union(&Rect::from_points(p, p)),
+                    None => Rect::from_points(p, p),
+                })
+            })
+    };
+    let mut roots: Vec<usize> = island_of.clone();
+    roots.sort_unstable();
+    roots.dedup();
+    let boxes: Vec<Option<Rect>> = roots
+        .iter()
+        .map(|&r| bbox(&(0..n).filter(|&i| island_of[i] == r).collect::<Vec<_>>()))
+        .collect();
+    // Teile desselben Buchstabens zusammenfassen
+    let mut merged: Vec<usize> = (0..roots.len()).collect();
+    fn find(m: &mut [usize], i: usize) -> usize {
+        let mut i = i;
+        while m[i] != i {
+            m[i] = m[m[i]];
+            i = m[i];
+        }
+        i
+    }
+    let overlap = |a0: f64, a1: f64, b0: f64, b1: f64| (a1.min(b1) - a0.max(b0)).max(0.0);
+    for a in 0..roots.len() {
+        for b in a + 1..roots.len() {
+            let (Some(ra), Some(rb)) = (boxes[a], boxes[b]) else {
+                continue;
+            };
+            let join = if frame.is_some() {
+                // übereinander (i-Punkt, Umlaut, Doppelpunkt), mit kleinem Abstand
+                let xo = overlap(ra.x0, ra.x1, rb.x0, rb.x1);
+                let yo = overlap(ra.y0, ra.y1, rb.y0, rb.y1);
+                let minw = ra.width().min(rb.width());
+                let minh = ra.height().min(rb.height());
+                let gap = (rb.y0 - ra.y1).max(ra.y0 - rb.y1).max(0.0);
+                xo >= 0.5 * minw && yo <= 0.2 * minh && gap < 0.3 * em
+            } else {
+                // Text auf Pfad: kleine Teile zum nahen Buchstaben
+                let small = |r: Rect| r.width().max(r.height()) < 0.25 * em;
+                let (ca, cb) = (
+                    Pt::new((ra.x0 + ra.x1) / 2.0, (ra.y0 + ra.y1) / 2.0),
+                    Pt::new((rb.x0 + rb.x1) / 2.0, (rb.y0 + rb.y1) / 2.0),
+                );
+                (small(ra) != small(rb)) && ca.dist(cb) < 0.45 * em
+            };
+            if join {
+                let (fa, fb) = (find(&mut merged, a), find(&mut merged, b));
+                if fa != fb {
+                    merged[fb.max(fa)] = fb.min(fa);
+                }
+            }
+        }
+    }
+    for i in 0..n {
+        let k = roots.iter().position(|&r| r == island_of[i]).unwrap_or(0);
+        island_of[i] = find(&mut merged, k);
+    }
+    // Reihenfolge wie im Text (erster Teilpfad jedes Buchstabens)
+    let mut order: Vec<usize> = island_of.clone();
+    order.dedup();
+    let mut seen = Vec::new();
+    for g in order {
+        if !seen.contains(&g) {
+            seen.push(g);
+        }
+    }
+    let mut out: Vec<Vec<SubPath>> = vec![Vec::new(); seen.len()];
+    for (i, sp) in subs.into_iter().enumerate() {
+        let k = seen.iter().position(|&g| g == island_of[i]).unwrap_or(0);
+        out[k].push(sp);
+    }
+    out.retain(|v| !v.is_empty());
     out
 }
 
@@ -275,12 +428,11 @@ pub enum Drag {
         pts: Vec<Pt>,
     },
     /// Formerstellung: Spur, getroffene Teilflächen, Alt = löschen
+    /// Formerstellung: überstrichene Flächen (Nummern im ebenen Graphen)
     Build {
         pts: Vec<Pt>,
         hits: Vec<usize>,
         alt: bool,
-        /// beteiligte Objekte (beim Drücken festgelegt)
-        ids: Vec<u64>,
     },
     Rubber {
         start: Pt,
@@ -564,6 +716,8 @@ pub struct Editor {
     pub needs_fit: bool,
     /// Notizheft-Ansicht: nur diese Zeichenfläche wird gezeigt und bearbeitet
     pub notebook: Option<usize>,
+    /// Ausrichten mehrerer Objekte aneinander (sonst an der Seite)
+    pub align_selection: bool,
     /// Scrollweg über das Seitenende hinaus (blättert ab einer Schwelle um)
     notebook_acc: f64,
     pub drag: Drag,
@@ -648,13 +802,11 @@ pub struct Editor {
     pub pencil_close: f64,
     /// Durchmesser des Radierers (Dokumenteinheiten)
     pub eraser_size: f64,
-    /// Teilflächen für die Formerstellung: (Stand, Objekte, Flächen)
-    builder: RefCell<Option<(u64, Vec<u64>, Rc<Vec<crate::shapeops::Atom>>)>>,
-    /// beim Zeigen hervorgehobene Teilfläche
+    /// beim Zeigen hervorgehobene Fläche der Formerstellung
     builder_hover: RefCell<Option<usize>>,
-    /// Größe der Zeichenfläche auf dem Bildschirm (für den Farbeimer)
+    /// Größe der Zeichenfläche auf dem Bildschirm (für die Formerstellung)
     pub viewport: (f64, f64),
-    /// Farbeimer: Linienraster (Stand, Ansicht) und zuletzt gefundene Fläche
+    /// Formerstellung: ebener Graph aller Umrisse (zwischengespeichert)
     bucket: RefCell<Option<BucketCache>>,
 }
 
@@ -706,6 +858,7 @@ impl Editor {
             needs_fit: true,
             notebook: None,
             notebook_acc: 0.0,
+            align_selection: true,
             drag: Drag::None,
             pen: None,
             node_sel: Vec::new(),
@@ -752,7 +905,6 @@ impl Editor {
             pencil_smooth: 0.5,
             pencil_close: 15.0,
             eraser_size: 20.0,
-            builder: RefCell::new(None),
             builder_hover: RefCell::new(None),
             viewport: (1200.0, 800.0),
             bucket: RefCell::new(None),
@@ -1259,11 +1411,11 @@ impl Editor {
         })?;
         let l = &self.doc.layers[idx];
         if !l.visible {
-            self.message = Some(format!("Die Ebene „{}“ ist ausgeblendet.", l.name));
+            self.message = Some(trf("Die Ebene „{}“ ist ausgeblendet.", &[&(l.name)]));
             return None;
         }
         if l.locked {
-            self.message = Some(format!("Die Ebene „{}“ ist gesperrt.", l.name));
+            self.message = Some(trf("Die Ebene „{}“ ist gesperrt.", &[&(l.name)]));
             return None;
         }
         Some(idx)
@@ -1310,6 +1462,7 @@ impl Editor {
             stroke_gradient: None,
             shadow_gradient: None,
             stroke_align: crate::model::StrokeAlign::Center,
+            dash: d.dash,
             fx: d.fx,
         }
     }
@@ -1429,21 +1582,16 @@ impl Editor {
             Tool::TextArea => self.area_press(p, m),
             Tool::Curvature => self.curv_press(p, s, mods),
             Tool::Guide => self.guide_press(p, s, mods),
-            Tool::Eraser => {
+            Tool::Eraser | Tool::Scissors => {
                 self.drag = Drag::Erase { pts: vec![p] };
             }
-            Tool::Bucket => {
-                self.bucket_fill(p, m);
-            }
             Tool::Builder => {
-                let ids = self.builder_candidates(Some(p), m);
                 let mut hits = Vec::new();
-                self.builder_touch(&ids, &[p], &mut hits, m);
+                self.builder_touch(&[p], &mut hits, m);
                 self.drag = Drag::Build {
                     pts: vec![p],
                     hits,
                     alt: mods.alt,
-                    ids,
                 };
             }
         }
@@ -1954,7 +2102,8 @@ impl Editor {
                         y: r.y0,
                         w: r.width(),
                         h: r.height(),
-                        r: self.corner_radius,
+                        // neue Rechtecke immer ohne Eckenradius (der wird am Objekt gezogen)
+                        r: 0.0,
                     }
                 } else {
                     Shape::Ellipse {
@@ -2100,7 +2249,7 @@ impl Editor {
         let t = self.text_defaults.clone();
         let mut shape = Shape::text_at(
             Pt::new(p.x, p.y + t.size * 0.35),
-            "Text",
+            tr("Text"),
             &t.family,
             t.size,
             t.bold,
@@ -2381,14 +2530,8 @@ impl Editor {
                 } else {
                     None
                 };
-                if self.tool == Tool::Bucket {
-                    self.bucket_region(p, m);
-                }
                 if self.tool == Tool::Builder {
-                    let ids = self.builder_candidates(Some(p), m);
-                    let atoms = self.builder_atoms(&ids, m);
-                    *self.builder_hover.borrow_mut() =
-                        atoms.iter().position(|a| crate::shapeops::atom_contains(a, p));
+                    *self.builder_hover.borrow_mut() = self.build_arrangement(m).face_at(p);
                 }
                 // Vorschau beim Zeichnen: intelligente Hilfslinien schon beim Zeigen,
                 // mit Umschalt eingerastete Richtung
@@ -2625,18 +2768,16 @@ impl Editor {
                 mut pts,
                 mut hits,
                 alt,
-                ids,
             } => {
                 let last = pts.last().copied().unwrap_or(p);
                 // Zwischenpunkte, damit schnelles Ziehen keine Fläche überspringt
                 let seg = crate::shapeops::resample(&[last, p], 2.0 / self.view.zoom);
-                self.builder_touch(&ids, &seg, &mut hits, m);
+                self.builder_touch(&seg, &mut hits, m);
                 pts.push(p);
                 Drag::Build {
                     pts,
                     hits,
                     alt: alt || mods.alt,
-                    ids,
                 }
             }
             Drag::Pencil { mut pts } => {
@@ -2669,7 +2810,7 @@ impl Editor {
                     self.hints.borrow_mut().push(SnapHint {
                         a: q,
                         b: q,
-                        label: Some("Hilfslinie"),
+                        label: Some(tr("Hilfslinie")),
                     });
                 }
                 let p = along.unwrap_or(p);
@@ -2889,14 +3030,32 @@ impl Editor {
             }
             Drag::Guide { idx, start, orig } => {
                 self.touch();
+                let (horizontal, vertical) = self
+                    .doc
+                    .guides
+                    .get(idx)
+                    .map(|g| (g.is_horizontal(), g.is_vertical()))
+                    .unwrap_or((false, false));
+                let mut pos = orig + (p - start);
+                // an Ankerpunkten, Ecken, Mitten und Kanten einrasten (wie beim Anlegen);
+                // gemessen wird dort, wo der Zeiger ist
+                let probe = if horizontal {
+                    Pt::new(p.x, pos.y)
+                } else if vertical {
+                    Pt::new(pos.x, p.y)
+                } else {
+                    pos
+                };
+                let q = self.snap_with(probe, self.snap_ctx.as_ref(), false);
+                // Waagerechte nur senkrecht bewegen, senkrechte nur waagerecht
+                if horizontal {
+                    pos = Pt::new(orig.x, q.y);
+                } else if vertical {
+                    pos = Pt::new(q.x, orig.y);
+                } else {
+                    pos = q;
+                }
                 if let Some(g) = self.doc.guides.get_mut(idx) {
-                    let mut pos = orig + (p - start);
-                    // Waagerechte nur senkrecht bewegen, senkrechte nur waagerecht
-                    if g.is_horizontal() {
-                        pos.x = orig.x;
-                    } else if g.is_vertical() {
-                        pos.y = orig.y;
-                    }
                     g.pos = pos;
                 }
                 Drag::Guide { idx, start, orig }
@@ -3099,10 +3258,14 @@ impl Editor {
                 }
             }
             Drag::Erase { pts } => {
-                self.erase_along(&pts, m);
+                if self.tool == Tool::Scissors {
+                    self.cut_along(&pts, m);
+                } else {
+                    self.erase_along(&pts, m);
+                }
             }
-            Drag::Build { hits, alt, ids, .. } => {
-                self.builder_apply(&ids, &hits, alt, m);
+            Drag::Build { hits, alt, .. } => {
+                self.builder_apply(&hits, alt, m);
             }
             Drag::Pencil { pts } => {
                 let z = self.view.zoom;
@@ -3633,7 +3796,7 @@ impl Editor {
     /// Schatten mitskalieren.
     pub fn scale_selection(&mut self, sx: f64, sy: f64, strokes: bool, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
         if sx <= 0.0 || sy <= 0.0 || ((sx - 1.0).abs() < 1e-9 && (sy - 1.0).abs() < 1e-9) {
@@ -3686,7 +3849,7 @@ impl Editor {
             return false;
         }
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht löschen.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht löschen.").into());
             return false;
         }
         self.checkpoint(None);
@@ -3757,7 +3920,7 @@ impl Editor {
 
     pub fn nudge(&mut self, dx: f64, dy: f64) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
         if self.selection.is_empty() {
@@ -3809,34 +3972,75 @@ impl Editor {
 
     pub fn convert_to_path(&mut self, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
-        let converted: Vec<(u64, Shape)> = self
+        // je Objekt die Teile; Texte werden in einzelne Buchstaben zerlegt
+        let converted: Vec<(u64, Vec<Vec<SubPath>>)> = self
             .selected_objects()
             .into_iter()
             .filter(|o| !matches!(o.shape, Shape::Path { .. } | Shape::Image { .. }))
             .filter_map(|o| {
                 let subpaths = Self::outline_of(o, m)?;
-                // Glyphen nutzen die Nonzero-Regel; Rechteck & Co. ebenso.
-                Some((
-                    o.id,
-                    Shape::Path {
-                        subpaths,
-                        evenodd: false,
-                    },
-                ))
+                let parts = if o.shape.is_text() {
+                    let em = o.shape.text_fields().map(|t| t.2).unwrap_or(12.0);
+                    let frame = match &o.shape {
+                        Shape::Text { xf, .. } | Shape::TextArea { xf, .. } => Some(*xf),
+                        _ => None,
+                    };
+                    glyph_parts(subpaths, frame, em)
+                } else {
+                    vec![subpaths]
+                };
+                Some((o.id, parts))
             })
             .collect();
         if converted.is_empty() {
             return false;
         }
         self.checkpoint(None);
-        for (id, shape) in converted {
-            if let Some(o) = self.doc.object_mut(id) {
-                o.shape = shape;
+        let mut next_group = self.doc.max_group();
+        let mut selection = Vec::new();
+        for (id, parts) in converted {
+            // Glyphen nutzen die Nonzero-Regel; Rechteck & Co. ebenso.
+            let path = |subpaths: Vec<SubPath>| Shape::Path {
+                subpaths,
+                evenodd: false,
+            };
+            if parts.len() <= 1 {
+                if let (Some(o), Some(subs)) = (self.doc.object_mut(id), parts.into_iter().next()) {
+                    o.shape = path(subs);
+                }
+                selection.push(id);
+                continue;
             }
+            // mehrere Buchstaben: je ein Pfad, als Gruppe an der Stelle des Textes
+            let Some((li, oi)) = self.doc.locate(id) else {
+                continue;
+            };
+            let orig = self.doc.layers[li].objects[oi].clone();
+            let group = if orig.group != 0 {
+                orig.group
+            } else {
+                next_group += 1;
+                next_group
+            };
+            let mut objs = Vec::new();
+            for (k, subs) in parts.into_iter().enumerate() {
+                let mut o = orig.clone();
+                if k > 0 {
+                    o.id = self.doc.alloc_id();
+                }
+                o.shape = path(subs);
+                o.group = group;
+                selection.push(o.id);
+                objs.push(o);
+            }
+            self.doc.layers[li].objects.splice(oi..oi + 1, objs);
         }
+        self.selection = selection;
+        self.expand_groups();
+        self.node_sel.clear();
         true
     }
 
@@ -3844,7 +4048,7 @@ impl Editor {
 
     fn transform_selection(&mut self, m: &dyn Metrics, f: impl Fn(Pt) -> Affine) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
         let Some(b) = self.selection_bbox(m) else {
@@ -3892,7 +4096,7 @@ impl Editor {
     /// Auswahl auf einen bestimmten Drehwinkel bringen (Grad, gegen den Uhrzeigersinn).
     pub fn set_rotation(&mut self, deg: f64, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
         let Some(cur) = self.selected_objects().first().map(|o| o.angle) else {
@@ -3935,7 +4139,7 @@ impl Editor {
     /// Pfadoperation auf alle ausgewählten Objekte.
     pub fn boolean(&mut self, op: Op, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
         let mut items: Vec<(usize, usize, u64)> = self
@@ -3944,7 +4148,7 @@ impl Editor {
             .filter_map(|id| self.doc.locate(*id).map(|(l, o)| (l, o, *id)))
             .collect();
         if items.len() < 2 {
-            self.message = Some("Dafür mindestens zwei Objekte auswählen.".into());
+            self.message = Some(tr("Dafür mindestens zwei Objekte auswählen.").into());
             return false;
         }
         items.sort();
@@ -3958,7 +4162,7 @@ impl Editor {
         let tol = (0.15 / self.view.zoom).clamp(0.02, 0.5);
         let result = boolean::apply_many(&shapes, op, tol);
         if result.is_empty() {
-            self.message = Some("Das Ergebnis wäre leer.".into());
+            self.message = Some(tr("Das Ergebnis wäre leer.").into());
             return false;
         }
         let (bottom_l, bottom_o, bottom_id) = items[0];
@@ -4374,9 +4578,9 @@ impl Editor {
             return false;
         };
         if !self.doc.layers[ti].editable() {
-            self.message = Some(format!(
+            self.message = Some(trf(
                 "Die Ebene „{}“ ist gesperrt oder ausgeblendet.",
-                self.doc.layers[ti].name
+                &[&(self.doc.layers[ti].name)],
             ));
             return false;
         }
@@ -4419,7 +4623,8 @@ impl Editor {
 
     fn textpath_press(&mut self, p: Pt, m: &dyn Metrics) {
         let Some(id) = self.hit(p, m) else {
-            self.message = Some("Klicke auf einen Pfad oder eine Form, um Text daran auszurichten.".into());
+            self.message =
+                Some(tr("Klicke auf einen Pfad oder eine Form, um Text daran auszurichten.").into());
             return;
         };
         let Some(obj) = self.doc.object(id) else { return };
@@ -4428,7 +4633,7 @@ impl Editor {
                 self.text_click(p, m);
             }
             Shape::Image { .. } => {
-                self.message = Some("Text lässt sich nicht an einem Bild ausrichten.".into());
+                self.message = Some(tr("Text lässt sich nicht an einem Bild ausrichten.").into());
             }
             shape => {
                 let Some(Shape::Path { subpaths, .. }) = shape.to_path() else {
@@ -4437,7 +4642,7 @@ impl Editor {
                 let t = self.text_defaults.clone();
                 let new_shape = Shape::TextPath {
                     path: subpaths,
-                    text: "Text auf Pfad".into(),
+                    text: tr("Text auf Pfad").into(),
                     family: t.family,
                     size: t.size,
                     bold: t.bold,
@@ -4535,11 +4740,11 @@ impl Editor {
     pub fn add_layer(&mut self) {
         self.checkpoint(None);
         let n = self.doc.layers.len() + 1;
-        let mut name = format!("Ebene {n}");
+        let mut name = trf("Ebene {}", &[&(n)]);
         let mut k = n;
         while self.doc.layers.iter().any(|l| l.name == name) {
             k += 1;
-            name = format!("Ebene {k}");
+            name = trf("Ebene {}", &[&(k)]);
         }
         let id = self.doc.alloc_id();
         let pos = self
@@ -4564,7 +4769,7 @@ impl Editor {
 
     pub fn delete_layer(&mut self) -> bool {
         if self.doc.layers.len() <= 1 {
-            self.message = Some("Die letzte Ebene kann nicht gelöscht werden.".into());
+            self.message = Some(tr("Die letzte Ebene kann nicht gelöscht werden.").into());
             return false;
         }
         let Some(i) = self.doc.layer_index(self.active_layer) else {
@@ -4732,7 +4937,10 @@ impl Editor {
             // Formen sind schon Pfade (Knoten lassen sich direkt bearbeiten); umwandeln
             // braucht man nur bei Text
             can_convert: sel.iter().any(|o| o.shape.is_text()),
-            show_style: !matches!(self.tool, Tool::Guide | Tool::Eraser | Tool::Builder) || !sel.is_empty(),
+            show_style: !matches!(
+                self.tool,
+                Tool::Guide | Tool::Eraser | Tool::Scissors | Tool::Builder
+            ) || !sel.is_empty(),
             show_fill: sel.is_empty()
                 || sel
                     .iter()
@@ -4779,25 +4987,25 @@ impl Editor {
             },
             title: match sel.len() {
                 0 => match self.tool {
-                    Tool::Select => "Auswahl".into(),
-                    Tool::Node => "Knoten bearbeiten".into(),
-                    Tool::Shape => "Neue Form".into(),
-                    Tool::Pen => "Zeichenstift".into(),
-                    Tool::Pencil => "Freihand".into(),
-                    Tool::Text => "Neuer Text".into(),
-                    Tool::TextPath => "Text auf Pfad".into(),
-                    Tool::TextArea => "Neues Textfeld".into(),
-                    Tool::Curvature => "Kurvenzeichner".into(),
-                    Tool::Guide => "Hilfslinien".into(),
-                    Tool::Eraser => "Radierer".into(),
-                    Tool::Builder => "Formerstellung".into(),
-                    Tool::Bucket => "Farbeimer".into(),
+                    Tool::Select => tr("Auswahl").into(),
+                    Tool::Node => tr("Knoten bearbeiten").into(),
+                    Tool::Shape => tr("Neue Form").into(),
+                    Tool::Pen => tr("Zeichenstift").into(),
+                    Tool::Pencil => tr("Freihand").into(),
+                    Tool::Text => tr("Neuer Text").into(),
+                    Tool::TextPath => tr("Text auf Pfad").into(),
+                    Tool::TextArea => tr("Neues Textfeld").into(),
+                    Tool::Curvature => tr("Kurvenzeichner").into(),
+                    Tool::Guide => tr("Hilfslinien").into(),
+                    Tool::Eraser => tr("Radierer").into(),
+                    Tool::Scissors => tr("Schere").into(),
+                    Tool::Builder => tr("Formerstellung").into(),
                 },
                 1 => match &sel[0].shape {
-                    Shape::Image { clip: Some(_), .. } => "Bild mit Rahmen".into(),
+                    Shape::Image { clip: Some(_), .. } => tr("Bild mit Rahmen").into(),
                     s => s.kind_name().into(),
                 },
-                n => format!("{n} Objekte"),
+                n => trf("{} Objekte", &[&(n)]),
             },
         }
     }
@@ -4807,20 +5015,32 @@ impl Editor {
         if self.selection.is_empty() {
             if matches!(self.tool, Tool::Text | Tool::TextPath | Tool::TextArea) {
                 f(&mut self.text_style);
+                self.text_style.fold_opacity();
             } else {
                 f(&mut self.defaults);
+                self.defaults.fold_opacity();
             }
             return false;
         }
         self.checkpoint(Some(key));
         for id in self.selection.clone() {
             if let Some(o) = self.doc.object_mut(id) {
+                // Formen: eine verborgene Gesamtdeckkraft erst in die Farben übernehmen,
+                // damit die angezeigte Deckkraft der Farbe auch wirklich gilt
+                let image = matches!(o.shape, Shape::Image { .. });
+                if !image {
+                    o.style.fold_opacity();
+                }
                 f(&mut o.style);
+                if !image {
+                    o.style.fold_opacity();
+                }
             }
         }
         // Gewählte Werte auch als Vorgabe für neue Objekte merken.
         if !matches!(self.tool, Tool::Text | Tool::TextPath | Tool::TextArea) {
             f(&mut self.defaults);
+            self.defaults.fold_opacity();
         }
         true
     }
@@ -4884,7 +5104,7 @@ impl Editor {
         th: usize,
     ) -> bool {
         if layers.is_empty() || tw == 0 || th == 0 {
-            self.message = Some("Im Bild wurden keine Flächen gefunden.".into());
+            self.message = Some(tr("Im Bild wurden keine Flächen gefunden.").into());
             return false;
         }
         let Some(img) = self.doc.object(id).cloned() else {
@@ -4951,7 +5171,7 @@ impl Editor {
                     group: gid,
                     locked: false,
                     name: if n == 0 {
-                        "Nachgezeichnet".into()
+                        tr("Nachgezeichnet").into()
                     } else {
                         String::new()
                     },
@@ -4965,21 +5185,37 @@ impl Editor {
         true
     }
 
-    // ───────────── Farbeimer ─────────────
+    // ───────────── Formerstellung ─────────────
+    //
+    // Alle Umrisse (der Auswahl, sonst alles Sichtbaren) bilden einen ebenen Graphen; seine
+    // Flächen – auch Zwischenräume und von offenen Linien begrenzte – sind die Teilflächen.
+    // Klick: die Fläche wird eine neue Form. Ziehen: die überstrichenen Flächen werden eine
+    // Form, die beteiligten Formen zerfallen in ihre übrigen Flächen. Alt: Flächen löschen.
 
-    /// Alle Linien als ebener Graph (zwischengespeichert, bis sich etwas ändert).
-    fn bucket_arrangement(&self, m: &dyn Metrics) -> Rc<crate::shapeops::Arrangement> {
+    /// Objekte, deren Umrisse die Flächen bilden: die Auswahl, sonst alles Sichtbare (leer).
+    fn build_scope(&self) -> Vec<u64> {
+        let mut ids = self.selection.clone();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Ebener Graph der Umrisse (zwischengespeichert, bis sich etwas ändert).
+    fn build_arrangement(&self, m: &dyn Metrics) -> Rc<crate::shapeops::Arrangement> {
         let v = self.view;
         let key = (self.rev, v.zoom, v.ox, v.oy, self.viewport);
+        let scope = self.build_scope();
         if let Some(c) = self.bucket.borrow().as_ref() {
             // Ansichtsänderungen spielen nur bei sehr vielen Kurven eine Rolle
-            if c.key.0 == self.rev && (!c.culled || c.key == key) {
+            if c.key.0 == self.rev && c.ids == scope && (!c.culled || c.key == key) {
                 return c.arr.clone();
             }
         }
         let mut curves: Vec<crate::shapeops::Cubic> = Vec::new();
         for l in self.doc.layers.iter().filter(|l| l.visible) {
             for o in &l.objects {
+                if !scope.is_empty() && scope.binary_search(&o.id).is_err() {
+                    continue;
+                }
                 let subs = match &o.shape {
                     Shape::Image { clip: Some(c), .. } => Some(crate::model::effective_subpaths(c)),
                     Shape::Image { .. } => o.shape.image_quad().map(|q| {
@@ -5017,53 +5253,98 @@ impl Editor {
         let arr = Rc::new(crate::shapeops::arrangement(&curves, tol));
         *self.bucket.borrow_mut() = Some(BucketCache {
             key,
+            ids: scope,
             culled,
             arr: arr.clone(),
         });
         arr
     }
 
-    /// Geschlossene Fläche unter `p`: Außenrand und Löcher als Kurvenstücke.
-    fn bucket_region(&self, p: Pt, m: &dyn Metrics) -> Option<Vec<Vec<crate::shapeops::Cubic>>> {
-        self.bucket_arrangement(m).region_at(p)
+    /// Objekte, mit denen gearbeitet wird: sichtbar, nicht gesperrt, keine Bilder/Texte.
+    fn editable_objects(&self) -> Vec<&Object> {
+        self.doc
+            .layers
+            .iter()
+            .filter(|l| l.visible && !l.locked)
+            .flat_map(|l| l.objects.iter())
+            .filter(|o| !o.locked)
+            .filter(|o| !matches!(o.shape, Shape::Image { .. }) && !o.shape.is_text())
+            .collect()
     }
 
-    /// Fläche unter dem Zeiger zum Hervorheben (nur beim Farbeimer).
-    pub fn bucket_marks(&self) -> Vec<Vec<Pt>> {
-        if self.tool != Tool::Bucket {
+    /// Flächen, die von den Punkten `pts` überstrichen werden, in `hits` aufnehmen.
+    fn builder_touch(&self, pts: &[Pt], hits: &mut Vec<usize>, m: &dyn Metrics) {
+        let arr = self.build_arrangement(m);
+        for p in pts {
+            if let Some(i) = arr.face_at(*p) {
+                if !hits.contains(&i) {
+                    hits.push(i);
+                }
+            }
+        }
+    }
+
+    /// Hervorzuhebende Flächen: während des Ziehens die getroffenen, sonst die unter dem
+    /// Zeiger. Zweiter Wert: wird gelöscht (Alt).
+    pub fn builder_marks(&self) -> (Vec<Vec<boolean::Ring>>, bool) {
+        if self.tool != Tool::Builder {
+            return (Vec::new(), false);
+        }
+        let Some(arr) = self.bucket.borrow().as_ref().map(|c| c.arr.clone()) else {
+            return (Vec::new(), false);
+        };
+        let valid = |i: &usize| *i < arr.faces.len();
+        match &self.drag {
+            Drag::Build { hits, alt, .. } => (
+                hits.iter()
+                    .filter(|i| valid(i))
+                    .map(|i| arr.region_polys(*i))
+                    .collect(),
+                *alt,
+            ),
+            _ => (
+                self.builder_hover
+                    .borrow()
+                    .filter(valid)
+                    .map(|i| vec![arr.region_polys(i)])
+                    .unwrap_or_default(),
+                false,
+            ),
+        }
+    }
+
+    /// Alle Flächen (zum Anzeigen des Netzes) – nur mit Auswahl, sonst wäre es das ganze
+    /// Dokument.
+    pub fn builder_all(&self) -> Vec<Vec<boolean::Ring>> {
+        if self.tool != Tool::Builder || self.selection.is_empty() {
             return Vec::new();
         }
-        let Some(p) = self.pointer else { return Vec::new() };
-        let arr = match self.bucket.borrow().as_ref() {
-            Some(c) => c.arr.clone(),
-            None => return Vec::new(),
+        let Some(arr) = self.bucket.borrow().as_ref().map(|c| c.arr.clone()) else {
+            return Vec::new();
         };
-        arr.region_at(p)
-            .map(|rings| {
-                rings
-                    .iter()
-                    .map(|segs| {
-                        let mut pts = Vec::new();
-                        for c in segs {
-                            for k in 0..12 {
-                                pts.push(crate::geom::cubic_point(c.0, c.1, c.2, c.3, k as f64 / 12.0));
-                            }
-                        }
-                        pts
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        arr.bounded_faces().map(|f| vec![f.poly.clone()]).collect()
     }
 
-    /// Klick mit dem Farbeimer: aus der geschlossenen Fläche wird eine neue Form.
-    pub fn bucket_fill(&mut self, p: Pt, m: &dyn Metrics) -> bool {
-        let Some(rings) = self.bucket_region(p, m) else {
-            self.message = Some("Hier ist keine geschlossene Fläche.".into());
-            return false;
-        };
-        // echte Kurvenstücke der vorhandenen Linien übernehmen
-        let subs: Vec<SubPath> = rings
+    /// Stil für Flächen, die in keiner Form liegen (Zwischenräume): aktuelle Füllung, ohne
+    /// Kontur.
+    fn gap_style(&self) -> Style {
+        let mut style = self.defaults.clone();
+        style.stroke = None;
+        style.shadow = None;
+        if style.fill.is_none() {
+            style.fill = Some(Color::rgb(0.6, 0.757, 0.945));
+        }
+        style
+    }
+
+    /// Klick: aus der Fläche wird eine neue Form (die vorhandenen bleiben unverändert).
+    fn builder_new_shape(
+        &mut self,
+        region: Vec<Vec<crate::shapeops::Cubic>>,
+        p: Pt,
+        m: &dyn Metrics,
+    ) -> bool {
+        let subs: Vec<SubPath> = region
             .iter()
             .map(|segs| crate::shapeops::segs_to_subpath(segs))
             .collect();
@@ -5090,12 +5371,7 @@ impl Editor {
                 None => return false,
             },
         };
-        let mut style = self.defaults.clone();
-        style.stroke = None;
-        style.shadow = None;
-        if style.fill.is_none() {
-            style.fill = Some(Color::rgb(0.6, 0.757, 0.945));
-        }
+        let style = self.gap_style();
         self.checkpoint(None);
         let id = self.doc.alloc_id();
         self.doc.layers[li].objects.insert(
@@ -5117,197 +5393,133 @@ impl Editor {
         true
     }
 
-    // ───────────── Radierer und Formerstellung ─────────────
-
-    /// Objekte, mit denen gearbeitet wird: sichtbar, nicht gesperrt, keine Bilder/Texte.
-    fn editable_objects(&self) -> Vec<&Object> {
-        self.doc
-            .layers
-            .iter()
-            .filter(|l| l.visible && !l.locked)
-            .flat_map(|l| l.objects.iter())
-            .filter(|o| !o.locked)
-            .filter(|o| !matches!(o.shape, Shape::Image { .. }) && !o.shape.is_text())
-            .collect()
-    }
-
-    /// Formerstellung: die ausgewählten Formen; ohne Auswahl die Formen unter dem Zeiger
-    /// und alles, was diese überlappt.
-    fn builder_candidates(&self, p: Option<Pt>, m: &dyn Metrics) -> Vec<u64> {
-        let all = self.editable_objects();
-        let sel: Vec<u64> = all
-            .iter()
-            .filter(|o| self.selection.contains(&o.id))
-            .map(|o| o.id)
-            .collect();
-        if !sel.is_empty() {
-            return sel;
-        }
-        let Some(p) = p else { return Vec::new() };
-        let tol = 1.0 / self.view.zoom;
-        let under: Vec<&Object> = all.iter().copied().filter(|o| m.hit(o, p, tol)).collect();
-        let Some(mut b) = under.iter().filter_map(|o| m.bbox(o)).reduce(|a, b| a.union(&b)) else {
-            return Vec::new();
+    /// Loslassen: eine Fläche angeklickt → neue Form; mehrere überstrichen → vereinigen
+    /// (Alt: löschen). Beteiligte Formen zerfallen in ihre übrigen Flächen.
+    fn builder_apply(&mut self, hits: &[usize], alt: bool, m: &dyn Metrics) -> bool {
+        let arr = self.build_arrangement(m);
+        let hits: Vec<usize> = hits.iter().copied().filter(|i| *i < arr.faces.len()).collect();
+        let Some(&first) = hits.first() else {
+            self.message = Some(tr("Hier ist keine geschlossene Fläche.").into());
+            return false;
         };
-        b = b.inflate(0.5);
-        all.iter()
-            .filter(|o| m.bbox(o).map(|ob| ob.intersects(&b)).unwrap_or(false))
-            .take(12)
-            .map(|o| o.id)
-            .collect()
-    }
-
-    /// Teilflächen der Objekte `ids` (zwischengespeichert, bis sich etwas ändert).
-    fn builder_atoms(&self, ids: &[u64], m: &dyn Metrics) -> Rc<Vec<crate::shapeops::Atom>> {
-        if let Some((rev, cids, atoms)) = self.builder.borrow().as_ref() {
-            if *rev == self.rev && cids == ids {
-                return atoms.clone();
-            }
+        let probe = |i: usize| crate::shapeops::interior_point(&arr.faces[i].poly);
+        if !alt && hits.len() == 1 {
+            let Some(p) = probe(first) else { return false };
+            return self.builder_new_shape(arr.region_of(first), p, m);
         }
-        let tol = (0.25 / self.view.zoom).clamp(0.05, 1.0);
-        let shapes: Vec<(u64, Vec<boolean::Ring>)> = ids
-            .iter()
-            .filter_map(|id| {
-                let o = self.doc.object(*id)?;
-                let subs = Self::outline_of(o, m)?;
-                let subs = crate::model::effective_subpaths(&subs);
-                Some((*id, boolean::to_rings(&subs, tol)))
+        // gefüllte Formen im Bereich: (Stapelplatz, Id, Ringe, Stil)
+        let scope = self.build_scope();
+        let tol = (0.05 / self.view.zoom).clamp(0.005, 0.5);
+        let mut shapes: Vec<((usize, usize), u64, Vec<boolean::Ring>, Style)> = self
+            .editable_objects()
+            .into_iter()
+            .filter(|o| scope.is_empty() || scope.binary_search(&o.id).is_ok())
+            .filter(|o| o.style.fill.is_some())
+            .filter_map(|o| {
+                let subs = crate::model::effective_subpaths(&Self::outline_of(o, m)?);
+                if !subs.iter().all(|s| s.closed) {
+                    return None;
+                }
+                Some((
+                    self.doc.locate(o.id)?,
+                    o.id,
+                    boolean::to_rings(&subs, tol),
+                    o.style.clone(),
+                ))
             })
             .collect();
-        let atoms = Rc::new(crate::shapeops::atoms(&shapes));
-        *self.builder.borrow_mut() = Some((self.rev, ids.to_vec(), atoms.clone()));
-        atoms
-    }
-
-    /// Teilflächen, die von den Punkten `pts` überstrichen werden, in `hits` aufnehmen.
-    fn builder_touch(&self, ids: &[u64], pts: &[Pt], hits: &mut Vec<usize>, m: &dyn Metrics) {
-        let atoms = self.builder_atoms(ids, m);
-        for p in pts {
-            for (i, a) in atoms.iter().enumerate() {
-                if !hits.contains(&i) && crate::shapeops::atom_contains(a, *p) {
-                    hits.push(i);
-                }
-            }
-        }
-    }
-
-    /// Hervorzuhebende Teilflächen: während des Ziehens die getroffenen, sonst die unter
-    /// dem Zeiger. Zweiter Wert: wird gelöscht (Alt).
-    pub fn builder_marks(&self) -> (Vec<Vec<boolean::Ring>>, bool) {
-        let Some((_, _, atoms)) = self.builder.borrow().clone() else {
-            return (Vec::new(), false);
+        shapes.sort_by_key(|x| x.0);
+        // oberste Form, in der eine Fläche liegt
+        let owner = |i: usize| -> Option<usize> {
+            let q = probe(i)?;
+            (0..shapes.len())
+                .rev()
+                .find(|&k| boolean::contains(&shapes[k].2, q))
         };
-        match &self.drag {
-            Drag::Build { hits, alt, .. } => (
-                hits.iter()
-                    .filter_map(|i| atoms.get(*i))
-                    .map(|a| a.rings.clone())
+        let owners_of = |i: usize| -> Vec<usize> {
+            match probe(i) {
+                Some(q) => (0..shapes.len())
+                    .filter(|&k| boolean::contains(&shapes[k].2, q))
                     .collect(),
-                *alt,
-            ),
-            _ if self.tool == Tool::Builder => (
-                self.builder_hover
-                    .borrow()
-                    .and_then(|i| atoms.get(i))
-                    .map(|a| vec![a.rings.clone()])
-                    .unwrap_or_default(),
-                false,
-            ),
-            _ => (Vec::new(), false),
-        }
-    }
-
-    /// Alle Teilflächen der aktuellen Formerstellung (zum Anzeigen des Netzes).
-    pub fn builder_all(&self) -> Vec<Vec<boolean::Ring>> {
-        if self.tool != Tool::Builder {
-            return Vec::new();
-        }
-        self.builder
-            .borrow()
-            .as_ref()
-            .map(|(_, _, a)| a.iter().map(|x| x.rings.clone()).collect())
-            .unwrap_or_default()
-    }
-
-    /// Getroffene Teilflächen vereinigen (Alt: löschen); alle übrigen bleiben als eigene
-    /// Formen erhalten.
-    fn builder_apply(&mut self, ids: &[u64], hits: &[usize], alt: bool, m: &dyn Metrics) -> bool {
-        let atoms = self.builder_atoms(ids, m);
-        let ids = ids.to_vec();
-        if hits.is_empty() || ids.is_empty() {
-            return false;
-        }
-        // nur eine Fläche getroffen und nicht löschen: nichts zu vereinigen, aber teilen
-        let order = |id: u64| self.doc.locate(id).unwrap_or((usize::MAX, usize::MAX));
-        let Some(&bottom) = ids.iter().min_by_key(|id| order(**id)) else {
-            return false;
+                None => Vec::new(),
+            }
         };
-        let (bl, bo) = order(bottom);
-        if bl == usize::MAX {
+        // beteiligt: Formen, in denen eine überstrichene Fläche liegt
+        let mut involved: Vec<usize> = hits.iter().flat_map(|&i| owners_of(i)).collect();
+        involved.sort_unstable();
+        involved.dedup();
+        if involved.is_empty() && alt {
             return false;
         }
-        let style_of = |id: u64| self.doc.object(id).map(|o| o.style.clone()).unwrap_or_default();
-        // (Reihenfolge, Ringe, Stil)
-        let mut parts: Vec<((usize, usize), Vec<boolean::Ring>, Style, bool)> = Vec::new();
-        if !alt {
-            let mut acc: Vec<boolean::Ring> = Vec::new();
-            for i in hits {
-                if let Some(a) = atoms.get(*i) {
-                    acc = if acc.is_empty() {
-                        a.rings.clone()
-                    } else {
-                        boolean::rings_op(&acc, &a.rings, Op::Union)
-                    };
-                }
-            }
-            let owner = atoms[hits[0]].owner;
-            let top = hits
-                .iter()
-                .filter_map(|i| atoms.get(*i))
-                .map(|a| order(a.owner))
-                .max()
-                .unwrap_or(order(owner));
-            parts.push((top, acc, style_of(owner), true));
-        }
-        for (i, a) in atoms.iter().enumerate() {
-            if !hits.contains(&i) {
-                parts.push((order(a.owner), a.rings.clone(), style_of(a.owner), false));
-            }
-        }
-        parts.sort_by_key(|p| p.0);
-        self.checkpoint(None);
-        let _ = m;
-        for id in &ids {
-            self.doc.remove_object(*id);
-        }
-        let mut pos = bo.min(self.doc.layers[bl].objects.len());
-        let mut merged = None;
-        for (_, rings, style, is_merged) in parts {
-            if rings.is_empty() {
+        // übrige Flächen der beteiligten Formen bleiben als eigene Formen
+        let mut pieces: Vec<(Vec<SubPath>, Style)> = Vec::new();
+        for i in 0..arr.faces.len() {
+            if hits.contains(&i) || !arr.bounded(i) {
                 continue;
             }
-            let id = self.doc.alloc_id();
-            self.doc.layers[bl].objects.insert(
-                pos,
+            let own = owners_of(i);
+            let Some(&top) = own.iter().rev().find(|k| involved.contains(k)) else {
+                continue;
+            };
+            let subs: Vec<SubPath> = arr
+                .region_of(i)
+                .iter()
+                .map(|segs| crate::shapeops::segs_to_subpath(segs))
+                .collect();
+            pieces.push((subs, shapes[top].3.clone()));
+        }
+        let merged: Option<(Vec<SubPath>, Style)> = if alt {
+            None
+        } else {
+            let regions: Vec<Vec<Vec<crate::shapeops::Cubic>>> =
+                hits.iter().map(|&i| arr.region_of(i)).collect();
+            let subs = crate::shapeops::union_regions(&regions);
+            let style = owner(first)
+                .map(|k| shapes[k].3.clone())
+                .unwrap_or_else(|| self.gap_style());
+            (!subs.is_empty()).then_some((subs, style))
+        };
+        // Einfügestelle: Platz der untersten beteiligten Form (sonst wie beim Klick)
+        let (li, mut pos) = match involved.first().map(|&k| shapes[k].0) {
+            Some(at) => at,
+            None => match self.target_layer() {
+                Some(li) => (li, 0),
+                None => return false,
+            },
+        };
+        let remove: Vec<u64> = involved.iter().map(|&k| shapes[k].1).collect();
+        self.checkpoint(None);
+        for id in &remove {
+            self.doc.remove_object(*id);
+        }
+        pos = pos.min(self.doc.layers[li].objects.len());
+        let add = |doc: &mut Document, subpaths: Vec<SubPath>, style: Style, pos: &mut usize| -> u64 {
+            let id = doc.alloc_id();
+            doc.layers[li].objects.insert(
+                *pos,
                 Object {
                     group: 0,
                     locked: false,
                     name: String::new(),
                     id,
                     shape: Shape::Path {
-                        subpaths: boolean::rings_to_paths(rings),
-                        evenodd: false,
+                        subpaths,
+                        evenodd: true,
                     },
                     style,
                     angle: 0.0,
                 },
             );
-            pos += 1;
-            if is_merged {
-                merged = Some(id);
-            }
+            *pos += 1;
+            id
+        };
+        for (subs, style) in pieces {
+            add(&mut self.doc, subs, style, &mut pos);
         }
-        self.selection = merged.into_iter().collect();
+        self.selection = match merged {
+            Some((subs, style)) => vec![add(&mut self.doc, subs, style, &mut pos)],
+            None => Vec::new(),
+        };
         self.node_sel.clear();
         true
     }
@@ -5398,6 +5610,256 @@ impl Editor {
                 };
             }
         }
+        self.node_sel.clear();
+        true
+    }
+
+    /// Schere: die gezogene Linie zerschneidet gefüllte Formen in Stücke (mit den echten
+    /// Kurven) und trennt Linien an den Schnittpunkten auf. Jedes Stück wird ein eigenes
+    /// Objekt. Mit Auswahl nur die ausgewählten Objekte, sonst alles unter der Linie.
+    fn cut_along(&mut self, pts: &[Pt], m: &dyn Metrics) -> bool {
+        if pts.len() < 2 {
+            return false;
+        }
+        let z = self.view.zoom;
+        let tol = (0.2 / z).clamp(0.01, 1.0);
+        let mut line = crate::geom::simplify(pts, 0.6 / z);
+        if line.len() < 2 {
+            return false;
+        }
+        // Enden etwas verlängern, damit ein Schnitt bis genau an den Rand trotzdem durchgeht
+        let ext = 3.0 / z;
+        let n = line.len();
+        let d0 = (line[0] - line[1]).normalized();
+        let d1 = (line[n - 1] - line[n - 2]).normalized();
+        line[0] = line[0] + d0 * ext;
+        line[n - 1] = line[n - 1] + d1 * ext;
+        let cutter: Vec<crate::shapeops::Cubic> = line
+            .windows(2)
+            .filter(|w| w[0].dist(w[1]) > 1e-9)
+            .map(|w| crate::shapeops::line_cubic(w[0], w[1]))
+            .collect();
+        let lb = line.iter().fold(Rect::from_points(line[0], line[0]), |r, p| {
+            r.union(&Rect::from_points(*p, *p))
+        });
+        let targets: Vec<u64> = self
+            .editable_objects()
+            .into_iter()
+            .filter(|o| self.selection.is_empty() || self.selection.contains(&o.id))
+            .filter(|o| m.bbox(o).map(|b| b.intersects(&lb)).unwrap_or(false))
+            .map(|o| o.id)
+            .collect();
+        // (Objekt, Teile – je Teil die Teilpfade)
+        let mut changes: Vec<(u64, Vec<Vec<SubPath>>)> = Vec::new();
+        for id in targets {
+            let Some(o) = self.doc.object(id) else { continue };
+            let Some(subs) = Self::outline_of(o, m) else {
+                continue;
+            };
+            let subs = crate::model::effective_subpaths(&subs);
+            let filled = o.style.fill.is_some() && subs.iter().all(|s| s.closed);
+            if filled {
+                let mut curves: Vec<crate::shapeops::Cubic> =
+                    subs.iter().flat_map(|sp| sp.segments()).collect();
+                curves.extend(cutter.iter().copied());
+                let arr = crate::shapeops::arrangement(&curves, tol);
+                let rings = boolean::to_rings(&subs, tol);
+                let mut parts: Vec<Vec<SubPath>> = Vec::new();
+                for f in arr.bounded_faces() {
+                    let Some(q) = crate::shapeops::interior_point(&f.poly) else {
+                        continue;
+                    };
+                    if !boolean::contains(&rings, q) {
+                        continue;
+                    }
+                    if let Some(region) = arr.region_at(q) {
+                        parts.push(
+                            region
+                                .iter()
+                                .map(|segs| crate::shapeops::segs_to_subpath(segs))
+                                .collect(),
+                        );
+                    }
+                }
+                if parts.len() >= 2 {
+                    changes.push((id, parts));
+                }
+            } else {
+                let mut parts: Vec<Vec<SubPath>> = Vec::new();
+                let mut cut = false;
+                for sp in &subs {
+                    match crate::shapeops::split_at_cuts(sp, &cutter, tol) {
+                        Some(pieces) => {
+                            cut = true;
+                            parts.extend(pieces.into_iter().map(|p| vec![p]));
+                        }
+                        None => parts.push(vec![sp.clone()]),
+                    }
+                }
+                if cut && parts.len() >= 2 {
+                    changes.push((id, parts));
+                }
+            }
+        }
+        if changes.is_empty() {
+            return false;
+        }
+        self.checkpoint(None);
+        let mut selection = Vec::new();
+        for (id, parts) in changes {
+            let Some((li, oi)) = self.doc.locate(id) else {
+                continue;
+            };
+            let orig = self.doc.layers[li].objects[oi].clone();
+            let mut objs = Vec::new();
+            for (k, subpaths) in parts.into_iter().enumerate() {
+                let mut o = orig.clone();
+                if k > 0 {
+                    o.id = self.doc.alloc_id();
+                }
+                o.shape = Shape::Path {
+                    subpaths,
+                    evenodd: false,
+                };
+                selection.push(o.id);
+                objs.push(o);
+            }
+            self.doc.layers[li].objects.splice(oi..oi + 1, objs);
+        }
+        self.selection = selection;
+        self.node_sel.clear();
+        true
+    }
+
+    /// Können die ausgewählten Pfade verbunden werden (mindestens ein offener Pfad)?
+    pub fn can_join_paths(&self) -> bool {
+        self.selected_objects().iter().any(|o| match &o.shape {
+            Shape::Path { subpaths, .. } => subpaths.iter().any(|sp| !sp.closed && sp.nodes.len() >= 2),
+            Shape::Line { .. } => true,
+            _ => false,
+        })
+    }
+
+    /// Ausgewählte offene Pfade zu einem Pfad verbinden: jeweils die nächstgelegenen Enden
+    /// werden verbunden – liegen sie fast aufeinander, verschmelzen sie zu einem Punkt, sonst
+    /// entsteht ein gerades Stück. Ein einzelner offener Pfad wird geschlossen.
+    pub fn join_paths(&mut self) -> bool {
+        if self.selection_locked() {
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            return false;
+        }
+        // beteiligte Objekte in Stapelreihenfolge (das unterste bestimmt den Stil)
+        let objs: Vec<Object> = self
+            .selected_in_order()
+            .into_iter()
+            .filter(|o| matches!(o.shape, Shape::Path { .. } | Shape::Line { .. }))
+            .collect();
+        let mut opens: Vec<Vec<Node>> = Vec::new();
+        let mut closed: Vec<SubPath> = Vec::new();
+        for o in &objs {
+            let subs = match &o.shape {
+                Shape::Path { subpaths, .. } => subpaths.clone(),
+                other => match other.to_path() {
+                    Some(Shape::Path { subpaths, .. }) => subpaths,
+                    _ => continue,
+                },
+            };
+            for sp in subs {
+                if sp.closed || sp.nodes.len() < 2 {
+                    closed.push(sp);
+                } else {
+                    opens.push(sp.nodes);
+                }
+            }
+        }
+        if opens.is_empty() {
+            return false;
+        }
+        let merge_tol = 4.0 / self.view.zoom;
+        let single = opens.len() == 1;
+        let reversed = |nodes: &mut Vec<Node>| {
+            nodes.reverse();
+            for n in nodes.iter_mut() {
+                std::mem::swap(&mut n.h_in, &mut n.h_out);
+            }
+        };
+        // Enden zweier Linienzüge aneinanderhängen (a endet, b beginnt)
+        let attach = |a: &mut Vec<Node>, mut b: Vec<Node>| {
+            let (last, first) = (*a.last().unwrap(), b[0]);
+            if last.p.dist(first.p) <= merge_tol {
+                // fast gleiche Punkte: einer in der Mitte, Anfasser mitverschieben
+                let mid = last.p.lerp(first.p, 0.5);
+                let node = Node {
+                    p: mid,
+                    h_in: last.h_in + (mid - last.p),
+                    h_out: first.h_out + (mid - first.p),
+                    r: last.r.max(first.r),
+                };
+                *a.last_mut().unwrap() = node;
+                b.remove(0);
+            }
+            a.extend(b);
+        };
+        while opens.len() > 1 {
+            // nächstgelegenes Paar von Enden verschiedener Linienzüge
+            let mut best: Option<(f64, usize, bool, usize, bool)> = None;
+            for i in 0..opens.len() {
+                for j in 0..opens.len() {
+                    if i == j {
+                        continue;
+                    }
+                    for ei in [false, true] {
+                        for sj in [false, true] {
+                            // ei: Ende (true) bzw. Anfang von i; sj: Anfang (true) bzw. Ende von j
+                            let a = if ei { opens[i].last() } else { opens[i].first() };
+                            let b = if sj { opens[j].first() } else { opens[j].last() };
+                            let d = a.unwrap().p.dist(b.unwrap().p);
+                            if best.map(|x| d < x.0).unwrap_or(true) {
+                                best = Some((d, i, ei, j, sj));
+                            }
+                        }
+                    }
+                }
+            }
+            let Some((_, i, ei, j, sj)) = best else { break };
+            let mut b = opens.remove(j);
+            let i = if j < i { i - 1 } else { i };
+            if !ei {
+                reversed(&mut opens[i]);
+            }
+            if !sj {
+                reversed(&mut b);
+            }
+            attach(&mut opens[i], b);
+        }
+        let mut nodes = opens.pop().unwrap();
+        // Enden fast aufeinander – oder nur ein Pfad gewählt: schließen
+        let ends_meet = nodes.len() >= 3 && nodes[0].p.dist(nodes[nodes.len() - 1].p) <= merge_tol;
+        let close = ends_meet || single;
+        if ends_meet {
+            let last = nodes.pop().unwrap();
+            let mid = last.p.lerp(nodes[0].p, 0.5);
+            nodes[0].h_out = nodes[0].h_out + (mid - nodes[0].p);
+            nodes[0].h_in = last.h_in + (mid - last.p);
+            nodes[0].p = mid;
+        }
+        if nodes.len() < 2 || (close && nodes.len() < 3) {
+            return false;
+        }
+        let mut subpaths = vec![SubPath { nodes, closed: close }];
+        subpaths.extend(closed);
+        self.checkpoint(None);
+        let keep = objs[0].id;
+        for o in &objs[1..] {
+            self.doc.remove_object(o.id);
+        }
+        if let Some(o) = self.doc.object_mut(keep) {
+            o.shape = Shape::Path {
+                subpaths,
+                evenodd: false,
+            };
+        }
+        self.selection = vec![keep];
         self.node_sel.clear();
         true
     }
@@ -5649,7 +6111,6 @@ impl Editor {
     }
 
     pub fn set_corner_radius(&mut self, r: f64) -> bool {
-        self.corner_radius = r;
         let ids: Vec<u64> = self
             .selected_objects()
             .into_iter()
@@ -6114,7 +6575,7 @@ impl Editor {
                 if mids {
                     c.points.push((Pt::new(cx, cy), mid));
                     for (x, y) in [(cx, b.y0), (b.x1, cy), (cx, b.y1), (b.x0, cy)] {
-                        c.points.push((Pt::new(x, y), "Kantenmitte"));
+                        c.points.push((Pt::new(x, y), tr("Kantenmitte")));
                     }
                     c.xs.push((cx, Pt::new(cx, cy)));
                     c.ys.push((cy, Pt::new(cx, cy)));
@@ -6128,14 +6589,21 @@ impl Editor {
                 }
                 count += 1;
                 let Some(b) = m.bbox(o) else { continue };
-                add_box(&mut c, b, "Ecke", "Mitte", self.snap_corners, self.snap_mids);
+                add_box(
+                    &mut c,
+                    b,
+                    tr("Ecke"),
+                    tr("Mitte"),
+                    self.snap_corners,
+                    self.snap_mids,
+                );
                 if c.boxes.len() < 600 {
                     c.boxes.push(b);
                 }
                 if let (true, Shape::Path { subpaths, .. }) = (self.snap_anchors, &o.shape) {
                     for sp in subpaths {
                         for n in &sp.nodes {
-                            c.points.push((n.p, "Ankerpunkt"));
+                            c.points.push((n.p, tr("Ankerpunkt")));
                         }
                     }
                 }
@@ -6166,7 +6634,7 @@ impl Editor {
         }
         if self.snap_page {
             for (_, r) in self.doc.artboard_rects() {
-                add_box(&mut c, r, "Seitenecke", "Seitenmitte", true, true);
+                add_box(&mut c, r, tr("Seitenecke"), tr("Seitenmitte"), true, true);
             }
         }
         c
@@ -6206,13 +6674,19 @@ impl Editor {
     }
 
     fn snap_in(&self, p: Pt, ctx: Option<&SnapCtx>) -> Pt {
+        self.snap_with(p, ctx, true)
+    }
+
+    /// Wie `snap_in`; `guides` = false: nicht an Hilfslinien (beim Verschieben einer
+    /// Hilfslinie, die sonst an sich selbst klebte).
+    fn snap_with(&self, p: Pt, ctx: Option<&SnapCtx>, guides: bool) -> Pt {
         let mut hints = self.hints.borrow_mut();
         hints.clear();
-        if let Some(q) = self.snap_guides_point(p) {
+        if let Some(q) = guides.then(|| self.snap_guides_point(p)).flatten() {
             hints.push(SnapHint {
                 a: q,
                 b: q,
-                label: Some("Hilfslinie"),
+                label: Some(tr("Hilfslinie")),
             });
             return q;
         }
@@ -6256,7 +6730,7 @@ impl Editor {
                 hints.push(SnapHint {
                     a: q,
                     b: q,
-                    label: Some("Pfad"),
+                    label: Some(tr("Pfad")),
                 });
                 return q;
             }
@@ -6438,7 +6912,7 @@ impl Editor {
                 hints.push(SnapHint {
                     a: q,
                     b: q,
-                    label: Some("Hilfslinie"),
+                    label: Some(tr("Hilfslinie")),
                 });
             }
         }
@@ -6571,7 +7045,7 @@ impl Editor {
                 .map(|l| l.locked)
                 .unwrap_or(false)
         {
-            self.message = Some("Die aktuelle Ebene ist gesperrt.".into());
+            self.message = Some(tr("Die aktuelle Ebene ist gesperrt.").into());
             return;
         }
         let _ = mods;
@@ -7336,10 +7810,144 @@ impl Editor {
         true
     }
 
+    /// Nur die Auswahl als eigenes Dokument (zum Exportieren oder Kopieren als Bild): so groß
+    /// wie die Auswahl samt Kontur, Schatten und Spiegelung, nach (0, 0) verschoben.
+    pub fn selection_doc(&self, m: &dyn Metrics) -> Option<Document> {
+        let objs = self.selected_in_order();
+        let mut bounds: Option<Rect> = None;
+        for o in &objs {
+            let Some(b) = m.bbox(o) else { continue };
+            let st = &o.style;
+            let mut r = if st.stroke.is_some() {
+                b.inflate(st.width.max(0.0))
+            } else {
+                b
+            };
+            if let Some(sh) = st.shadow {
+                let blur = sh.blur.max(0.0) * 2.0;
+                let moved = Rect {
+                    x0: r.x0 + sh.dx - blur,
+                    y0: r.y0 + sh.dy - blur,
+                    x1: r.x1 + sh.dx + blur,
+                    y1: r.y1 + sh.dy + blur,
+                };
+                r = r.union(&moved);
+            }
+            if st.fx.mirror.is_some() {
+                r.y1 += b.height();
+            }
+            bounds = Some(match bounds {
+                Some(a) => a.union(&r),
+                None => r,
+            });
+        }
+        let b = bounds?;
+        if b.width() <= 0.0 || b.height() <= 0.0 {
+            return None;
+        }
+        let mut doc = self.doc.clone();
+        doc.artboards.clear();
+        doc.guides.clear();
+        doc.width = b.width().ceil();
+        doc.height = b.height().ceil();
+        let t = Affine::translate(-b.x0, -b.y0);
+        let keep: Vec<u64> = objs.iter().map(|o| o.id).collect();
+        for l in doc.layers.iter_mut() {
+            l.objects.retain(|o| keep.contains(&o.id));
+            for o in l.objects.iter_mut() {
+                let before = m.bbox(o);
+                o.shape.transform(&t);
+                if let (Some(b0), Some(b1)) = (before, m.bbox(o)) {
+                    for pt in [PaintTarget::Fill, PaintTarget::Stroke, PaintTarget::Shadow] {
+                        if let Some(g) = o.style.grad_slot(pt).as_mut() {
+                            g.transform(&t, &b0, &b1);
+                        }
+                    }
+                }
+            }
+        }
+        Some(doc)
+    }
+
+    /// Einheiten der Auswahl (Gruppen als Ganzes): (Gruppe, Objekte, Rahmen).
+    pub fn selection_units(&self, m: &dyn Metrics) -> Vec<(u64, Vec<u64>, Rect)> {
+        let mut units: Vec<(u64, Vec<u64>, Rect)> = Vec::new();
+        for id in self.selection.clone() {
+            let Some(o) = self.doc.object(id) else {
+                continue;
+            };
+            let Some(b) = m.bbox(o) else {
+                continue;
+            };
+            let g = o.group;
+            if g != 0 {
+                if let Some(u) = units.iter_mut().find(|u| u.0 == g) {
+                    u.1.push(id);
+                    u.2 = u.2.union(&b);
+                    continue;
+                }
+            }
+            units.push((g, vec![id], b));
+        }
+        units
+    }
+
+    /// Ausrichten: bei mehreren Einheiten (Objekte, Gruppen) und `align_selection`
+    /// aneinander (am Rahmen der Auswahl), sonst an der Seite.
+    pub fn align(&mut self, h: Option<i8>, v: Option<i8>, m: &dyn Metrics) -> bool {
+        if self.align_selection && self.selection_units(m).len() >= 2 {
+            self.align_to_selection(h, v, m)
+        } else {
+            self.align_to_page(h, v, m)
+        }
+    }
+
+    /// Objekte aneinander ausrichten: jede Einheit an die linke/mittlere/rechte (bzw.
+    /// obere/mittlere/untere) Kante des gemeinsamen Rahmens.
+    pub fn align_to_selection(&mut self, h: Option<i8>, v: Option<i8>, m: &dyn Metrics) -> bool {
+        if self.selection_locked() {
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            return false;
+        }
+        let units = self.selection_units(m);
+        let Some(all) = units.iter().map(|u| u.2).reduce(|a, b| a.union(&b)) else {
+            return false;
+        };
+        let mut moves: Vec<(Vec<u64>, f64, f64)> = Vec::new();
+        for (_, ids, b) in &units {
+            let dx = match h {
+                Some(-1) => all.x0 - b.x0,
+                Some(0) => (all.x0 + all.x1 - b.x0 - b.x1) / 2.0,
+                Some(_) => all.x1 - b.x1,
+                None => 0.0,
+            };
+            let dy = match v {
+                Some(-1) => all.y0 - b.y0,
+                Some(0) => (all.y0 + all.y1 - b.y0 - b.y1) / 2.0,
+                Some(_) => all.y1 - b.y1,
+                None => 0.0,
+            };
+            if dx.abs() > 1e-9 || dy.abs() > 1e-9 {
+                moves.push((ids.clone(), dx, dy));
+            }
+        }
+        if moves.is_empty() {
+            return false;
+        }
+        self.checkpoint(None);
+        for (ids, dx, dy) in moves {
+            let t = Affine::translate(dx, dy);
+            for id in ids {
+                self.transform_object(id, &t, m);
+            }
+        }
+        true
+    }
+
     /// Auswahl an der Seite ausrichten: `h`/`v` = −1 (links/oben), 0 (Mitte), 1 (rechts/unten).
     pub fn align_to_page(&mut self, h: Option<i8>, v: Option<i8>, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
         let Some(b) = self.selection_bbox(m) else {
@@ -7375,28 +7983,10 @@ impl Editor {
     /// Einheiten bleiben stehen, die übrigen rücken so, dass alle Lücken gleich groß sind.
     pub fn distribute(&mut self, horizontal: bool, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
-        // Einheiten: (Gruppe, Objekte, Rahmen)
-        let mut units: Vec<(u64, Vec<u64>, Rect)> = Vec::new();
-        for id in self.selection.clone() {
-            let Some(o) = self.doc.object(id) else {
-                continue;
-            };
-            let Some(b) = m.bbox(o) else {
-                continue;
-            };
-            let g = o.group;
-            if g != 0 {
-                if let Some(u) = units.iter_mut().find(|u| u.0 == g) {
-                    u.1.push(id);
-                    u.2 = u.2.union(&b);
-                    continue;
-                }
-            }
-            units.push((g, vec![id], b));
-        }
+        let mut units = self.selection_units(m);
         if units.len() < 3 {
             return false;
         }
@@ -7456,14 +8046,15 @@ impl Editor {
             return false;
         }
         if self.selection_locked() {
-            self.message = Some("Gesperrte Objekte lassen sich nicht verändern.".into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
             return false;
         }
         let objs = self.selected_in_order();
         let (a, b) = (&objs[0], &objs[1]);
         let (Some(pa), Some(pb)) = (blend_outline(&a.shape), blend_outline(&b.shape)) else {
-            self.message =
-                Some("Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern.".into());
+            self.message = Some(
+                tr("Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern.").into(),
+            );
             return false;
         };
         let (pa, pb) = blend_paths(&pa, &pb);
@@ -7720,6 +8311,8 @@ pub fn smooth_nodes(pts: &[Pt]) -> Vec<Node> {
 #[derive(Debug)]
 struct BucketCache {
     key: (u64, f64, f64, f64, (f64, f64)),
+    /// betrachtete Objekte (Auswahl; leer = alles Sichtbare)
+    ids: Vec<u64>,
     /// nur der sichtbare Bereich wurde betrachtet (dann gilt der Graph nur für diese Ansicht)
     culled: bool,
     arr: Rc<crate::shapeops::Arrangement>,
@@ -7762,6 +8355,7 @@ fn restyle(o: &mut Object, p: &LibPayload) -> bool {
                 o.style.blend = s.style.blend;
                 o.style.fx = s.style.fx;
                 o.style.shadow = s.style.shadow;
+                o.style.fold_opacity();
                 return true;
             }
             o.style = s.style.clone();
@@ -7782,6 +8376,8 @@ fn restyle(o: &mut Object, p: &LibPayload) -> bool {
             }
         }
     }
+    // Deckkraft des Stils in die Farben übernehmen (die Seitenleiste zeigt nur diese)
+    o.style.fold_opacity();
     true
 }
 
@@ -9702,7 +10298,7 @@ mod tests {
         assert_eq!(objs.len(), 2);
         let merged = e.selected_objects()[0].shape.geom_bbox().unwrap();
         assert!(
-            (merged.x0 - 0.0).abs() < 1e-6 && (merged.x1 - 100.0).abs() < 1e-6,
+            (merged.x0 - 0.0).abs() < 0.05 && (merged.x1 - 100.0).abs() < 0.05,
             "{merged:?}"
         );
         assert!(e.undo());
@@ -9727,6 +10323,56 @@ mod tests {
         );
         assert_eq!(e.doc.layers[0].objects.len(), 2);
         assert!(e.selection.is_empty());
+    }
+
+    #[test]
+    fn shape_builder_uses_open_lines() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (0.0, 0.0), (100.0, 100.0));
+        let rect = e.selection[0];
+        e.deselect();
+        // senkrechte offene Linie quer durch das Rechteck
+        e.set_tool(Tool::Pen);
+        for q in [Pt::new(50.0, -20.0), Pt::new(50.0, 120.0)] {
+            e.press(q, Mods::default(), false, &M);
+            e.release(q, Mods::default(), &M);
+        }
+        e.finish_pen(false);
+        e.deselect();
+        e.set_tool(Tool::Builder);
+        let alt = Mods {
+            alt: true,
+            ..Mods::default()
+        };
+        // Alt-Klick in die linke Hälfte: sie verschwindet, rechts bleibt, die Linie auch
+        e.press(Pt::new(25.0, 50.0), alt, false, &M);
+        e.release(Pt::new(25.0, 50.0), alt, &M);
+        let objs = &e.doc.layers[0].objects;
+        assert_eq!(objs.len(), 2);
+        assert!(e.doc.object(rect).is_none());
+        let piece = objs
+            .iter()
+            .find(|o| o.style.fill.is_some())
+            .and_then(|o| o.shape.geom_bbox())
+            .unwrap();
+        assert!(
+            (piece.x0 - 50.0).abs() < 0.05 && (piece.x1 - 100.0).abs() < 0.05,
+            "{piece:?}"
+        );
+        // Ziehen über beide Hälften: wieder ein Rechteck
+        e.undo();
+        e.press(Pt::new(25.0, 50.0), Mods::default(), false, &M);
+        e.motion(Pt::new(75.0, 50.0), Mods::default(), &M);
+        e.release(Pt::new(75.0, 50.0), Mods::default(), &M);
+        let filled: Vec<&Object> = e.doc.layers[0]
+            .objects
+            .iter()
+            .filter(|o| o.style.fill.is_some())
+            .collect();
+        assert_eq!(filled.len(), 1);
+        let b = filled[0].shape.geom_bbox().unwrap();
+        assert!((b.x0 - 0.0).abs() < 0.05 && (b.x1 - 100.0).abs() < 0.05, "{b:?}");
     }
 
     #[test]
@@ -9765,6 +10411,235 @@ mod tests {
             Shape::Path { subpaths, .. } => assert_eq!(subpaths.len(), 2),
             _ => panic!(),
         }
+    }
+
+    #[test]
+    fn selection_as_document() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (100.0, 100.0), (150.0, 140.0));
+        let a = e.selection[0];
+        e.deselect();
+        drag(&mut e, (300.0, 300.0), (320.0, 320.0));
+        e.selection = vec![a];
+        let d = e.selection_doc(&M).unwrap();
+        let objs: Vec<&Object> = d.layers.iter().flat_map(|l| l.objects.iter()).collect();
+        assert_eq!(objs.len(), 1);
+        // Kontur 2 → 2 Rand ringsum
+        assert_eq!((d.width, d.height), (54.0, 44.0));
+        let b = M.bbox(objs[0]).unwrap();
+        assert!((b.x0 - 2.0).abs() < 1e-9 && (b.y0 - 2.0).abs() < 1e-9, "{b:?}");
+        e.deselect();
+        assert!(e.selection_doc(&M).is_none());
+    }
+
+    #[test]
+    fn align_objects_to_each_other() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (10.0, 10.0), (50.0, 50.0));
+        let a = e.selection[0];
+        e.deselect();
+        drag(&mut e, (100.0, 80.0), (200.0, 120.0));
+        let b = e.selection[0];
+        e.set_tool(Tool::Select);
+        e.selection = vec![a, b];
+        // links aneinander: beide bei x = 10
+        assert!(e.align(Some(-1), None, &M));
+        let x0 = |e: &Editor, id: u64| M.bbox(e.doc.object(id).unwrap()).unwrap().x0;
+        assert!((x0(&e, a) - 10.0).abs() < 1e-9 && (x0(&e, b) - 10.0).abs() < 1e-9);
+        // senkrecht mittig: Mitte des gemeinsamen Rahmens (10 … 120 → 65)
+        assert!(e.align(None, Some(0), &M));
+        let cy = |e: &Editor, id: u64| {
+            let r = M.bbox(e.doc.object(id).unwrap()).unwrap();
+            (r.y0 + r.y1) / 2.0
+        };
+        assert!((cy(&e, a) - 65.0).abs() < 1e-9 && (cy(&e, b) - 65.0).abs() < 1e-9);
+        // umgeschaltet auf „Seite“: die Auswahl als Ganzes an die Seite
+        e.align_selection = false;
+        assert!(e.align(Some(-1), None, &M));
+        assert!((x0(&e, a) - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scissors_cut_shapes_and_lines() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        e.shape_kind = ShapeKind::Ellipse;
+        drag(&mut e, (0.0, 0.0), (100.0, 100.0));
+        e.deselect();
+        e.set_tool(Tool::Scissors);
+        // senkrecht mitten durch den Kreis: zwei Hälften mit echten Kurven
+        drag(&mut e, (50.0, -20.0), (50.0, 120.0));
+        assert_eq!(e.doc.layers[0].objects.len(), 2);
+        let mut areas = Vec::new();
+        for o in &e.doc.layers[0].objects {
+            match &o.shape {
+                Shape::Path { subpaths, .. } => {
+                    assert_eq!(subpaths.len(), 1);
+                    // Bogen bleibt Kurve: wenige Knoten, gebogene Anfasser
+                    assert!(subpaths[0].nodes.len() <= 8, "{}", subpaths[0].nodes.len());
+                    areas.push(boolean::total_area(subpaths));
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        let half = std::f64::consts::PI * 50.0 * 50.0 / 2.0;
+        assert!(areas.iter().all(|a| (a - half).abs() < half * 0.02), "{areas:?}");
+        assert_eq!(e.selection.len(), 2);
+        // Schnitt, der nicht ganz durchgeht, ändert nichts
+        e.undo();
+        e.deselect();
+        drag(&mut e, (50.0, -20.0), (50.0, 40.0));
+        assert_eq!(e.doc.layers[0].objects.len(), 1);
+        // offene Linie: zwei Stücke als eigene Objekte
+        e.doc.layers[0].objects.clear();
+        e.set_tool(Tool::Pen);
+        for q in [Pt::new(0.0, 200.0), Pt::new(200.0, 200.0)] {
+            e.press(q, Mods::default(), false, &M);
+            e.release(q, Mods::default(), &M);
+        }
+        e.finish_pen(false);
+        e.deselect();
+        e.set_tool(Tool::Scissors);
+        drag(&mut e, (100.0, 150.0), (100.0, 250.0));
+        assert_eq!(e.doc.layers[0].objects.len(), 2);
+        let ends: Vec<f64> = e.doc.layers[0]
+            .objects
+            .iter()
+            .map(|o| match &o.shape {
+                Shape::Path { subpaths, .. } => subpaths[0].nodes.last().unwrap().p.x,
+                _ => panic!(),
+            })
+            .collect();
+        assert!(
+            (ends[0] - 100.0).abs() < 0.5 && (ends[1] - 200.0).abs() < 0.5,
+            "{ends:?}"
+        );
+    }
+
+    #[test]
+    fn join_paths_closes_gaps() {
+        let mut e = editor();
+        let line = |e: &mut Editor, a: (f64, f64), b: (f64, f64)| {
+            e.set_tool(Tool::Pen);
+            for q in [Pt::new(a.0, a.1), Pt::new(b.0, b.1)] {
+                e.press(q, Mods::default(), false, &M);
+                e.release(q, Mods::default(), &M);
+            }
+            e.finish_pen(false);
+            e.selection[0]
+        };
+        let a = line(&mut e, (0.0, 0.0), (100.0, 0.0));
+        // zweite Linie beginnt knapp neben dem Ende der ersten (Lücke 1 px) und ist verkehrt herum
+        let b = line(&mut e, (100.0, 100.0), (101.0, 0.5));
+        // (der Zeichenstift rastet am Ende der ersten Linie ein – Lücke von Hand setzen)
+        if let Some(Shape::Path { subpaths, .. }) = e.doc.object_mut(b).map(|o| &mut o.shape) {
+            let n = subpaths[0].nodes.last_mut().unwrap();
+            *n = Node::corner(Pt::new(101.0, 0.5));
+        }
+        e.set_tool(Tool::Select);
+        e.selection = vec![a, b];
+        assert!(e.can_join_paths());
+        assert!(e.join_paths());
+        assert_eq!(e.doc.layers[0].objects.len(), 1);
+        let sp = match &e.doc.object(a).unwrap().shape {
+            Shape::Path { subpaths, .. } => subpaths[0].clone(),
+            other => panic!("{other:?}"),
+        };
+        // Lücke geschlossen: drei Punkte, der mittlere zwischen beiden Enden
+        assert_eq!(sp.nodes.len(), 3);
+        assert!(!sp.closed);
+        assert!(sp.nodes[1].p.dist(Pt::new(100.5, 0.25)) < 1e-6);
+        // ein einzelner offener Pfad wird geschlossen
+        assert!(e.join_paths());
+        match &e.doc.object(a).unwrap().shape {
+            Shape::Path { subpaths, .. } => assert!(subpaths[0].closed && subpaths[0].nodes.len() == 3),
+            _ => panic!(),
+        }
+        // weite Lücke: gerades Verbindungsstück
+        e.doc.layers[0].objects.clear();
+        let a = line(&mut e, (0.0, 0.0), (100.0, 0.0));
+        let b = line(&mut e, (150.0, 0.0), (250.0, 0.0));
+        e.selection = vec![a, b];
+        assert!(e.join_paths());
+        match &e.doc.object(a).unwrap().shape {
+            Shape::Path { subpaths, .. } => {
+                assert_eq!(subpaths[0].nodes.len(), 4);
+                assert!(!subpaths[0].closed);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn hidden_opacity_and_rect_radius() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (0.0, 0.0), (100.0, 100.0));
+        let id = e.selection[0];
+        // verborgene Gesamtdeckkraft (z. B. aus einem Stil): Farbleiste auf 100 % wirkt wirklich
+        e.doc.object_mut(id).unwrap().style.opacity = 0.5;
+        assert!(e.set_paint_alpha(PaintTarget::Fill, 1.0));
+        let st = &e.doc.object(id).unwrap().style;
+        assert_eq!(st.opacity, 1.0);
+        assert_eq!(st.fill.unwrap().a, 1.0);
+        // Eckenradius eines Rechtecks gilt nicht für das nächste
+        assert!(e.set_corner_radius(12.0));
+        e.deselect();
+        drag(&mut e, (200.0, 0.0), (300.0, 100.0));
+        match e.doc.object(e.selection[0]).unwrap().shape {
+            Shape::Rect { r, .. } => assert_eq!(r, 0.0),
+            ref other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn glyphs_split_into_letters() {
+        let rect = |x0: f64, y0: f64, x1: f64, y1: f64| SubPath {
+            nodes: vec![
+                Node::corner(Pt::new(x0, y0)),
+                Node::corner(Pt::new(x1, y0)),
+                Node::corner(Pt::new(x1, y1)),
+                Node::corner(Pt::new(x0, y1)),
+            ],
+            closed: true,
+        };
+        let subs = vec![
+            rect(0.0, 0.0, 2.0, 10.0),   // i-Strich
+            rect(0.0, -4.0, 2.0, -2.0),  // i-Punkt
+            rect(5.0, 0.0, 11.0, 10.0),  // o außen
+            rect(7.0, 2.0, 9.0, 8.0),    // o innen
+            rect(0.0, 22.0, 2.0, 32.0),  // Buchstabe in der nächsten Zeile
+            rect(14.0, 0.0, 20.0, 10.0), // Nachbar
+        ];
+        let parts = glyph_parts(subs, Some(Affine::IDENTITY), 12.0);
+        let sizes: Vec<usize> = parts.iter().map(|p| p.len()).collect();
+        assert_eq!(sizes, vec![2, 2, 1, 1], "{parts:?}");
+    }
+
+    #[test]
+    fn guide_snaps_to_anchor_when_moved() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (100.0, 100.0), (200.0, 160.0));
+        e.deselect();
+        e.doc.guides.push(Guide {
+            pos: Pt::new(0.0, 300.0),
+            angle: 0.0,
+            layer: e.active_layer,
+        });
+        e.show_guides = true;
+        e.set_tool(Tool::Guide);
+        // waagerechte Hilfslinie greifen und knapp neben die Unterkante ziehen
+        e.press(Pt::new(150.0, 300.0), Mods::default(), false, &M);
+        e.motion(Pt::new(150.0, 162.0), Mods::default(), &M);
+        e.release(Pt::new(150.0, 162.0), Mods::default(), &M);
+        assert!(
+            (e.doc.guides[0].pos.y - 160.0).abs() < 1e-9,
+            "{:?}",
+            e.doc.guides[0].pos
+        );
     }
 
     #[test]
@@ -9968,10 +10843,10 @@ mod tests {
         e.deselect();
         drag(&mut e, (200.0, 100.0), (400.0, 300.0));
         e.deselect();
-        e.set_tool(Tool::Bucket);
-        // Linse in der Mitte
+        e.set_tool(Tool::Builder);
+        // Linse in der Mitte: Klick macht sie zur neuen Form (die Kreise bleiben)
         e.motion(Pt::new(250.0, 200.0), Mods::default(), &M);
-        assert!(!e.bucket_marks().is_empty());
+        assert!(!e.builder_marks().0.is_empty());
         e.press(Pt::new(250.0, 200.0), Mods::default(), false, &M);
         e.release(Pt::new(250.0, 200.0), Mods::default(), &M);
         assert_eq!(e.doc.layers[0].objects.len(), 3);

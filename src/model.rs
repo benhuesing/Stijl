@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright © 2026 Bendix Hüsing
+
 //! Dokumentmodell: Ebenen, Objekte, Formen und Stile.
 
+use crate::i18n::{tr, trf};
 use std::rc::Rc;
 
 use crate::geom::{cubic_bbox, Affine, Pt, Rect};
@@ -335,14 +339,14 @@ pub enum Shape {
 impl Shape {
     pub fn kind_name(&self) -> &'static str {
         match self {
-            Shape::Rect { .. } => "Rechteck",
-            Shape::Ellipse { .. } => "Ellipse",
-            Shape::Line { .. } => "Linie",
-            Shape::Path { .. } => "Pfad",
-            Shape::Text { .. } => "Text",
-            Shape::TextPath { .. } => "Text auf Pfad",
-            Shape::TextArea { .. } => "Textfeld",
-            Shape::Image { .. } => "Bild",
+            Shape::Rect { .. } => tr("Rechteck"),
+            Shape::Ellipse { .. } => tr("Ellipse"),
+            Shape::Line { .. } => tr("Linie"),
+            Shape::Path { .. } => tr("Pfad"),
+            Shape::Text { .. } => tr("Text"),
+            Shape::TextPath { .. } => tr("Text auf Pfad"),
+            Shape::TextArea { .. } => tr("Textfeld"),
+            Shape::Image { .. } => tr("Bild"),
         }
     }
 
@@ -1155,6 +1159,8 @@ pub struct Style {
     pub shadow_gradient: Option<Gradient>,
     /// Kontur mittig, innen oder außen
     pub stroke_align: StrokeAlign,
+    /// Strichmuster der Kontur (durchgezogen, gestrichelt …)
+    pub dash: Dash,
     /// Effekte (Milchglas, Kunsteffekt, 3D-Effekt, Spiegelung)
     pub fx: Effects,
 }
@@ -1334,9 +1340,9 @@ impl LineJoin {
     }
     pub fn label(self) -> &'static str {
         match self {
-            LineJoin::Miter => "Spitze Ecken",
-            LineJoin::Round => "Runde Ecken",
-            LineJoin::Bevel => "Abgeschrägte Ecken",
+            LineJoin::Miter => tr("Spitze Ecken"),
+            LineJoin::Round => tr("Runde Ecken"),
+            LineJoin::Bevel => tr("Abgeschrägte Ecken"),
         }
     }
 }
@@ -1364,9 +1370,9 @@ impl LineCap {
     }
     pub fn label(self) -> &'static str {
         match self {
-            LineCap::Butt => "Gerade Enden",
-            LineCap::Round => "Runde Enden",
-            LineCap::Square => "Überstehende Enden",
+            LineCap::Butt => tr("Gerade Enden"),
+            LineCap::Round => tr("Runde Enden"),
+            LineCap::Square => tr("Überstehende Enden"),
         }
     }
 }
@@ -1415,7 +1421,80 @@ impl Default for Style {
             stroke_gradient: None,
             shadow_gradient: None,
             stroke_align: StrokeAlign::Center,
+            dash: Dash::Solid,
             fx: Effects::default(),
+        }
+    }
+}
+
+/// Strichmuster einer Kontur; die Längen richten sich nach der Konturstärke.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Dash {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+    DashDot,
+    LongDash,
+}
+
+impl Dash {
+    pub const ALL: [Dash; 5] = [
+        Dash::Solid,
+        Dash::Dashed,
+        Dash::Dotted,
+        Dash::DashDot,
+        Dash::LongDash,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            Dash::Solid => "solid",
+            Dash::Dashed => "dashed",
+            Dash::Dotted => "dotted",
+            Dash::DashDot => "dash-dot",
+            Dash::LongDash => "long-dash",
+        }
+    }
+    pub fn from_name(s: &str) -> Option<Dash> {
+        Dash::ALL.into_iter().find(|d| d.name() == s.trim())
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Dash::Solid => tr("Durchgezogen"),
+            Dash::Dashed => tr("Gestrichelt"),
+            Dash::Dotted => tr("Gepunktet"),
+            Dash::DashDot => tr("Strich-Punkt"),
+            Dash::LongDash => tr("Lange Striche"),
+        }
+    }
+    /// Strich- und Lückenlängen bei Konturstärke `w` (leer: durchgezogen).
+    pub fn pattern(self, w: f64) -> Vec<f64> {
+        let w = w.max(0.5);
+        match self {
+            Dash::Solid => Vec::new(),
+            Dash::Dashed => vec![3.0 * w, 2.0 * w],
+            // Punkte: Strichlänge 0 mit runden Enden
+            Dash::Dotted => vec![0.0, 2.0 * w],
+            Dash::DashDot => vec![4.0 * w, 2.0 * w, 0.0, 2.0 * w],
+            Dash::LongDash => vec![8.0 * w, 3.0 * w],
+        }
+    }
+    /// Punkte brauchen runde Enden, sonst sind sie unsichtbar.
+    pub fn round_caps(self) -> bool {
+        matches!(self, Dash::Dotted | Dash::DashDot)
+    }
+    /// Muster aus `stroke-dasharray` (fremde SVG-Dateien) möglichst gut zuordnen.
+    pub fn from_array(v: &[f64], w: f64) -> Dash {
+        let w = w.max(0.5);
+        match v {
+            [] => Dash::Solid,
+            [a, ..] if v.iter().all(|x| *x <= 0.0) && *a <= 0.0 => Dash::Solid,
+            [a, b] if *a <= 0.25 * w || *a <= 0.5 * b.min(w) => Dash::Dotted,
+            [a, _] if *a >= 6.0 * w => Dash::LongDash,
+            [_, _] => Dash::Dashed,
+            [_] => Dash::Dashed,
+            _ if v.iter().any(|x| *x <= 0.25 * w) => Dash::DashDot,
+            _ => Dash::Dashed,
         }
     }
 }
@@ -1442,11 +1521,11 @@ impl Marker {
     ];
     pub fn label(self) -> &'static str {
         match self {
-            Marker::None => "Keine",
-            Marker::Arrow => "Pfeil",
-            Marker::OpenArrow => "Offener Pfeil",
-            Marker::Dot => "Punkt",
-            Marker::Bar => "Querstrich",
+            Marker::None => tr("Keine"),
+            Marker::Arrow => tr("Pfeil"),
+            Marker::OpenArrow => tr("Offener Pfeil"),
+            Marker::Dot => tr("Punkt"),
+            Marker::Bar => tr("Querstrich"),
         }
     }
     pub fn name(self) -> &'static str {
@@ -1843,11 +1922,11 @@ impl ListStyle {
     }
     pub fn label(self) -> &'static str {
         match self {
-            ListStyle::None => "Keine",
-            ListStyle::Dot => "• Punkte",
-            ListStyle::Square => "▪ Quadrate",
-            ListStyle::Dash => "– Striche",
-            ListStyle::Number => "1. Nummeriert",
+            ListStyle::None => tr("Keine"),
+            ListStyle::Dot => tr("• Punkte"),
+            ListStyle::Square => tr("▪ Quadrate"),
+            ListStyle::Dash => tr("– Striche"),
+            ListStyle::Number => tr("1. Nummeriert"),
         }
     }
     /// Aufzählungszeichen für Absatz `i` (ab 0).
@@ -2305,9 +2384,9 @@ impl Art {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Art::Grain => "Körnung",
-            Art::Pixel => "Pixel",
-            Art::Watercolor => "Wasserfarben",
+            Art::Grain => tr("Körnung"),
+            Art::Pixel => tr("Pixel"),
+            Art::Watercolor => tr("Wasserfarben"),
         }
     }
     pub fn from_name(s: &str) -> Option<Art> {
@@ -2334,9 +2413,9 @@ impl ImgFilter {
     }
     pub fn label(self) -> &'static str {
         match self {
-            ImgFilter::Sepia => "Sepia",
-            ImgFilter::Mono => "Schwarz-Weiß",
-            ImgFilter::Invert => "Farben invertieren",
+            ImgFilter::Sepia => tr("Sepia"),
+            ImgFilter::Mono => tr("Schwarz-Weiß"),
+            ImgFilter::Invert => tr("Farben invertieren"),
         }
     }
     pub fn from_name(s: &str) -> Option<ImgFilter> {
@@ -2374,10 +2453,10 @@ impl Lens {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Lens::Drop => "Regentropfen",
-            Lens::Sphere => "Kugel",
-            Lens::Crystal => "Kristall",
-            Lens::Pyramid => "Pyramide",
+            Lens::Drop => tr("Regentropfen"),
+            Lens::Sphere => tr("Kugel"),
+            Lens::Crystal => tr("Kristall"),
+            Lens::Pyramid => tr("Pyramide"),
         }
     }
     pub fn from_name(s: &str) -> Option<Lens> {
@@ -2407,9 +2486,9 @@ impl Texture {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Texture::Frost => "Milchglas",
-            Texture::Brushed => "Gebürstetes Metall",
-            Texture::Gloss => "Hochglanz",
+            Texture::Frost => tr("Milchglas"),
+            Texture::Brushed => tr("Gebürstetes Metall"),
+            Texture::Gloss => tr("Hochglanz"),
         }
     }
     pub fn from_name(s: &str) -> Option<Texture> {
@@ -2608,22 +2687,22 @@ impl Blend {
     /// Bezeichnung wie in gängigen Grafikprogrammen.
     pub fn label(self) -> &'static str {
         match self {
-            Blend::Normal => "Überdecken",
-            Blend::Multiply => "Abdunkeln",
-            Blend::Screen => "Aufhellen",
-            Blend::Overlay => "Ineinanderkopieren",
-            Blend::Darken => "Abdunkeln (dunklere Farbe)",
-            Blend::Lighten => "Aufhellen (hellere Farbe)",
-            Blend::ColorDodge => "Farbig abwedeln",
-            Blend::ColorBurn => "Farbig nachbelichten",
-            Blend::HardLight => "Hartes Licht",
-            Blend::SoftLight => "Weiches Licht",
-            Blend::Difference => "Differenz",
-            Blend::Exclusion => "Ausschluss",
-            Blend::Hue => "Farbton",
-            Blend::Saturation => "Sättigung",
-            Blend::Color => "Farbe",
-            Blend::Luminosity => "Luminanz",
+            Blend::Normal => tr("Überdecken"),
+            Blend::Multiply => tr("Abdunkeln"),
+            Blend::Screen => tr("Aufhellen"),
+            Blend::Overlay => tr("Ineinanderkopieren"),
+            Blend::Darken => tr("Abdunkeln (dunklere Farbe)"),
+            Blend::Lighten => tr("Aufhellen (hellere Farbe)"),
+            Blend::ColorDodge => tr("Farbig abwedeln"),
+            Blend::ColorBurn => tr("Farbig nachbelichten"),
+            Blend::HardLight => tr("Hartes Licht"),
+            Blend::SoftLight => tr("Weiches Licht"),
+            Blend::Difference => tr("Differenz"),
+            Blend::Exclusion => tr("Ausschluss"),
+            Blend::Hue => tr("Farbton"),
+            Blend::Saturation => tr("Sättigung"),
+            Blend::Color => tr("Farbe"),
+            Blend::Luminosity => tr("Luminanz"),
         }
     }
     /// Name in CSS/SVG (`mix-blend-mode`).
@@ -2676,9 +2755,9 @@ impl GradientKind {
     }
     pub fn label(self) -> &'static str {
         match self {
-            GradientKind::Smooth => "Weich",
-            GradientKind::Grain => "Gekörnt",
-            GradientKind::Pixel => "Grobe Pixel",
+            GradientKind::Smooth => tr("Weich"),
+            GradientKind::Grain => tr("Gekörnt"),
+            GradientKind::Pixel => tr("Grobe Pixel"),
         }
     }
     pub fn from_name(s: &str) -> Option<GradientKind> {
@@ -2738,11 +2817,11 @@ impl GradShape {
     }
     pub fn label(self) -> &'static str {
         match self {
-            GradShape::Linear => "Linear",
-            GradShape::Radial => "Kreisförmig",
-            GradShape::Checker => "Schachbrett",
-            GradShape::Dots => "Punkte",
-            GradShape::Stripes => "Streifen",
+            GradShape::Linear => tr("Linear"),
+            GradShape::Radial => tr("Kreisförmig"),
+            GradShape::Checker => tr("Schachbrett"),
+            GradShape::Dots => tr("Punkte"),
+            GradShape::Stripes => tr("Streifen"),
         }
     }
     pub fn from_name(s: &str) -> Option<GradShape> {
@@ -3132,7 +3211,7 @@ impl Document {
     /// Alle Zeichenflächen: (Name, Rahmen); Index 0 ist die Hauptzeichenfläche.
     pub fn artboard_rects(&self) -> Vec<(String, Rect)> {
         let mut v = vec![(
-            "Zeichenfläche 1".to_string(),
+            tr("Zeichenfläche 1").to_string(),
             Rect::from_xywh(0.0, 0.0, self.width, self.height),
         )];
         for a in &self.artboards {
@@ -3155,7 +3234,7 @@ impl Document {
         let names: Vec<String> = self.artboard_rects().into_iter().map(|(n, _)| n).collect();
         let mut k = names.len() + 1;
         loop {
-            let n = format!("Zeichenfläche {k}");
+            let n = trf("Zeichenfläche {}", &[&(k)]);
             if !names.contains(&n) {
                 return n;
             }
@@ -3203,7 +3282,7 @@ impl Document {
         d.layers.push(Layer {
             color: 0,
             id,
-            name: "Ebene 1".into(),
+            name: tr("Ebene 1").into(),
             visible: true,
             locked: false,
             objects: Vec::new(),
