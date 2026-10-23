@@ -7,7 +7,7 @@ Stijl is named after **De Stijl** (“The Style”), the Dutch art movement that
 belonged to. Until version 0.9.38 the app was called “Mondrian”; settings, shortcuts and
 libraries from that time are taken over automatically on first start.
 
-Version 0.9.42 – still in testing. Feedback and bug reports are very welcome.
+Version 0.9.57 – still in testing. Feedback and bug reports are very welcome.
 
 > **Note:** Stijl was written with the help of AI (Claude by Anthropic). Ideas, requirements
 > and testing come from a human; most of the program code was written by the AI.

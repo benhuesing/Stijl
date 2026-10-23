@@ -853,7 +853,7 @@ impl<'a> Interp<'a> {
                 Tok::Kw(k) => {
                     self.ops += 1;
                     if self.ops > 20_000_000 {
-                        self.note(tr("Die Datei ist sehr groß; es wurde nur ein Teil gelesen."));
+                        self.note(tr("Die Datei ist sehr groß; es wurde nur ein Teil gelesen"));
                         break;
                     }
                     if k == "BI" {
@@ -944,7 +944,7 @@ impl<'a> Interp<'a> {
                     }
                     if let Some(sm) = d.get("SMask") {
                         if pdf.res(sm).dict().is_some() {
-                            self.note(tr("Deckkraftmasken wurden nicht übernommen."));
+                            self.note(tr("Deckkraftmasken wurden nicht übernommen"));
                         }
                     }
                     if let Obj::Arr(f) = pdf.get(d, "Font") {
@@ -1252,7 +1252,7 @@ impl<'a> Interp<'a> {
                 return Paint::Grad(Rc::new(sh));
             }
         }
-        self.note(tr("Muster- und Netzfüllungen wurden vereinfacht."));
+        self.note(tr("Muster- und Netzfüllungen wurden vereinfacht"));
         Paint::Solid([0.6; 3])
     }
 
@@ -1261,7 +1261,7 @@ impl<'a> Interp<'a> {
         let d = sh.dict()?;
         let kind = pdf.num(d, "ShadingType")? as i32;
         if kind != 2 && kind != 3 {
-            self.note(tr("Muster- und Netzfüllungen wurden vereinfacht."));
+            self.note(tr("Muster- und Netzfüllungen wurden vereinfacht"));
             return None;
         }
         let coords = pdf.nums(pdf.get(d, "Coords"));
@@ -1770,13 +1770,13 @@ impl<'a> Interp<'a> {
                 match jpeg_components(&data) {
                     Some(1) | Some(3) => ("image/jpeg", data),
                     _ => {
-                        self.note(tr("CMYK-JPEG-Bilder wurden übersprungen."));
+                        self.note(tr("CMYK-JPEG-Bilder wurden übersprungen"));
                         return;
                     }
                 }
             } else {
                 self.note(tr(
-                    "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen.",
+                    "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen",
                 ));
                 return;
             }
@@ -1788,7 +1788,7 @@ impl<'a> Interp<'a> {
             }
         };
         if mime == "image/jpeg" && dict.contains_key("SMask") {
-            self.note(tr("Transparenz von JPEG-Bildern wurde nicht übernommen."));
+            self.note(tr("Transparenz von JPEG-Bildern wurde nicht übernommen"));
         }
         let blend = self.blend_attr();
         let op = if self.gs.fa < 0.999 {
@@ -2094,7 +2094,7 @@ impl<'a> Interp<'a> {
         }
         if undecodable {
             self.note(tr(
-                "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen.",
+                "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen",
             ));
         }
         if self.gs.tr == 3 || text.trim().is_empty() || self.gs.fs.abs() < 1e-9 {
@@ -2103,7 +2103,7 @@ impl<'a> Interp<'a> {
         if self.gs.tr >= 4 {
             return;
         }
-        self.note(tr("Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen."));
+        self.note(tr("Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen"));
         let gm = self.glyph_matrix(&start_tm);
         let s = (gm.a * gm.a + gm.b * gm.b).sqrt();
         if s < 0.05 {
@@ -2236,7 +2236,7 @@ pub fn import(data: &[u8], exists: &dyn Fn(&str) -> bool) -> Result<Import, Stri
     let pdf = Pdf::load(data)?;
     let pages = pdf.pages();
     if pages.is_empty() {
-        return Err(tr("Die Datei enthält keine Seiten.").into());
+        return Err(tr("Die Datei enthält keine Seiten").into());
     }
     let mut ix = Interp::new(&pdf, exists);
     // ausgeblendete Ebenen
@@ -2359,7 +2359,7 @@ xmlns:mondrian=\"https://mondrian.invalid/ns\" width=\"{w}\" height=\"{h}\" view
     o.push_str("</svg>\n");
     if count == 0 {
         ix.notes
-            .insert(tr("Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden.").into());
+            .insert(tr("Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden").into());
     }
     if pages.len() > MAX_PAGES {
         ix.notes

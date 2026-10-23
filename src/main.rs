@@ -22,6 +22,7 @@ mod pdf;
 mod pdfx;
 mod render;
 mod shapeops;
+mod stroker;
 mod svg;
 mod trace;
 mod update;

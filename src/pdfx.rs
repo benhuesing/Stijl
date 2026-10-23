@@ -622,7 +622,7 @@ fn pdf_text(s: &str) -> Obj {
 /// Cairo-PDF in CMYK (und auf Wunsch PDF/X-4) umwandeln.
 pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
     if opt.pdfx && opt.profile.is_none() {
-        return Err(tr("Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht.").into());
+        return Err(tr("Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht").into());
     }
     let mut pdf = Pdf::load(input)?;
     // Hilfsobjekte der Datei (Querverweise, Objektströme) werden neu geschrieben
@@ -684,7 +684,7 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
                 let is_image = sub == Some("Image");
                 if is_image && d.get("ColorSpace").map(|c| pdf.res(c)).is_some_and(is_rgb_name) {
                     let mut img = convert_image(&pdf, &s, &mut conv)
-                        .ok_or_else(|| tr("Ein Bild ließ sich nicht nach CMYK umrechnen.").to_string())?;
+                        .ok_or_else(|| tr("Ein Bild ließ sich nicht nach CMYK umrechnen").to_string())?;
                     if let Obj::Stream(st) = &mut img {
                         let mut dd = st.dict.clone();
                         fix_dict(&mut dd, &mut functions, opt.pdfx);
@@ -703,7 +703,7 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
                     if content {
                         let (data, special) = pdf.stream_data(&s);
                         if special.is_some() {
-                            return Err(tr("Ein Inhalt der Seite ließ sich nicht lesen.").into());
+                            return Err(tr("Ein Inhalt der Seite ließ sich nicht lesen").into());
                         }
                         let conv_data = convert_content(&data, &conv)?;
                         dd.insert("Filter".into(), Obj::Name("FlateDecode".into()));
@@ -739,7 +739,7 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
         .filter(|(_, o)| o.dict().and_then(|d| d.get("Type")).and_then(Obj::name) == Some("Catalog"))
         .map(|(k, _)| *k)
         .min()
-        .ok_or(tr("Die PDF-Datei hat keinen Katalog."))?;
+        .ok_or(tr("Die PDF-Datei hat keinen Katalog"))?;
     let mut next = pdf.objs.keys().max().copied().unwrap_or(0) + 1;
     let mut alloc = || {
         let n = next;
@@ -787,7 +787,7 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
     info.insert("Trapped".into(), Obj::Name("False".into()));
     let mut catalog = match pdf.objs.get(&catalog_id) {
         Some(Obj::Dict(d)) => d.clone(),
-        _ => return Err(tr("Die PDF-Datei hat einen ungültigen Katalog.").into()),
+        _ => return Err(tr("Die PDF-Datei hat einen ungültigen Katalog").into()),
     };
     if let Some((profile, icc)) = opt.profile {
         let desc = if profile.description.is_empty() {

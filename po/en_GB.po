@@ -12,52 +12,52 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: ai.rs:853
-msgid "Die Datei ist sehr groß; es wurde nur ein Teil gelesen."
-msgstr "The file is very large; only part of it was read."
+msgid "Die Datei ist sehr groß; es wurde nur ein Teil gelesen"
+msgstr "The file is very large; only part of it was read"
 
 #: ai.rs:944
-msgid "Deckkraftmasken wurden nicht übernommen."
-msgstr "Opacity masks were not imported."
+msgid "Deckkraftmasken wurden nicht übernommen"
+msgstr "Opacity masks were not imported"
 
 #: ai.rs:1252 ai.rs:1261
-msgid "Muster- und Netzfüllungen wurden vereinfacht."
-msgstr "Pattern and mesh fills were simplified."
+msgid "Muster- und Netzfüllungen wurden vereinfacht"
+msgstr "Pattern and mesh fills were simplified"
 
 #: ai.rs:1770
-msgid "CMYK-JPEG-Bilder wurden übersprungen."
-msgstr "CMYK JPEG images were skipped."
+msgid "CMYK-JPEG-Bilder wurden übersprungen"
+msgstr "CMYK JPEG images were skipped"
 
 #: ai.rs:1775
-msgid "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen."
-msgstr "Images with special compression (JPEG 2000, JBIG2, CCITT) were skipped."
+msgid "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen"
+msgstr "Images with special compression (JPEG 2000, JBIG2, CCITT) were skipped"
 
 #: ai.rs:1786
-msgid "Transparenz von JPEG-Bildern wurde nicht übernommen."
-msgstr "Transparency of JPEG images was not imported."
+msgid "Transparenz von JPEG-Bildern wurde nicht übernommen"
+msgstr "Transparency of JPEG images was not imported"
 
 #: ai.rs:2091
-msgid "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen."
-msgstr "Text with an unknown character encoding was partly skipped."
+msgid "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen"
+msgstr "Text with an unknown character encoding was partly skipped"
 
 #: ai.rs:2099
-msgid "Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen."
-msgstr "Fonts are replaced by installed fonts; line breaks stay as separate lines of text."
+msgid "Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen"
+msgstr "Fonts are replaced by installed fonts; line breaks stay as separate lines of text"
 
 #: ai.rs:2232
-msgid "Die Datei enthält keine Seiten."
-msgstr "The file contains no pages."
+msgid "Die Datei enthält keine Seiten"
+msgstr "The file contains no pages"
 
 #: ai.rs:2355
-msgid "Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden."
-msgstr "No displayable content was found on the first page."
+msgid "Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden"
+msgstr "No displayable content was found on the first page"
 
 #: editor.rs:1411
-msgid "Die Ebene „{}“ ist ausgeblendet."
-msgstr "The layer “{}” is hidden."
+msgid "Die Ebene „{}“ ist ausgeblendet"
+msgstr "The layer “{}” is hidden"
 
 #: editor.rs:1415
-msgid "Die Ebene „{}“ ist gesperrt."
-msgstr "The layer “{}” is locked."
+msgid "Die Ebene „{}“ ist gesperrt"
+msgstr "The layer “{}” is locked"
 
 #: editor.rs:2249 library.rs:92 model.rs:343
 msgid "Text"
@@ -68,32 +68,32 @@ msgid "Hilfslinie"
 msgstr "Guide"
 
 #: editor.rs:3796 editor.rs:3920 editor.rs:3972
-msgid "Gesperrte Objekte lassen sich nicht verändern."
-msgstr "Locked objects cannot be changed."
+msgid "Gesperrte Objekte lassen sich nicht verändern"
+msgstr "Locked objects cannot be changed"
 
 #: editor.rs:3849
-msgid "Gesperrte Objekte lassen sich nicht löschen."
-msgstr "Locked objects cannot be deleted."
+msgid "Gesperrte Objekte lassen sich nicht löschen"
+msgstr "Locked objects cannot be deleted"
 
 #: editor.rs:4148
-msgid "Dafür mindestens zwei Objekte auswählen."
-msgstr "Select at least two objects for this."
+msgid "Dafür mindestens zwei Objekte auswählen"
+msgstr "Select at least two objects for this"
 
 #: editor.rs:4162
-msgid "Das Ergebnis wäre leer."
-msgstr "The result would be empty."
+msgid "Das Ergebnis wäre leer"
+msgstr "The result would be empty"
 
 #: editor.rs:4578
-msgid "Die Ebene „{}“ ist gesperrt oder ausgeblendet."
-msgstr "The layer “{}” is locked or hidden."
+msgid "Die Ebene „{}“ ist gesperrt oder ausgeblendet"
+msgstr "The layer “{}” is locked or hidden"
 
 #: editor.rs:4620
-msgid "Klicke auf einen Pfad oder eine Form, um Text daran auszurichten."
-msgstr "Click a path or shape to align text along it."
+msgid "Klicke auf einen Pfad oder eine Form, um Text daran auszurichten"
+msgstr "Click a path or shape to align text along it"
 
 #: editor.rs:4629
-msgid "Text lässt sich nicht an einem Bild ausrichten."
-msgstr "Text cannot be aligned along an image."
+msgid "Text lässt sich nicht an einem Bild ausrichten"
+msgstr "Text cannot be aligned along an image"
 
 #: editor.rs:4638 editor.rs:4989 model.rs:344
 msgid "Text auf Pfad"
@@ -104,8 +104,8 @@ msgid "Ebene {}"
 msgstr "Layer {}"
 
 #: editor.rs:4765
-msgid "Die letzte Ebene kann nicht gelöscht werden."
-msgstr "The last layer cannot be deleted."
+msgid "Die letzte Ebene kann nicht gelöscht werden"
+msgstr "The last layer cannot be deleted"
 
 #: editor.rs:4983 window.rs:3470 window.rs:10466
 msgid "Auswahl"
@@ -164,16 +164,16 @@ msgid "{} Objekte"
 msgstr "{} objects"
 
 #: editor.rs:5100
-msgid "Im Bild wurden keine Flächen gefunden."
-msgstr "No areas were found in the image."
+msgid "Im Bild wurden keine Flächen gefunden"
+msgstr "No areas were found in the image"
 
 #: editor.rs:5167
 msgid "Nachgezeichnet"
 msgstr "Traced"
 
 #: editor.rs:5395
-msgid "Hier ist keine geschlossene Fläche."
-msgstr "There is no closed area here."
+msgid "Hier ist keine geschlossene Fläche"
+msgstr "There is no closed area here"
 
 #: editor.rs:6571
 msgid "Kantenmitte"
@@ -204,12 +204,12 @@ msgid "Pfad"
 msgstr "Path"
 
 #: editor.rs:7034
-msgid "Die aktuelle Ebene ist gesperrt."
-msgstr "The current layer is locked."
+msgid "Die aktuelle Ebene ist gesperrt"
+msgstr "The current layer is locked"
 
 #: editor.rs:8042
-msgid "Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern."
-msgstr "A blend only works between shapes and paths, not with text or images."
+msgid "Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern"
+msgstr "A blend only works between shapes and paths, not with text or images"
 
 #: export.rs:23
 msgid "PNG-Bild"
@@ -236,28 +236,28 @@ msgid "Farbprofil: {}"
 msgstr "Colour profile: {}"
 
 #: export.rs:302
-msgid "Das Farbprofil ist kein lesbares CMYK-Druckprofil."
-msgstr "The colour profile is not a readable CMYK print profile."
+msgid "Das Farbprofil ist kein lesbares CMYK-Druckprofil"
+msgstr "The colour profile is not a readable CMYK print profile"
 
 #: fsutil.rs:31
 msgid "kein Dateiname"
 msgstr "no file name"
 
 #: keys.rs:542
-msgid "Diese Taste ist fest."
-msgstr "This key is fixed."
+msgid "Diese Taste ist fest"
+msgstr "This key is fixed"
 
 #: keys.rs:548
-msgid "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe."
-msgstr "Shortcuts need Ctrl or Alt (or a function key), otherwise they get in the way of typing."
+msgid "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe"
+msgstr "Shortcuts need Ctrl or Alt (or a function key), otherwise they get in the way of typing"
 
 #: keys.rs:553
-msgid "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt."
-msgstr "Tool keys can only be a single key, with or without Shift."
+msgid "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt"
+msgstr "Tool keys can only be a single key, with or without Shift"
 
 #: keys.rs:557
-msgid "Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig."
-msgstr "A letter, digit or character is needed here."
+msgid "Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig"
+msgstr "A letter, digit or character is needed here"
 
 #: keys.rs:572
 msgid "Strg"
@@ -588,36 +588,36 @@ msgid "Diese Datei enthält keine PDF-Daten. Die Illustrator-Datei muss mit der 
 msgstr "This file contains no PDF data. The Illustrator file must be saved with the option “Create PDF Compatible File”."
 
 #: pdf.rs:986
-msgid "Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen."
-msgstr "The file is encrypted (password-protected) and cannot be opened."
+msgid "Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen"
+msgstr "The file is encrypted (password-protected) and cannot be opened"
 
 #: pdf.rs:1001
-msgid "Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog)."
-msgstr "The PDF structure of the file is damaged (no document catalogue)."
+msgid "Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog)"
+msgstr "The PDF structure of the file is damaged (no document catalogue)"
 
 #: pdfx.rs:326
 msgid "eingebettete Bilder im Inhalt werden nicht unterstützt"
 msgstr "embedded inline images are not supported"
 
 #: pdfx.rs:622
-msgid "Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht."
-msgstr "PDF/X needs a colour profile for the printing condition."
+msgid "Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht"
+msgstr "PDF/X needs a colour profile for the printing condition"
 
 #: pdfx.rs:684
-msgid "Ein Bild ließ sich nicht nach CMYK umrechnen."
-msgstr "An image could not be converted to CMYK."
+msgid "Ein Bild ließ sich nicht nach CMYK umrechnen"
+msgstr "An image could not be converted to CMYK"
 
 #: pdfx.rs:703
-msgid "Ein Inhalt der Seite ließ sich nicht lesen."
-msgstr "Some page content could not be read."
+msgid "Ein Inhalt der Seite ließ sich nicht lesen"
+msgstr "Some page content could not be read"
 
 #: pdfx.rs:739
-msgid "Die PDF-Datei hat keinen Katalog."
-msgstr "The PDF file has no catalogue."
+msgid "Die PDF-Datei hat keinen Katalog"
+msgstr "The PDF file has no catalogue"
 
 #: pdfx.rs:787
-msgid "Die PDF-Datei hat einen ungültigen Katalog."
-msgstr "The PDF file has an invalid catalogue."
+msgid "Die PDF-Datei hat einen ungültigen Katalog"
+msgstr "The PDF file has an invalid catalogue"
 
 #: render.rs:4216
 msgid "Standard"
@@ -688,8 +688,8 @@ msgid "Teile der CSS-Formatierung"
 msgstr "parts of the CSS styling"
 
 #: svg.rs:2664
-msgid "Die Datei ist kein SVG-Dokument."
-msgstr "The file is not an SVG document."
+msgid "Die Datei ist kein SVG-Dokument"
+msgstr "The file is not an SVG document"
 
 #: svg.rs:2727 window.rs:4779 window.rs:8625
 msgid "Zeichenfläche"
@@ -701,7 +701,7 @@ msgstr "Image “{}” (file not found)"
 
 #: window.rs:225
 msgid "Deckkraft der Farbe"
-msgstr "Colour opacity"
+msgstr "Colour Opacity"
 
 #: window.rs:231
 msgid "Farbwert, z. B. #3584E4"
@@ -713,7 +713,7 @@ msgstr "Opacity in per cent – type a value"
 
 #: window.rs:579
 msgid "Wert eintippen"
-msgstr "Type a value"
+msgstr "Type a Value"
 
 #: window.rs:626 window.rs:3973 window.rs:3982
 msgid "Stärke"
@@ -721,7 +721,7 @@ msgstr "Strength"
 
 #: window.rs:679
 msgid "Auf- oder zuklappen"
-msgstr "Expand or collapse"
+msgstr "Expand or Collapse"
 
 #: window.rs:918 window.rs:1648 window.rs:1796
 msgid "Verlauf"
@@ -921,15 +921,15 @@ msgstr "Distribute objects with equal spacing"
 
 #: window.rs:2241
 msgid "Horizontal verteilen"
-msgstr "Distribute horizontally"
+msgstr "Distribute Horizontally"
 
 #: window.rs:2242
 msgid "Vertikal verteilen"
-msgstr "Distribute vertically"
+msgstr "Distribute Vertically"
 
 #: window.rs:2257
 msgid "Weitere Möglichkeiten"
-msgstr "More options"
+msgstr "More Options"
 
 #: window.rs:2295
 msgid "Zur Bibliothek hinzufügen"
@@ -1144,8 +1144,8 @@ msgid "Nichts ausgewählt"
 msgstr "Nothing selected"
 
 #: window.rs:3478
-msgid "Klicke ein Objekt an, um es zu bearbeiten."
-msgstr "Click an object to edit it."
+msgid "Klicke ein Objekt an, um es zu bearbeiten"
+msgstr "Click an object to edit it"
 
 #: window.rs:3492
 msgid "Form"
@@ -1209,15 +1209,15 @@ msgstr "List"
 
 #: window.rs:3604
 msgid "Aufzählungszeichen wählen"
-msgstr "Choose list style"
+msgstr "Choose List Style"
 
 #: window.rs:3615
 msgid "Einzug verkleinern"
-msgstr "Decrease indent"
+msgstr "Decrease Indent"
 
 #: window.rs:3619
 msgid "Einzug vergrößern"
-msgstr "Increase indent"
+msgstr "Increase Indent"
 
 #: window.rs:3659
 msgid "Linksbündig"
@@ -1253,7 +1253,7 @@ msgstr "Line spacing in % of the font size"
 
 #: window.rs:3688
 msgid "Zeilenabstand (%)"
-msgstr "Line spacing (%)"
+msgstr "Line Spacing (%)"
 
 #: window.rs:3692 window.rs:12515
 msgid "Zeichenabstand in 1/1000 Geviert"
@@ -1261,7 +1261,7 @@ msgstr "Letter spacing in 1/1000 em"
 
 #: window.rs:3694
 msgid "Zeichenabstand (1/1000 Geviert)"
-msgstr "Letter spacing (1/1000 em)"
+msgstr "Letter Spacing (1/1000 em)"
 
 #: window.rs:3705
 msgid "Abstand zwischen Absätzen in % der Schriftgröße"
@@ -1313,7 +1313,7 @@ msgstr "Smooth"
 
 #: window.rs:3746
 msgid "Knoten löschen (Entf)"
-msgstr "Delete nodes (Del)"
+msgstr "Delete Nodes (Del)"
 
 #: window.rs:3759
 msgid "Radius für die gewählten Ecken (ohne Auswahl: alle Ecken)"
@@ -1333,7 +1333,7 @@ msgstr "Temperature"
 
 #: window.rs:3779
 msgid "Farbverlauf hinzufügen"
-msgstr "Add gradient"
+msgstr "Add Gradient"
 
 #: window.rs:3781
 msgid "Füllung als Verlauf; im Dokument erscheint die Verlaufslinie"
@@ -1345,23 +1345,23 @@ msgstr "Click a colour stop to select it, drag to move it; clicking the bar adds
 
 #: window.rs:3793
 msgid "Farbe des gewählten Farbstopps"
-msgstr "Colour of the selected stop"
+msgstr "Colour of the Selected Stop"
 
 #: window.rs:3795
 msgid "Weitere Farbe hinzufügen"
-msgstr "Add another colour"
+msgstr "Add Another Colour"
 
 #: window.rs:3798
 msgid "Gewählte Farbe entfernen"
-msgstr "Remove the selected colour"
+msgstr "Remove the Selected Colour"
 
 #: window.rs:3810
 msgid "Farbstopp"
-msgstr "Colour stop"
+msgstr "Colour Stop"
 
 #: window.rs:3824
 msgid "Verlauf entfernen"
-msgstr "Remove gradient"
+msgstr "Remove Gradient"
 
 #: window.rs:3828 window.rs:5879 window.rs:12546
 msgid "Kontur"
@@ -1401,7 +1401,7 @@ msgstr "Position"
 
 #: window.rs:3880
 msgid "Durchgezogen, gestrichelt oder gepunktet"
-msgstr "Solid, dashed or dotted"
+msgstr "Solid, Dashed or Dotted"
 
 #: window.rs:3890 window.rs:12680
 msgid "Enden"
@@ -1509,7 +1509,7 @@ msgstr "Depth: −100 % pressed in, 100 % raised"
 
 #: window.rs:4003
 msgid "Stärke von Licht und Schatten"
-msgstr "Strength of light and shadow"
+msgstr "Strength of Light and Shadow"
 
 #: window.rs:4009
 msgid "Spiegelung entfernen"
@@ -1617,15 +1617,15 @@ msgstr "Only move or scale the image inside the frame"
 
 #: window.rs:4159
 msgid "Rahmen lösen"
-msgstr "Release frame"
+msgstr "Release Frame"
 
 #: window.rs:4165 window.rs:4171
 msgid "Rahmenfüllung"
-msgstr "Frame fill"
+msgstr "Frame Fill"
 
 #: window.rs:4166 window.rs:4177
 msgid "Rahmenkontur"
-msgstr "Frame stroke"
+msgstr "Frame Stroke"
 
 #: window.rs:4183
 msgid "Linienstärke des Rahmens in px"
@@ -1641,7 +1641,7 @@ msgstr "Padding"
 
 #: window.rs:4193
 msgid "Form lösen"
-msgstr "Release shape"
+msgstr "Release Shape"
 
 #: window.rs:4196
 msgid "Text wieder rechteckig umbrechen; die Form bleibt als eigenes Objekt"
@@ -1689,7 +1689,7 @@ msgstr "Delete"
 
 #: window.rs:4285
 msgid "Alle löschen"
-msgstr "Delete all"
+msgstr "Delete All"
 
 #: window.rs:4448
 msgid "Rückgängig (Strg Z)"
@@ -1705,7 +1705,7 @@ msgstr "Show or hide tool names"
 
 #: window.rs:4464
 msgid "Hauptmenü"
-msgstr "Main menu"
+msgstr "Main Menu"
 
 #: window.rs:4471
 msgid "Neues Dokument (Strg N)"
@@ -1784,8 +1784,8 @@ msgid "Solange diese Leiste offen ist, lassen sich Zeichenflächen am Namen vers
 msgstr "While this panel is open, artboards can be moved by their name and resized with their handles"
 
 #: window.rs:5202
-msgid "Das ist keine Illustrator- oder PDF-Datei."
-msgstr "This is not an Illustrator or PDF file."
+msgid "Das ist keine Illustrator- oder PDF-Datei"
+msgstr "This is not an Illustrator or PDF file"
 
 #: window.rs:5221
 msgid "Öffnen fehlgeschlagen: {}"
@@ -1870,24 +1870,24 @@ msgid "Hier ist keine Farbe – auf die Seite klicken"
 msgstr "There is no colour here – click on the page"
 
 #: window.rs:6661
-msgid "Das Bild lässt sich nicht lesen."
-msgstr "The image cannot be read."
+msgid "Das Bild lässt sich nicht lesen"
+msgstr "The image cannot be read"
 
 #: window.rs:8546
 msgid "Ein-/Ausblenden"
-msgstr "Show/hide"
+msgstr "Show/Hide"
 
 #: window.rs:8567
 msgid "Ebene löschen"
-msgstr "Delete layer"
+msgstr "Delete Layer"
 
 #: window.rs:8636
 msgid "Zeichenfläche bearbeiten"
-msgstr "Edit artboard"
+msgstr "Edit Artboard"
 
 #: window.rs:8642
 msgid "Zeichenfläche entfernen (die Objekte bleiben)"
-msgstr "Remove artboard (the objects stay)"
+msgstr "Remove Artboard (the objects stay)"
 
 #: window.rs:8764
 msgid "{} – Doppelklick zum Umbenennen"
@@ -1898,8 +1898,8 @@ msgid "Änderungen an „{}“ speichern?"
 msgstr "Save changes to “{}”?"
 
 #: window.rs:8939
-msgid "Wenn du nicht speicherst, gehen die Änderungen verloren."
-msgstr "If you don’t save, your changes will be lost."
+msgid "Wenn du nicht speicherst, gehen die Änderungen verloren"
+msgstr "If you don’t save, your changes will be lost"
 
 #: window.rs:8942 window.rs:9319
 msgid "_Verwerfen"
@@ -2081,7 +2081,7 @@ msgstr "New Document"
 
 #: window.rs:9722
 msgid "Weißer Hintergrund"
-msgstr "White background"
+msgstr "White Background"
 
 #: window.rs:9723
 msgid "Ausgeschaltet ist der Hintergrund transparent"
@@ -2108,8 +2108,8 @@ msgid "Format suchen, z. B. „A5“ oder „Story“"
 msgstr "Search formats, e.g. “A5” or “Story”"
 
 #: window.rs:9892
-msgid "Kein passendes Format – „Eigenes Format …“ legt jede Größe an."
-msgstr "No matching format – “Custom Format …” creates any size."
+msgid "Kein passendes Format – „Eigenes Format …“ legt jede Größe an"
+msgstr "No matching format – “Custom Format …” creates any size"
 
 #: window.rs:9941
 msgid "Eigenes Format …"
@@ -2133,11 +2133,11 @@ msgstr "Export"
 
 #: window.rs:10123
 msgid "Klicken zum Aus- oder Abwählen"
-msgstr "Click to select or deselect"
+msgstr "Click to Select or Deselect"
 
 #: window.rs:10132
 msgid "Nur die Auswahl"
-msgstr "Selection only"
+msgstr "Selection Only"
 
 #: window.rs:10149
 msgid "PDF: eine Seite je Zeichenfläche. Andere Formate: eine Datei je Zeichenfläche."
@@ -2149,7 +2149,7 @@ msgstr "All"
 
 #: window.rs:10196
 msgid "Hintergrund mitspeichern"
-msgstr "Include background"
+msgstr "Include Background"
 
 #: window.rs:10210
 msgid "Auflösung"
@@ -2157,11 +2157,11 @@ msgstr "Resolution"
 
 #: window.rs:10215
 msgid "JPG-Qualität"
-msgstr "JPG quality"
+msgstr "JPG Quality"
 
 #: window.rs:10218
 msgid "Schriften einbetten"
-msgstr "Embed fonts"
+msgstr "Embed Fonts"
 
 #: window.rs:10219
 msgid "Die verwendeten Schriften werden in die SVG-Datei gelegt (größere Datei)"
@@ -2169,7 +2169,7 @@ msgstr "The fonts used are stored in the SVG file (larger file)"
 
 #: window.rs:10223
 msgid "Qualität der Effekte"
-msgstr "Effect quality"
+msgstr "Effect Quality"
 
 #: window.rs:10224
 msgid "Auflösung von Schatten, Glas-, 3D- und Kunsteffekten"
@@ -2209,7 +2209,7 @@ msgstr "PDF/X-4 (print shop)"
 
 #: window.rs:10253
 msgid "Farbprofil"
-msgstr "Colour profile"
+msgstr "Colour Profile"
 
 #: window.rs:10254
 msgid "Wählen…"
@@ -2221,15 +2221,15 @@ msgstr "None found – e.g. download “PSO Coated v3” from eci.org and choose
 
 #: window.rs:10271
 msgid "Farbprofil wählen"
-msgstr "Choose colour profile"
+msgstr "Choose Colour Profile"
 
 #: window.rs:10275
 msgid "ICC-Farbprofile"
 msgstr "ICC colour profiles"
 
 #: window.rs:10305
-msgid "Das ist kein CMYK-Druckprofil (ICC)."
-msgstr "This is not a CMYK print profile (ICC)."
+msgid "Das ist kein CMYK-Druckprofil (ICC)"
+msgstr "This is not a CMYK print profile (ICC)"
 
 #: window.rs:10312
 msgid "Beschnittzugabe (mm)"
@@ -2277,7 +2277,7 @@ msgstr "Size (%)"
 
 #: window.rs:10536
 msgid "Breite und Höhe getrennt"
-msgstr "Width and height separately"
+msgstr "Width and Height Separately"
 
 #: window.rs:10539
 msgid "Breite (%)"
@@ -2289,7 +2289,7 @@ msgstr "Height (%)"
 
 #: window.rs:10545
 msgid "Konturen und Schatten mitskalieren"
-msgstr "Scale strokes and shadows too"
+msgstr "Scale Strokes and Shadows Too"
 
 #: window.rs:10608
 msgid "Name"
@@ -2297,7 +2297,7 @@ msgstr "Name"
 
 #: window.rs:10616
 msgid "Hintergrundfarbe"
-msgstr "Background colour"
+msgstr "Background Colour"
 
 #: window.rs:10617
 msgid "Ausgeschaltet ist die Zeichenfläche transparent"
@@ -2320,8 +2320,8 @@ msgid "Jetzt die neue Tastenkombination drücken …"
 msgstr "Now press the new key combination …"
 
 #: window.rs:10712
-msgid "Esc bricht ab, ⌫ entfernt das Kürzel."
-msgstr "Esc cancels, ⌫ removes the shortcut."
+msgid "Esc bricht ab, ⌫ entfernt das Kürzel"
+msgstr "Esc cancels, ⌫ removes the shortcut"
 
 #: window.rs:10762
 msgid "{} ist schon vergeben für „{}“. Eine andere Kombination wählen oder Esc drücken."
@@ -2333,7 +2333,7 @@ msgstr "Appearance"
 
 #: window.rs:10827
 msgid "Farbschema"
-msgstr "Colour scheme"
+msgstr "Colour Scheme"
 
 #: window.rs:10843
 msgid "farbschema system hell dunkel darstellung theme design"
@@ -2373,7 +2373,7 @@ msgstr "rulers top left unit"
 
 #: window.rs:10893
 msgid "Maßeinheit"
-msgstr "Unit of measurement"
+msgstr "Unit of Measurement"
 
 #: window.rs:10896
 msgid "Voreinstellung; jedes Dokument merkt sich seine eigene Einheit"
@@ -2385,7 +2385,7 @@ msgstr "unit of measurement unit pixel px millimetre mm centimetre cm inch in po
 
 #: window.rs:10911
 msgid "Einrasten an"
-msgstr "Snap to"
+msgstr "Snap To"
 
 #: window.rs:10914
 msgid "einrasten {}"
@@ -2445,15 +2445,15 @@ msgstr "grid"
 
 #: window.rs:10940
 msgid "Alle an"
-msgstr "All on"
+msgstr "All On"
 
 #: window.rs:10941
 msgid "Alle aus"
-msgstr "All off"
+msgstr "All Off"
 
 #: window.rs:10957
 msgid "Rasterweite (px)"
-msgstr "Grid spacing (px)"
+msgstr "Grid Spacing (px)"
 
 #: window.rs:10965
 msgid "rasterweite raster gitter px"
@@ -2461,7 +2461,7 @@ msgstr "grid spacing grid px"
 
 #: window.rs:10967
 msgid "Einsetzen in Formen"
-msgstr "Placing in shapes"
+msgstr "Placing in Shapes"
 
 #: window.rs:10970
 msgid "Wartezeit (s)"
@@ -2477,11 +2477,11 @@ msgstr "delay place shapes image text box hold frame"
 
 #: window.rs:10985
 msgid "Alle zurücksetzen"
-msgstr "Reset all"
+msgstr "Reset All"
 
 #: window.rs:10987
 msgid "Standardbelegung"
-msgstr "Default shortcuts"
+msgstr "Default Shortcuts"
 
 #: window.rs:10995
 msgid "standardbelegung alle zurücksetzen shortcuts tastenkürzel tastenkombination"
@@ -2493,11 +2493,11 @@ msgstr "Not assigned"
 
 #: window.rs:11041
 msgid "Auf den Standard zurücksetzen"
-msgstr "Reset to default"
+msgstr "Reset to Default"
 
 #: window.rs:11047
 msgid "Tastenkombination ändern"
-msgstr "Change key combination"
+msgstr "Change Key Combination"
 
 #: window.rs:11246 window.rs:11253
 msgid "Einstellung suchen"
@@ -2512,8 +2512,8 @@ msgid "Bild konnte nicht gelesen werden: {}"
 msgstr "The image could not be read: {}"
 
 #: window.rs:11370
-msgid "Dieses Bildformat wird nicht unterstützt."
-msgstr "This image format is not supported."
+msgid "Dieses Bildformat wird nicht unterstützt"
+msgstr "This image format is not supported"
 
 #: window.rs:11381
 msgid "Bild einfügen"
@@ -2525,7 +2525,7 @@ msgstr "Images"
 
 #: window.rs:11458
 msgid "Aus der Liste entfernen"
-msgstr "Remove from the list"
+msgstr "Remove From the List"
 
 #: window.rs:11473
 msgid "Öffnen …"
@@ -2573,7 +2573,7 @@ msgstr "Export …"
 
 #: window.rs:11630
 msgid "Ordner öffnen"
-msgstr "Open folder"
+msgstr "Open Folder"
 
 #: window.rs:11631
 msgid "Neu einlesen"
@@ -2581,11 +2581,11 @@ msgstr "Reload"
 
 #: window.rs:11636
 msgid "Bibliotheken verwalten"
-msgstr "Manage libraries"
+msgstr "Manage Libraries"
 
 #: window.rs:11644
 msgid "Bibliothek wählen"
-msgstr "Choose library"
+msgstr "Choose Library"
 
 #: window.rs:11675
 msgid "Noch keine Farben"
@@ -2700,8 +2700,8 @@ msgid "ohne Namen"
 msgstr "unnamed"
 
 #: window.rs:12260
-msgid "Der Name ist freiwillig und erscheint unter dem Feld."
-msgstr "The name is optional and appears below the swatch."
+msgid "Der Name ist freiwillig und erscheint unter dem Feld"
+msgstr "The name is optional and appears below the swatch"
 
 #: window.rs:12264
 msgid "_Übernehmen"
@@ -2749,11 +2749,11 @@ msgstr "Letter spacing"
 
 #: window.rs:12530
 msgid "Textfarbe"
-msgstr "Text colour"
+msgstr "Text Colour"
 
 #: window.rs:12557
 msgid "Keine Farbe"
-msgstr "No colour"
+msgstr "No Colour"
 
 #: window.rs:12692
 msgid "Deckkraft (%)"
@@ -2777,7 +2777,7 @@ msgstr "Style"
 
 #: window.rs:12822
 msgid "Bibliothek exportieren"
-msgstr "Export library"
+msgstr "Export Library"
 
 #: window.rs:12826 window.rs:12846
 msgid "Stijl-Bibliothek (SVG)"
@@ -2793,7 +2793,7 @@ msgstr "Export failed: {}"
 
 #: window.rs:12842
 msgid "Bibliothek importieren"
-msgstr "Import library"
+msgstr "Import Library"
 
 #: window.rs:12864
 msgid "In dieser Datei ist keine Bibliothek"
@@ -2836,8 +2836,8 @@ msgid "Als Grafik in die Bibliothek"
 msgstr "Add to Library as Graphic"
 
 #: window.rs:13121
-msgid "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren."
-msgstr "The selected objects can later be copied into any document by dragging."
+msgid "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren"
+msgstr "The selected objects can later be copied into any document by dragging"
 
 #: window.rs:13137
 msgid "Grafik"
@@ -2865,7 +2865,7 @@ msgstr "The default library “Stijl” cannot be renamed"
 
 #: window.rs:13241
 msgid "Bibliothek umbenennen"
-msgstr "Rename library"
+msgstr "Rename Library"
 
 #: window.rs:13244
 msgid "_Umbenennen"
@@ -2884,8 +2884,8 @@ msgid "Bibliothek löschen?"
 msgstr "Delete library?"
 
 #: window.rs:13287
-msgid "„{}“ mit allen Farben und Stilen wird gelöscht."
-msgstr "“{}” and all its colours and styles will be deleted."
+msgid "„{}“ mit allen Farben und Stilen wird gelöscht"
+msgstr "“{}” and all its colours and styles will be deleted"
 
 #: window.rs:13290
 msgid "_Löschen"
@@ -2932,10 +2932,10 @@ msgid "Feste Tasten"
 msgstr "Fixed keys"
 
 msgid "Auswahl exportieren"
-msgstr "Export selection"
+msgstr "Export Selection"
 
 msgid "Tab schließen"
-msgstr "Close tab"
+msgstr "Close Tab"
 
 msgid "Rückgängig"
 msgstr "Undo"
@@ -2947,61 +2947,61 @@ msgid "Duplizieren"
 msgstr "Duplicate"
 
 msgid "Waagerecht spiegeln"
-msgstr "Flip horizontally"
+msgstr "Flip Horizontally"
 
 msgid "Senkrecht spiegeln"
-msgstr "Flip vertically"
+msgstr "Flip Vertically"
 
 msgid "Vergrößern"
-msgstr "Zoom in"
+msgstr "Zoom In"
 
 msgid "Verkleinern"
-msgstr "Zoom out"
+msgstr "Zoom Out"
 
 msgid "Originalgröße"
-msgstr "Actual size"
+msgstr "Actual Size"
 
 msgid "Ganze Seite"
-msgstr "Whole page"
+msgstr "Whole Page"
 
 msgid "Notizheft-Ansicht ein/aus"
-msgstr "Notebook view on/off"
+msgstr "Notebook View On/Off"
 
 msgid "Eigenschaften ein-/ausblenden"
-msgstr "Show/hide properties"
+msgstr "Show/Hide Properties"
 
 msgid "Kurvenstift"
-msgstr "Curvature pen"
+msgstr "Curvature Pen"
 
 msgid "Bleistift"
 msgstr "Pencil"
 
 msgid "Auswahl löschen"
-msgstr "Delete selection"
+msgstr "Delete Selection"
 
 msgid "Abbrechen, Auswahl aufheben"
-msgstr "Cancel, deselect"
+msgstr "Cancel, Deselect"
 
 msgid "Zeichnen beenden"
-msgstr "Finish drawing"
+msgstr "Finish Drawing"
 
 msgid "Auswahl verschieben (mit Umschalt: 10 px)"
 msgstr "Move selection (with Shift: 10 px)"
 
 msgid "Ansicht verschieben (gedrückt halten, ziehen)"
-msgstr "Pan the view (hold and drag)"
+msgstr "Pan the View (hold and drag)"
 
 msgid "Nächste/vorige Seite (Notizheft)"
-msgstr "Next/previous page (notebook)"
+msgstr "Next/Previous Page (Notebook)"
 
 msgid "Alles auswählen"
-msgstr "Select all"
+msgstr "Select All"
 
 msgid "Tabulator im Text"
-msgstr "Tab in text"
+msgstr "Tab in Text"
 
 msgid "Neue Zeile im Absatz (Textfeld)"
-msgstr "New line within a paragraph (text box)"
+msgstr "New Line Within a Paragraph (text box)"
 
 msgid "Druck"
 msgstr "Print"
@@ -3076,7 +3076,7 @@ msgid "4K UHD"
 msgstr "4K UHD"
 
 msgid "Shortcuts"
-msgstr "Shortcuts"
+msgstr "Keyboard Shortcuts"
 
 #: window.rs (Sprache)
 msgid "Sprache"
@@ -3101,7 +3101,7 @@ msgid "Updates"
 msgstr "Updates"
 
 msgid "Nach neuen Versionen suchen"
-msgstr "Check for new versions"
+msgstr "Check for New Versions"
 
 msgid "Einmal am Tag bei GitHub nachsehen"
 msgstr "Checks GitHub once a day"
@@ -3113,10 +3113,130 @@ msgid "updates aktualisierung neue version github"
 msgstr "updates update new version github"
 
 msgid "Dokument öffnen"
-msgstr "Open document"
+msgstr "Open Document"
 
 msgid "Bild „{}“ (keine Bilddatei)"
 msgstr "Image “{}” (not an image file)"
 
-msgid "Die Datei ist zu tief verschachtelt."
-msgstr "The file is nested too deeply."
+msgid "Die Datei ist zu tief verschachtelt"
+msgstr "The file is nested too deeply"
+
+msgid "{} (Kopie)"
+msgstr "{} (copy)"
+
+msgid "Zeichenfläche mit Inhalt duplizieren"
+msgstr "Duplicate Artboard With Its Contents"
+
+msgid "{} – die Auswahl liegt auf dieser Ebene; das Kästchen auf eine andere Ebene ziehen, um sie zu verschieben"
+msgstr "{} – the selection is on this layer; drag the square onto another layer to move it there"
+
+msgid "Ebenen und Bibliothek"
+msgstr "Layers and Library"
+
+msgid "Ebenen und Bibliothek ein-/ausblenden"
+msgstr "Show/Hide Layers and Library"
+
+msgid "Tastenkürzel"
+msgstr "Keyboard Shortcuts"
+
+msgid "_Neu"
+msgstr "_New"
+
+msgid "_Öffnen…"
+msgstr "_Open…"
+
+msgid "Speichern _unter…"
+msgstr "Save _As…"
+
+msgid "_Exportieren…"
+msgstr "_Export…"
+
+msgid "_Auswahl exportieren…"
+msgstr "Export Se_lection…"
+
+msgid "_Bild einfügen…"
+msgstr "_Insert Image…"
+
+msgid "E_instellungen"
+msgstr "_Preferences"
+
+msgid "_Tastenkürzel"
+msgstr "_Keyboard Shortcuts"
+
+msgid "_Hilfe"
+msgstr "_Help"
+
+msgid "_Fehler melden…"
+msgstr "_Report a Problem…"
+
+msgid "_Über Stijl"
+msgstr "A_bout Stijl"
+
+msgid "Beenden"
+msgstr "Quit"
+
+msgid "Informationen zum Dokument"
+msgstr "Document Information"
+
+msgid "Ordner"
+msgstr "Folder"
+
+msgid "Objekte"
+msgstr "Objects"
+
+msgid "Dateigröße"
+msgstr "File Size"
+
+msgid "Datei erstellt"
+msgstr "File Created"
+
+msgid "Datei geändert"
+msgstr "File Modified"
+
+msgid "Effekte"
+msgstr "Effects"
+
+msgid "Zeichen"
+msgstr "Character"
+
+msgid "Absatz"
+msgstr "Paragraph"
+
+msgid "Linienenden"
+msgstr "Line Ends"
+
+msgid "Vertikal"
+msgstr "Vertical"
+
+msgid "Drehung"
+msgstr "Rotation"
+
+msgid "Versatz X"
+msgstr "Offset X"
+
+msgid "Versatz Y"
+msgstr "Offset Y"
+
+msgid "Winkel"
+msgstr "Angle"
+
+msgid "Objekte aneinander ausrichten"
+msgstr "Align objects to each other"
+
+msgid "Textstil der Auswahl zur Bibliothek hinzufügen"
+msgstr "Add the selected text style to the library"
+
+msgid "Übergang …"
+msgstr "Blend…"
+
+msgid "_Erstellen"
+msgstr "_Create"
+
+msgid "Willkommen bei Stijl"
+msgstr "Welcome to Stijl"
+
+msgid "Leg ein neues Dokument an oder mach dort weiter, wo du aufgehört hast."
+msgstr "Start a new document or pick up where you left off."
+
+msgid "Anzahl der Ecken neuer Vielecke und Sterne (und der ausgewählten)"
+msgstr "Number of corners for new polygons and stars (and the selected ones)"

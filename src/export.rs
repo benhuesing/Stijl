@@ -303,7 +303,7 @@ fn pdf_bytes(docs: &[Document], opt: &Options, background: bool) -> Result<Vec<u
     let profile = match &icc {
         Some(d) => Some(
             crate::icc::CmykProfile::parse(d)
-                .ok_or(tr("Das Farbprofil ist kein lesbares CMYK-Druckprofil."))?,
+                .ok_or(tr("Das Farbprofil ist kein lesbares CMYK-Druckprofil"))?,
         ),
         None => None,
     };

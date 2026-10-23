@@ -2664,7 +2664,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
     gather_gradients(&root, &mut grads);
     GRADS.with(|g| *g.borrow_mut() = grads);
     if root.local() != "svg" {
-        return Err(tr("Die Datei ist kein SVG-Dokument.").into());
+        return Err(tr("Die Datei ist kein SVG-Dokument").into());
     }
     let vb: Vec<f64> = root.attr("viewBox").map(parse_numbers).unwrap_or_default();
     let vb = (vb.len() == 4 && vb[2] > 0.0 && vb[3] > 0.0).then(|| (vb[0], vb[1], vb[2], vb[3]));

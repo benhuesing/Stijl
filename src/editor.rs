@@ -56,6 +56,9 @@ pub const FRAME_DWELL: f64 = 0.6;
 /// Zeichenstift: so weit (Bildschirmpixel) darf man beim Klicken ziehen, ohne dass der
 /// Punkt abgerundet wird.
 pub const PEN_DEADZONE: f64 = 8.0;
+/// So weit (Bildschirmpixel) darf der Zeiger beim Klicken wackeln, ohne dass daraus ein
+/// Ziehen wird (Verschieben, Anfasser, Knoten, Aufziehen …).
+pub const CLICK_SLOP: f64 = 5.0;
 /// Fangradius der Hilfslinien beim Verschieben (Bildschirmpixel); etwas größer als für
 /// andere Objekte, damit die Auswahl spürbar „hängen bleibt“.
 pub const GUIDE_SNAP: f64 = 10.0;
@@ -158,6 +161,65 @@ pub struct Mods {
     pub shift: bool,
     pub ctrl: bool,
     pub alt: bool,
+}
+
+/// Fläche eines Linienendes (wie `render::draw_marker`); `dir` zeigt vom Pfad nach außen.
+fn marker_area(tip: Pt, dir: Pt, w: f64, size: f64, mk: crate::model::Marker) -> Vec<boolean::Ring> {
+    use crate::model::{LineCap, LineJoin, Marker, Node};
+    use crate::stroker::{stroke_area, StrokeStyle};
+    let l = mk.length(w, size);
+    let half = l * 0.4;
+    let perp = Pt::new(-dir.y, dir.x);
+    let line = |pts: &[Pt], join: LineJoin, cap: LineCap| {
+        let sp = SubPath {
+            nodes: pts.iter().map(|p| Node::corner(*p)).collect(),
+            closed: false,
+        };
+        stroke_area(
+            &[sp],
+            &StrokeStyle {
+                width: w,
+                join,
+                cap,
+                dash: Vec::new(),
+            },
+        )
+    };
+    match mk {
+        Marker::Arrow => {
+            let base = tip - dir * l;
+            boolean::rings_op(
+                &[vec![tip, base + perp * half, base - perp * half]],
+                &[],
+                Op::Union,
+            )
+        }
+        Marker::OpenArrow => {
+            let base = tip - dir * (l * 0.8);
+            line(
+                &[base + perp * half, tip, base - perp * half],
+                LineJoin::Round,
+                LineCap::Round,
+            )
+        }
+        Marker::Dot => {
+            let r = (w * 1.6).max(2.5) * size.clamp(0.1, 20.0);
+            let n = 64;
+            let ring: Vec<Pt> = (0..n)
+                .map(|i| {
+                    let t = i as f64 / n as f64 * std::f64::consts::TAU;
+                    Pt::new(tip.x + r * t.cos(), tip.y + r * t.sin())
+                })
+                .collect();
+            boolean::rings_op(&[ring], &[], Op::Union)
+        }
+        Marker::Bar => line(
+            &[tip + perp * half, tip - perp * half],
+            LineJoin::Miter,
+            LineCap::Butt,
+        ),
+        Marker::None => Vec::new(),
+    }
 }
 
 /// Teilpfad als Punktfolge (Kurven in `n` Stücke geteilt; geschlossene enden am Anfang).
@@ -726,8 +788,9 @@ pub struct Editor {
     pub node_sel: Vec<NodeRef>,
     /// Punkte des Kurvenzeichners (Punkt, Eckpunkt?).
     pub curv: Option<Vec<(Pt, bool)>>,
-    /// Seit wann der Zeiger beim Kurvenzeichner über dem Startpunkt steht.
-    pub curv_close: Option<Instant>,
+    /// Ort des letzten Drückens (Bildschirm); `None`, sobald der Zeiger weiter als
+    /// `CLICK_SLOP` davon weg war – erst dann wirkt das Ziehen.
+    press_at: Option<Pt>,
     /// Zeichenflächen bearbeiten (Ebenen-/Zeichenflächenleiste offen): verschieben am
     /// Namen und Größe an den Anfassern ändern
     pub artboard_mode: bool,
@@ -863,7 +926,7 @@ impl Editor {
             pen: None,
             node_sel: Vec::new(),
             curv: None,
-            curv_close: None,
+            press_at: None,
             artboard_mode: false,
             hover: None,
             pointer: None,
@@ -1411,11 +1474,11 @@ impl Editor {
         })?;
         let l = &self.doc.layers[idx];
         if !l.visible {
-            self.message = Some(trf("Die Ebene „{}“ ist ausgeblendet.", &[&(l.name)]));
+            self.message = Some(trf("Die Ebene „{}“ ist ausgeblendet", &[&(l.name)]));
             return None;
         }
         if l.locked {
-            self.message = Some(trf("Die Ebene „{}“ ist gesperrt.", &[&(l.name)]));
+            self.message = Some(trf("Die Ebene „{}“ ist gesperrt", &[&(l.name)]));
             return None;
         }
         Some(idx)
@@ -1471,15 +1534,26 @@ impl Editor {
 
     pub fn press(&mut self, s: Pt, mods: Mods, pan: bool, m: &dyn Metrics) {
         self.hints.borrow_mut().clear();
+        self.press_at = Some(s);
         // Zeichenwerkzeuge: Ziele vor dem Klick sammeln (alle vorhandenen Objekte), damit
         // schon der erste Punkt einrastet und das neue Objekt nicht an sich selbst klebt.
         let creating = !matches!(self.tool, Tool::Select | Tool::Node) && !pan && !self.space_down;
         self.snap_ctx = (self.smart_snap && creating).then(|| self.build_snap_ctx(m, false));
         self.press_inner(s, mods, pan, m);
         if !creating {
-            // Auswählen/Verschieben: Ziele ohne die (nun) ausgewählten Objekte
-            self.snap_ctx = (self.smart_snap && !matches!(self.drag, Drag::Pan { .. }))
-                .then(|| self.build_snap_ctx(m, true));
+            // Auswählen/Verschieben: Ziele ohne die (nun) ausgewählten Objekte; beim
+            // Verschieben einer Zeichenfläche ohne sie selbst und was mit ihr wandert
+            self.snap_ctx = match &self.drag {
+                _ if !self.smart_snap => None,
+                Drag::Pan { .. } => None,
+                Drag::Artboard { idx, inside, .. } => {
+                    Some(self.build_snap_ctx_ex(m, &|o: &Object| inside.contains(&o.id), Some(*idx)))
+                }
+                Drag::ArtboardSize { idx, .. } => {
+                    Some(self.build_snap_ctx_ex(m, &|_: &Object| false, Some(*idx)))
+                }
+                _ => Some(self.build_snap_ctx(m, true)),
+            };
         }
     }
 
@@ -2520,6 +2594,26 @@ impl Editor {
     }
 
     pub fn motion(&mut self, s: Pt, mods: Mods, m: &dyn Metrics) {
+        // Kleines Wackeln beim Klicken ist noch kein Ziehen: nichts verschieben, keine
+        // Anfasser oder Kurven aus Versehen. Freihand, Radierer, Text markieren und Schwenken
+        // folgen sofort (dort zählt jeder Pixel bzw. es gibt eine eigene Schwelle).
+        if let Some(s0) = self.press_at {
+            let exempt = matches!(
+                self.drag,
+                Drag::None
+                    | Drag::Pan { .. }
+                    | Drag::Pencil { .. }
+                    | Drag::Erase { .. }
+                    | Drag::TextSelect { .. }
+                    | Drag::PenHandle
+            );
+            if !exempt && s.dist(s0) < CLICK_SLOP {
+                return;
+            }
+            if !matches!(self.drag, Drag::None) {
+                self.press_at = None;
+            }
+        }
         let p = self.view.to_doc(s);
         self.pointer = Some(p);
         let drag = std::mem::replace(&mut self.drag, Drag::None);
@@ -2561,20 +2655,6 @@ impl Editor {
                         let nodes: Vec<Node> = pts.iter().map(|(q, _)| Node::corner(*q)).collect();
                         self.pointer = Some(self.constrain_from(&nodes, p));
                     }
-                }
-                // Kurvenzeichner: Verweilen über dem Startpunkt zeigt die geschlossene Form
-                let near = self.tool == Tool::Curvature
-                    && self
-                        .curv
-                        .as_ref()
-                        .map(|pts| {
-                            pts.len() >= 2 && self.view.to_screen(pts[0].0).dist(s) <= HANDLE_RADIUS + 1.0
-                        })
-                        .unwrap_or(false);
-                if !near {
-                    self.curv_close = None;
-                } else if self.curv_close.is_none() {
-                    self.curv_close = Some(Instant::now());
                 }
                 Drag::None
             }
@@ -2724,7 +2804,27 @@ impl Editor {
                 inside,
             } => {
                 self.touch();
-                self.artboard_drag(idx, s, start, &orig, view, &inside);
+                let mut d = Pt::new((s.x - start.x) / view.zoom, (s.y - start.y) / view.zoom);
+                // Umschalt: nur waagerecht oder senkrecht
+                if mods.shift {
+                    if d.x.abs() >= d.y.abs() {
+                        d.y = 0.0;
+                    } else {
+                        d.x = 0.0;
+                    }
+                }
+                // Einrasten wie beim Verschieben von Objekten – gerechnet in den Koordinaten
+                // vom Beginn (die erste Zeichenfläche verschiebt beim Ziehen alles andere)
+                self.doc.guides = orig.guides.clone();
+                let r = orig.artboard_rects()[idx].1;
+                let d = self.snap_move(&r, d, mods.shift, &[]);
+                self.artboard_drag(idx, d, &orig, view, &inside);
+                if idx == 0 {
+                    for h in self.hints.borrow_mut().iter_mut() {
+                        h.a = h.a - d;
+                        h.b = h.b - d;
+                    }
+                }
                 Drag::Artboard {
                     idx,
                     start,
@@ -2744,8 +2844,13 @@ impl Editor {
                 // in den Koordinaten vom Beginn rechnen (die erste Zeichenfläche verschiebt
                 // beim Ändern die Ansicht); einrasten nur bei den weiteren
                 let q = view.to_doc(s);
-                let q = if idx == 0 { q } else { self.snap(q) };
-                self.artboard_resize(idx, handle, rect, q, &orig, view);
+                self.doc.guides = orig.guides.clone();
+                let q = self.snap(q);
+                let t = self.artboard_resize(idx, handle, rect, q, &orig, view);
+                for h in self.hints.borrow_mut().iter_mut() {
+                    h.a = h.a + t;
+                    h.b = h.b + t;
+                }
                 Drag::ArtboardSize {
                     idx,
                     handle,
@@ -3158,6 +3263,7 @@ impl Editor {
     pub fn release(&mut self, s: Pt, mods: Mods, m: &dyn Metrics) {
         self.badge = None;
         self.motion(s, mods, m);
+        self.press_at = None;
         self.hints.borrow_mut().clear();
         self.snap_ctx = None;
         let drag = std::mem::replace(&mut self.drag, Drag::None);
@@ -3584,13 +3690,106 @@ impl Editor {
         self.doc.artboards.len()
     }
 
+    /// Zeichenfläche `i` mit allem, was ganz darauf liegt, kopieren; die Kopie kommt rechts
+    /// neben alle vorhandenen Zeichenflächen. Liefert die Nummer der neuen Zeichenfläche.
+    pub fn duplicate_artboard(&mut self, i: usize, m: &dyn Metrics) -> Option<usize> {
+        let rects = self.doc.artboard_rects();
+        let (name, r) = rects.get(i).cloned()?;
+        let bbox = self.doc.artboards_bbox();
+        let offset = Pt::new(bbox.x1 + 40.0 - r.x0, 0.0);
+        let inside = r.inflate(0.5);
+        self.checkpoint(None);
+        // Name „… (Kopie)“, bei Bedarf mit Nummer
+        let names: Vec<String> = rects.iter().map(|(n, _)| n.clone()).collect();
+        let base = trf("{} (Kopie)", &[&name]);
+        let mut new_name = base.clone();
+        let mut k = 2;
+        while names.contains(&new_name) {
+            new_name = format!("{base} {k}");
+            k += 1;
+        }
+        self.doc.artboards.push(crate::model::Artboard {
+            name: new_name,
+            x: r.x0 + offset.x,
+            y: r.y0,
+            w: r.width(),
+            h: r.height(),
+        });
+        // Objekte jeweils auf ihrer Ebene kopieren; Gruppen bekommen neue Nummern
+        let mut next_group = self.doc.max_group();
+        let mut regroup: Vec<(u64, u64)> = Vec::new();
+        let mut copies: Vec<(usize, Object)> = Vec::new();
+        for (li, l) in self.doc.layers.iter().enumerate() {
+            for o in &l.objects {
+                if m.bbox(o).map(|b| inside.contains_rect(&b)).unwrap_or(false) {
+                    copies.push((li, o.clone()));
+                }
+            }
+        }
+        let mut ids = Vec::new();
+        for (li, mut o) in copies {
+            o.id = self.doc.alloc_id();
+            if o.group != 0 {
+                o.group = match regroup.iter().find(|(old, _)| *old == o.group) {
+                    Some((_, new)) => *new,
+                    None => {
+                        next_group += 1;
+                        regroup.push((o.group, next_group));
+                        next_group
+                    }
+                };
+            }
+            o.shape.translate(offset);
+            ids.push(o.id);
+            self.doc.layers[li].objects.push(o);
+        }
+        self.selection.clear();
+        if self.notebook.is_some() {
+            self.notebook = Some(self.doc.artboards.len());
+        }
+        self.needs_fit = true;
+        self.layers_version += 1;
+        Some(self.doc.artboards.len())
+    }
+
     /// Zusätzliche Zeichenfläche entfernen (die Objekte darauf bleiben erhalten).
+    /// Jede Zeichenfläche lässt sich entfernen, solange eine weitere bleibt. Fällt die erste
+    /// weg, wird die nächste zur Hauptzeichenfläche: sie rückt in den Ursprung, alles andere
+    /// wandert mit, und die Ansicht folgt, so dass auf dem Bildschirm nichts springt.
     pub fn delete_artboard(&mut self, i: usize) -> bool {
-        if i == 0 || i > self.doc.artboards.len() {
+        if self.doc.artboards.is_empty() || i > self.doc.artboards.len() {
             return false;
         }
         self.checkpoint(None);
-        self.doc.artboards.remove(i - 1);
+        if i == 0 {
+            let a = self.doc.artboards.remove(0);
+            let t = Pt::new(-a.x, -a.y);
+            self.doc.width = a.w;
+            self.doc.height = a.h;
+            if t.x != 0.0 || t.y != 0.0 {
+                for l in &mut self.doc.layers {
+                    for o in &mut l.objects {
+                        o.shape.translate(t);
+                    }
+                }
+                for g in &mut self.doc.guides {
+                    g.pos = g.pos + t;
+                }
+                for b in &mut self.doc.artboards {
+                    b.x += t.x;
+                    b.y += t.y;
+                }
+                self.view.ox -= t.x * self.view.zoom;
+                self.view.oy -= t.y * self.view.zoom;
+            }
+        } else {
+            self.doc.artboards.remove(i - 1);
+        }
+        // Notizheft: auf derselben (bzw. der vorigen) Seite bleiben
+        if let Some(p) = self.notebook {
+            let p = if p >= i && p > 0 { p - 1 } else { p };
+            self.notebook = Some(p.min(self.doc.artboards.len()));
+        }
         self.layers_version += 1;
         true
     }
@@ -3691,8 +3890,17 @@ impl Editor {
             .map(|(i, h, _)| (i, h))
     }
 
-    /// Zeichenfläche `idx` so ändern, dass Anfasser `handle` bei `q` liegt.
-    fn artboard_resize(&mut self, idx: usize, handle: usize, r: Rect, q: Pt, orig: &Document, view: View) {
+    /// Zeichenfläche `idx` so ändern, dass Anfasser `handle` bei `q` liegt. Liefert die
+    /// Verschiebung aller übrigen Inhalte (nur bei der ersten Zeichenfläche nicht null).
+    fn artboard_resize(
+        &mut self,
+        idx: usize,
+        handle: usize,
+        r: Rect,
+        q: Pt,
+        orig: &Document,
+        view: View,
+    ) -> Pt {
         let (mut x0, mut y0, mut x1, mut y1) = (r.x0, r.y0, r.x1, r.y1);
         if matches!(handle, 0 | 6 | 7) {
             x0 = q.x.min(x1 - 1.0);
@@ -3738,6 +3946,11 @@ impl Editor {
         }
         self.doc = doc;
         self.layers_version += 1;
+        if idx == 0 {
+            Pt::new(-x0, -y0)
+        } else {
+            Pt::new(0.0, 0.0)
+        }
     }
 
     /// Zeichenfläche, in der der Punkt liegt (sonst die erste).
@@ -3750,8 +3963,8 @@ impl Editor {
             .unwrap_or(rects[0].1)
     }
 
-    fn artboard_drag(&mut self, idx: usize, s: Pt, start: Pt, orig: &Document, view: View, inside: &[u64]) {
-        let d = Pt::new((s.x - start.x) / view.zoom, (s.y - start.y) / view.zoom);
+    /// Zeichenfläche `idx` (mit allem, was ganz darauf liegt) um `d` verschieben.
+    fn artboard_drag(&mut self, idx: usize, d: Pt, orig: &Document, view: View, inside: &[u64]) {
         let mut doc = orig.clone();
         if idx == 0 {
             // Die erste Zeichenfläche bleibt im Ursprung: alles andere wandert entgegen,
@@ -3796,7 +4009,7 @@ impl Editor {
     /// Schatten mitskalieren.
     pub fn scale_selection(&mut self, sx: f64, sy: f64, strokes: bool, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         if sx <= 0.0 || sy <= 0.0 || ((sx - 1.0).abs() < 1e-9 && (sy - 1.0).abs() < 1e-9) {
@@ -3810,6 +4023,12 @@ impl Editor {
             for id in self.selection.clone() {
                 if let Some(o) = self.doc.object_mut(id) {
                     o.style.width *= k;
+                    // Kontur des Textrahmens wie andere Konturen
+                    match &mut o.shape {
+                        Shape::Text { fmt, .. } | Shape::TextPath { fmt, .. } => fmt.box_width *= k,
+                        Shape::TextArea { frame, .. } => frame.width *= k,
+                        _ => {}
+                    }
                     if let Some(sh) = o.style.shadow.as_mut() {
                         sh.blur *= k;
                         sh.dx *= k;
@@ -3849,7 +4068,7 @@ impl Editor {
             return false;
         }
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht löschen.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht löschen").into());
             return false;
         }
         self.checkpoint(None);
@@ -3920,7 +4139,7 @@ impl Editor {
 
     pub fn nudge(&mut self, dx: f64, dy: f64) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         if self.selection.is_empty() {
@@ -3972,7 +4191,7 @@ impl Editor {
 
     pub fn convert_to_path(&mut self, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         // je Objekt die Teile; Texte werden in einzelne Buchstaben zerlegt
@@ -4048,7 +4267,7 @@ impl Editor {
 
     fn transform_selection(&mut self, m: &dyn Metrics, f: impl Fn(Pt) -> Affine) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         let Some(b) = self.selection_bbox(m) else {
@@ -4096,7 +4315,7 @@ impl Editor {
     /// Auswahl auf einen bestimmten Drehwinkel bringen (Grad, gegen den Uhrzeigersinn).
     pub fn set_rotation(&mut self, deg: f64, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         let Some(cur) = self.selected_objects().first().map(|o| o.angle) else {
@@ -4139,7 +4358,7 @@ impl Editor {
     /// Pfadoperation auf alle ausgewählten Objekte.
     pub fn boolean(&mut self, op: Op, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         let mut items: Vec<(usize, usize, u64)> = self
@@ -4148,7 +4367,7 @@ impl Editor {
             .filter_map(|id| self.doc.locate(*id).map(|(l, o)| (l, o, *id)))
             .collect();
         if items.len() < 2 {
-            self.message = Some(tr("Dafür mindestens zwei Objekte auswählen.").into());
+            self.message = Some(tr("Dafür mindestens zwei Objekte auswählen").into());
             return false;
         }
         items.sort();
@@ -4162,7 +4381,7 @@ impl Editor {
         let tol = (0.15 / self.view.zoom).clamp(0.02, 0.5);
         let result = boolean::apply_many(&shapes, op, tol);
         if result.is_empty() {
-            self.message = Some(tr("Das Ergebnis wäre leer.").into());
+            self.message = Some(tr("Das Ergebnis wäre leer").into());
             return false;
         }
         let (bottom_l, bottom_o, bottom_id) = items[0];
@@ -4441,7 +4660,6 @@ impl Editor {
                 return;
             }
             self.selection.clear();
-            self.curv_close = None;
             self.curv = Some(vec![(p, mods.alt)]);
             return;
         }
@@ -4456,10 +4674,11 @@ impl Editor {
         self.curv.as_mut().unwrap().push((p, mods.alt));
     }
 
-    /// Vorschau des Kurvenzeichners einschließlich des Zeigers als nächstem Punkt.
+    /// Linie des Kurvenzeichners, wie sie nach dem nächsten Klick aussieht: mit dem Zeiger
+    /// als nächstem Punkt, über dem Startpunkt gleich als geschlossene Form.
     pub fn curvature_preview(&self) -> Option<(Vec<Node>, bool)> {
         let pts = self.curv.as_ref()?;
-        if self.curvature_close_progress() >= Some(1.0) {
+        if self.curvature_near_start() {
             return Some((curvature_nodes(pts, true), true));
         }
         let mut v = pts.clone();
@@ -4474,16 +4693,17 @@ impl Editor {
         Some((curvature_nodes(&v, false), false))
     }
 
-    /// Fortschritt (0…1) des Verweilens über dem Startpunkt; ab 1 erscheint die
-    /// Vorschau der geschlossenen Form (gleiche Wartezeit wie beim Einsetzen in Formen).
-    pub fn curvature_close_progress(&self) -> Option<f64> {
-        let since = self.curv_close?;
-        self.curv.as_ref().filter(|p| p.len() >= 2)?;
-        Some((since.elapsed().as_secs_f64() / self.frame_dwell.max(0.05)).min(1.0))
+    /// Steht der Zeiger beim Kurvenzeichner über dem Startpunkt (Klick schließt die Form)?
+    pub fn curvature_near_start(&self) -> bool {
+        match (self.curv.as_ref(), self.pointer) {
+            (Some(pts), Some(p)) if pts.len() >= 2 => {
+                self.view.to_screen(pts[0].0).dist(self.view.to_screen(p)) <= HANDLE_RADIUS + 1.0
+            }
+            _ => false,
+        }
     }
 
     pub fn finish_curvature(&mut self, closed: bool) -> bool {
-        self.curv_close = None;
         let Some(pts) = self.curv.take() else { return false };
         if pts.len() < 2 {
             return false;
@@ -4579,7 +4799,7 @@ impl Editor {
         };
         if !self.doc.layers[ti].editable() {
             self.message = Some(trf(
-                "Die Ebene „{}“ ist gesperrt oder ausgeblendet.",
+                "Die Ebene „{}“ ist gesperrt oder ausgeblendet",
                 &[&(self.doc.layers[ti].name)],
             ));
             return false;
@@ -4624,7 +4844,7 @@ impl Editor {
     fn textpath_press(&mut self, p: Pt, m: &dyn Metrics) {
         let Some(id) = self.hit(p, m) else {
             self.message =
-                Some(tr("Klicke auf einen Pfad oder eine Form, um Text daran auszurichten.").into());
+                Some(tr("Klicke auf einen Pfad oder eine Form, um Text daran auszurichten").into());
             return;
         };
         let Some(obj) = self.doc.object(id) else { return };
@@ -4633,7 +4853,7 @@ impl Editor {
                 self.text_click(p, m);
             }
             Shape::Image { .. } => {
-                self.message = Some(tr("Text lässt sich nicht an einem Bild ausrichten.").into());
+                self.message = Some(tr("Text lässt sich nicht an einem Bild ausrichten").into());
             }
             shape => {
                 let Some(Shape::Path { subpaths, .. }) = shape.to_path() else {
@@ -4769,7 +4989,7 @@ impl Editor {
 
     pub fn delete_layer(&mut self) -> bool {
         if self.doc.layers.len() <= 1 {
-            self.message = Some(tr("Die letzte Ebene kann nicht gelöscht werden.").into());
+            self.message = Some(tr("Die letzte Ebene kann nicht gelöscht werden").into());
             return false;
         }
         let Some(i) = self.doc.layer_index(self.active_layer) else {
@@ -5104,7 +5324,7 @@ impl Editor {
         th: usize,
     ) -> bool {
         if layers.is_empty() || tw == 0 || th == 0 {
-            self.message = Some(tr("Im Bild wurden keine Flächen gefunden.").into());
+            self.message = Some(tr("Im Bild wurden keine Flächen gefunden").into());
             return false;
         }
         let Some(img) = self.doc.object(id).cloned() else {
@@ -5399,7 +5619,7 @@ impl Editor {
         let arr = self.build_arrangement(m);
         let hits: Vec<usize> = hits.iter().copied().filter(|i| *i < arr.faces.len()).collect();
         let Some(&first) = hits.first() else {
-            self.message = Some(tr("Hier ist keine geschlossene Fläche.").into());
+            self.message = Some(tr("Hier ist keine geschlossene Fläche").into());
             return false;
         };
         let probe = |i: usize| crate::shapeops::interior_point(&arr.faces[i].poly);
@@ -5745,7 +5965,7 @@ impl Editor {
     /// entsteht ein gerades Stück. Ein einzelner offener Pfad wird geschlossen.
     pub fn join_paths(&mut self) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         // beteiligte Objekte in Stapelreihenfolge (das unterste bestimmt den Stil)
@@ -6556,6 +6776,21 @@ impl Editor {
     /// Einrastziele sammeln: Ecken, Mitten und Ankerpunkte anderer Objekte, ihre Konturen
     /// sowie Ecken und Mitte der Seite.
     fn build_snap_ctx(&self, m: &dyn Metrics, skip_selection: bool) -> SnapCtx {
+        self.build_snap_ctx_ex(
+            m,
+            &|o: &Object| skip_selection && self.selection.contains(&o.id),
+            None,
+        )
+    }
+
+    /// Wie `build_snap_ctx`, aber mit eigener Auswahl der übergangenen Objekte und ohne die
+    /// Zeichenfläche `skip_board` (beim Verschieben oder Ändern einer Zeichenfläche).
+    fn build_snap_ctx_ex(
+        &self,
+        m: &dyn Metrics,
+        skip: &dyn Fn(&Object) -> bool,
+        skip_board: Option<usize>,
+    ) -> SnapCtx {
         let mut c = SnapCtx::default();
         let add_box =
             |c: &mut SnapCtx, b: Rect, corner: &'static str, mid: &'static str, corners: bool, mids: bool| {
@@ -6584,7 +6819,7 @@ impl Editor {
         let mut count = 0;
         for l in self.doc.layers.iter().filter(|l| l.visible) {
             for o in &l.objects {
-                if skip_selection && self.selection.contains(&o.id) {
+                if skip(o) {
                     continue;
                 }
                 count += 1;
@@ -6633,8 +6868,15 @@ impl Editor {
             }
         }
         if self.snap_page {
-            for (_, r) in self.doc.artboard_rects() {
+            for (i, (_, r)) in self.doc.artboard_rects().into_iter().enumerate() {
+                if skip_board == Some(i) {
+                    continue;
+                }
                 add_box(&mut c, r, tr("Seitenecke"), tr("Seitenmitte"), true, true);
+                // andere Zeichenflächen zählen auch für gleiche Abstände
+                if skip_board.is_some() {
+                    c.boxes.push(r);
+                }
             }
         }
         c
@@ -7045,7 +7287,7 @@ impl Editor {
                 .map(|l| l.locked)
                 .unwrap_or(false)
         {
-            self.message = Some(tr("Die aktuelle Ebene ist gesperrt.").into());
+            self.message = Some(tr("Die aktuelle Ebene ist gesperrt").into());
             return;
         }
         let _ = mods;
@@ -7215,7 +7457,7 @@ impl Editor {
     }
 
     /// Kontur in eine eigene Fläche umwandeln (lässt sich dann wie jede Form bearbeiten).
-    /// Ecken und Enden werden dabei rund.
+    /// Ecken, Enden, Strichmuster und Linienenden sehen danach genauso aus wie vorher.
     pub fn outline_stroke(&mut self, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
             return false;
@@ -7247,19 +7489,50 @@ impl Editor {
             } else {
                 w
             };
-            let mut region: Vec<boolean::Ring> = Vec::new();
-            for sp in &subs {
-                let pts = flatten_subpath(sp, 16);
-                if pts.len() < 2 {
-                    continue;
-                }
-                let band = crate::shapeops::stroke_region(&pts, r);
-                region = if region.is_empty() {
-                    band
+            // wie beim Zeichnen: innen/außen mit doppelter Breite, danach beschnitten
+            let dashed = o.style.dash != crate::model::Dash::Solid;
+            let st = crate::stroker::StrokeStyle {
+                width: 2.0 * r,
+                join: o.style.join,
+                cap: if dashed && o.style.dash.round_caps() {
+                    crate::model::LineCap::Round
                 } else {
-                    boolean::rings_op(&region, &band, Op::Union)
-                };
-            }
+                    o.style.cap
+                },
+                dash: o.style.dash.pattern(w),
+            };
+            let mk = o.style.marker;
+            let with_markers = mk != crate::model::Marker::None && o.shape.is_open();
+            let mut region = if with_markers {
+                // Linie an den Enden kürzen (wie beim Zeichnen), dann die Linienenden dazu
+                let ends = o.style.marker_ends;
+                let size = o.style.marker_size;
+                let trim = mk.trim(w, size);
+                let trimmed: Vec<SubPath> = subs
+                    .iter()
+                    .map(|sp| {
+                        crate::model::trim_subpath(
+                            sp,
+                            if ends.start() { trim } else { 0.0 },
+                            if ends.end() { trim } else { 0.0 },
+                        )
+                    })
+                    .collect();
+                let mut parts = vec![crate::stroker::stroke_area(&trimmed, &st)];
+                for sp in &subs {
+                    if let Some((a, b)) = crate::model::subpath_ends(sp) {
+                        if ends.start() {
+                            parts.push(marker_area(a.0, a.1, w, size, mk));
+                        }
+                        if ends.end() {
+                            parts.push(marker_area(b.0, b.1, w, size, mk));
+                        }
+                    }
+                }
+                crate::stroker::union_all(parts)
+            } else {
+                crate::stroker::stroke_area(&subs, &st)
+            };
             if region.is_empty() {
                 continue;
             }
@@ -7906,7 +8179,7 @@ impl Editor {
     /// obere/mittlere/untere) Kante des gemeinsamen Rahmens.
     pub fn align_to_selection(&mut self, h: Option<i8>, v: Option<i8>, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         let units = self.selection_units(m);
@@ -7947,7 +8220,7 @@ impl Editor {
     /// Auswahl an der Seite ausrichten: `h`/`v` = −1 (links/oben), 0 (Mitte), 1 (rechts/unten).
     pub fn align_to_page(&mut self, h: Option<i8>, v: Option<i8>, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         let Some(b) = self.selection_bbox(m) else {
@@ -7983,7 +8256,7 @@ impl Editor {
     /// Einheiten bleiben stehen, die übrigen rücken so, dass alle Lücken gleich groß sind.
     pub fn distribute(&mut self, horizontal: bool, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         let mut units = self.selection_units(m);
@@ -8046,14 +8319,14 @@ impl Editor {
             return false;
         }
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern.").into());
+            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
             return false;
         }
         let objs = self.selected_in_order();
         let (a, b) = (&objs[0], &objs[1]);
         let (Some(pa), Some(pb)) = (blend_outline(&a.shape), blend_outline(&b.shape)) else {
             self.message = Some(
-                tr("Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern.").into(),
+                tr("Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern").into(),
             );
             return false;
         };
@@ -8823,6 +9096,52 @@ mod tests {
     }
 
     #[test]
+    fn outline_stroke_keeps_corners_and_ends() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (100.0, 100.0), (200.0, 200.0));
+        e.set_tool(Tool::Select);
+        let id = e.doc.layers[0].objects[0].id;
+        e.selection = vec![id];
+        {
+            let st = &mut e.doc.object_mut(id).unwrap().style;
+            st.fill = None;
+            st.width = 10.0;
+            st.join = crate::model::LineJoin::Miter;
+        }
+        assert!(e.outline_stroke(&M));
+        // spitze Ecken: das Ergebnis füllt die Ecken vollständig aus
+        let o = &e.doc.layers[0].objects[0];
+        let b = M.bbox(o).unwrap();
+        assert!((b.width() - 110.0).abs() < 1e-6, "{b:?}");
+        let Shape::Path { subpaths, .. } = &o.shape else {
+            panic!("{:?}", o.shape)
+        };
+        let rings = boolean::to_rings(subpaths, 0.1);
+        let pt_in = |x: f64, y: f64| boolean::contains(&rings, Pt::new(x, y));
+        assert!(pt_in(96.0, 96.0), "Ecke außen fehlt");
+        assert!(!pt_in(150.0, 150.0), "Mitte muss frei bleiben");
+        // offene Linie mit geraden Enden: endet genau am Endpunkt
+        let mut e = editor();
+        e.set_tool(Tool::Pen);
+        for (x, y) in [(10.0, 50.0), (110.0, 50.0)] {
+            e.press(Pt::new(x, y), Mods::default(), false, &M);
+            e.release(Pt::new(x, y), Mods::default(), &M);
+        }
+        assert!(e.finish_pen(false));
+        let id = e.doc.layers[0].objects[0].id;
+        e.selection = vec![id];
+        {
+            let st = &mut e.doc.object_mut(id).unwrap().style;
+            st.width = 10.0;
+            st.cap = crate::model::LineCap::Butt;
+        }
+        assert!(e.outline_stroke(&M));
+        let b = M.bbox(&e.doc.layers[0].objects[0]).unwrap();
+        assert!((b.x0 - 10.0).abs() < 1e-6 && (b.x1 - 110.0).abs() < 1e-6, "{b:?}");
+    }
+
+    #[test]
     fn pen_closes() {
         let mut e = editor();
         e.set_tool(Tool::Pen);
@@ -9212,15 +9531,13 @@ mod tests {
             e.release(Pt::new(x, y), Mods::default(), &M);
         }
         assert!(!e.curvature_preview().unwrap().1);
-        // über dem Startpunkt verweilen → geschlossene Vorschau
+        // über dem Startpunkt: sofort die geschlossene Form, genau wie nach dem Klick
         e.motion(Pt::new(10.0, 100.0), Mods::default(), &M);
-        assert!(e.curvature_close_progress().is_some());
-        e.curv_close = Some(Instant::now() - Duration::from_secs(3));
         let (nodes, closed) = e.curvature_preview().unwrap();
         assert!(closed);
-        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes, curvature_nodes(e.curv.as_ref().unwrap(), true));
         e.motion(Pt::new(200.0, 200.0), Mods::default(), &M);
-        assert!(e.curvature_close_progress().is_none());
+        assert!(!e.curvature_preview().unwrap().1);
         assert!(e.finish_drawing());
         match &e.doc.layers[0].objects[0].shape {
             Shape::Path { subpaths, .. } => {
@@ -10831,6 +11148,87 @@ mod tests {
         assert!(f.paste_objects(e.clipboard.clone()));
         assert_eq!(f.doc.layers[0].objects.len(), 1);
         let _ = objs;
+    }
+
+    #[test]
+    fn artboards_snap_and_duplicate() {
+        let mut e = editor();
+        e.artboard_mode = true;
+        e.add_artboard();
+        let r0 = e.doc.artboard_rects()[0].1;
+        let r1 = e.doc.artboard_rects()[1].1;
+        // zweite Zeichenfläche bis knapp an die erste ziehen: rastet an deren Kante ein
+        let lbl = e.view.to_screen(Pt::new(r1.x0, r1.y0)) + Pt::new(10.0, -8.0);
+        let dx = (r0.x1 + 3.0 - r1.x0) * e.view.zoom;
+        drag(&mut e, (lbl.x, lbl.y), (lbl.x + dx, lbl.y + 2.0));
+        let r1b = e.doc.artboard_rects()[1].1;
+        assert!((r1b.x0 - r0.x1).abs() < 1e-9, "{r1b:?}");
+        assert!(r1b.y0.abs() < 1e-9, "{r1b:?}");
+        // Zeichenfläche mit Inhalt duplizieren
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (20.0, 20.0), (60.0, 60.0));
+        let id = e.selection[0];
+        e.deselect();
+        e.set_tool(Tool::Select);
+        let n = e.doc.layers[0].objects.len();
+        let before = e.doc.artboards_bbox();
+        assert_eq!(e.duplicate_artboard(0, &M), Some(2));
+        let r2 = e.doc.artboard_rects()[2].1;
+        assert!((r2.x0 - (before.x1 + 40.0)).abs() < 1e-9);
+        assert!((r2.width() - r0.width()).abs() < 1e-9);
+        assert_eq!(e.doc.layers[0].objects.len(), n + 1);
+        let orig = e.doc.object(id).unwrap().shape.geom_bbox().unwrap();
+        let copy = e.doc.layers[0].objects.last().unwrap();
+        assert_ne!(copy.id, id);
+        let cb = copy.shape.geom_bbox().unwrap();
+        assert!((cb.x0 - orig.x0 - r2.x0).abs() < 1e-9);
+        assert!(e.doc.artboards[1].name.ends_with("(Kopie)"));
+        assert!(e.undo());
+        assert_eq!(e.doc.artboards.len(), 1);
+    }
+
+    #[test]
+    fn small_jitter_is_a_click_not_a_drag() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (100.0, 100.0), (200.0, 200.0));
+        let id = e.selection[0];
+        e.set_tool(Tool::Select);
+        let b0 = e.doc.object(id).unwrap().shape.geom_bbox().unwrap();
+        // 3 Pixel Wackeln beim Klicken: nichts bewegt sich
+        drag(&mut e, (150.0, 150.0), (153.0, 151.0));
+        assert_eq!(e.doc.object(id).unwrap().shape.geom_bbox().unwrap(), b0);
+        // echtes Ziehen verschiebt um den ganzen Weg
+        drag(&mut e, (150.0, 150.0), (170.0, 150.0));
+        let b1 = e.doc.object(id).unwrap().shape.geom_bbox().unwrap();
+        assert!((b1.x0 - b0.x0 - 20.0 / e.view.zoom).abs() < 1e-6, "{b0:?} {b1:?}");
+    }
+
+    #[test]
+    fn first_artboard_can_be_deleted() {
+        let mut e = editor();
+        // nur eine Zeichenfläche: bleibt
+        assert!(!e.delete_artboard(0));
+        e.artboard_mode = true;
+        e.add_artboard();
+        let r1 = e.doc.artboard_rects()[1].1;
+        e.set_tool(Tool::Shape);
+        drag(&mut e, (560.0, 20.0), (600.0, 60.0));
+        let id = e.selection[0];
+        let before = e.doc.object(id).unwrap().shape.geom_bbox().unwrap();
+        let screen = e.view.to_screen(Pt::new(before.x0, before.y0));
+        assert!(e.delete_artboard(0));
+        assert!(e.doc.artboards.is_empty());
+        assert!((e.doc.width - r1.width()).abs() < 1e-9);
+        assert!((e.doc.height - r1.height()).abs() < 1e-9);
+        // das Objekt liegt jetzt relativ zur neuen Hauptzeichenfläche, auf dem Bildschirm
+        // an derselben Stelle
+        let after = e.doc.object(id).unwrap().shape.geom_bbox().unwrap();
+        assert!((after.x0 - (before.x0 - r1.x0)).abs() < 1e-9);
+        let s2 = e.view.to_screen(Pt::new(after.x0, after.y0));
+        assert!((s2.x - screen.x).abs() < 1e-9 && (s2.y - screen.y).abs() < 1e-9);
+        assert!(e.undo());
+        assert_eq!(e.doc.artboards.len(), 1);
     }
 
     #[test]

@@ -30,6 +30,26 @@ thread_local! {
     static ACC: std::cell::Cell<(f64, f64, f64)> = const { std::cell::Cell::new(ACCENT) };
 }
 
+thread_local! {
+    /// Akzentfarbe des Systems (setzt das Fenster vor dem Zeichnen)
+    static UI_ACCENT: std::cell::Cell<(f64, f64, f64)> = const { std::cell::Cell::new(ACCENT) };
+}
+
+/// Akzentfarbe des Systems setzen.
+pub fn set_ui_accent(c: (f64, f64, f64)) {
+    UI_ACCENT.with(|a| a.set(c));
+}
+
+/// Akzentfarbe des Systems (für Markierungen).
+pub fn ui_accent() -> (f64, f64, f64) {
+    UI_ACCENT.with(|a| a.get())
+}
+
+fn ui_accent_color() -> Color {
+    let a = ui_accent();
+    Color::rgb(a.0, a.1, a.2)
+}
+
 fn accent(cr: &cairo::Context, a: f64) {
     let c = ACC.with(|c| c.get());
     cr.set_source_rgba(c.0, c.1, c.2, a);
@@ -42,7 +62,7 @@ fn use_color(c: Color) {
 /// Markierungsfarbe auf die Ebene des Objekts `id` setzen.
 fn use_layer_color(ed: &Editor, id: u64) {
     let c = ed.doc.layer_of(id).map(|l| crate::model::layer_color(l.color));
-    use_color(c.unwrap_or(Color::rgb(ACCENT.0, ACCENT.1, ACCENT.2)));
+    use_color(c.unwrap_or(ui_accent_color()));
 }
 
 /// Markierungsfarbe der aktiven Ebene.
@@ -51,7 +71,7 @@ fn use_active_layer_color(ed: &Editor) {
         .doc
         .layer(ed.active_layer)
         .map(|l| crate::model::layer_color(l.color));
-    use_color(c.unwrap_or(Color::rgb(ACCENT.0, ACCENT.1, ACCENT.2)));
+    use_color(c.unwrap_or(ui_accent_color()));
 }
 
 pub fn font_desc(family: &str, size: f64, bold: bool, italic: bool) -> pango::FontDescription {
@@ -347,6 +367,31 @@ fn add_runs(l: &pango::Layout, rich: &RichText, off: usize, len: usize, map: &[(
     l.set_attributes(Some(&attrs));
 }
 
+/// Schriftgröße am Anfang des Absatzes, der bei Byte `start` beginnt.
+fn para_size(rich: &RichText, start: usize, base: f64) -> f64 {
+    rich.runs
+        .iter()
+        .filter(|r| r.start <= start && (start < r.end || r.start == r.end && r.start == start))
+        .filter_map(|r| r.style.size)
+        .last()
+        .unwrap_or(base)
+        .max(0.5)
+}
+
+/// Aufzählungszeichen (die ersten `len` Bytes des Layouts) in der Größe des Absatzes.
+fn size_marker(l: &pango::Layout, len: usize, psize: f64, base: f64) {
+    if len == 0 || (psize - base).abs() < 1e-9 {
+        return;
+    }
+    let attrs = l.attributes().unwrap_or_else(pango::AttrList::new);
+    let mut at: pango::Attribute =
+        pango::AttrSize::new_size_absolute((psize * pango::SCALE as f64).round() as i32).into();
+    at.set_start_index(0);
+    at.set_end_index(len as u32);
+    attrs.insert(at);
+    l.set_attributes(Some(&attrs));
+}
+
 /// Absätze eines rechteckigen Textfeldes als eigene Layouts untereinander, je mit
 /// Aufzählungszeichen und Einzug (Ursprung = linke obere Ecke des Textbereichs).
 /// Bei mehreren Spalten läuft der Text von Spalte zu Spalte, sobald die Höhe `limit`
@@ -406,8 +451,12 @@ fn para_lines(
                 other.marker(0)
             }
         };
-        let left = lvl as f64 * indent_step(size);
+        // Aufzählungszeichen, Einzug und Abstand richten sich nach der Schriftgröße am Anfang
+        // des Absatzes (nicht nach der Grundgröße des Feldes)
+        let psize = para_size(rich, start, size);
+        let left = lvl as f64 * indent_step(psize);
         let (shown, map) = crate::model::para_display(para, &marker);
+        let prefix = shown.len() - para.len();
         let l = area_layout(
             pctx,
             &shown,
@@ -418,7 +467,7 @@ fn para_lines(
             (col_w - left).max(1.0),
             fmt,
         );
-        let hang = size * if pf.list == ListStyle::Number { 1.8 } else { 1.2 };
+        let hang = psize * if pf.list == ListStyle::Number { 1.8 } else { 1.2 };
         if !marker.is_empty() {
             // Platz für das Zeichen, Folgezeilen hängen darunter ein
             let mut tabs = pango::TabArray::new(1, false);
@@ -427,6 +476,7 @@ fn para_lines(
             l.set_indent(-(hang * k).round() as i32);
         }
         add_runs(&l, rich, start, para.len(), &map);
+        size_marker(&l, prefix, psize, size);
         if y > 0.0 {
             y += extra + gap;
         }
@@ -469,7 +519,6 @@ fn para_lines(
             y += hgt;
         } else {
             // Absatz zeilenweise auf die Spalten verteilen
-            let prefix = shown.len() - para.len();
             let n = spans.len();
             let mut first = 0usize;
             let mut li = 0usize;
@@ -508,6 +557,7 @@ fn para_lines(
                         lay.set_indent(-(hang * k).round() as i32);
                     }
                     add_runs(&lay, rich, start, e0.saturating_sub(prefix), &map);
+                    size_marker(&lay, prefix, psize, size);
                     lines.push(EditLine {
                         layout: lay,
                         x: left + col_x(col),
@@ -4384,7 +4434,7 @@ pub fn draw_canvas(
     // Anfasser zum Ändern der Größe
     let handles = ed.artboard_handles();
     if !handles.is_empty() {
-        use_color(Color::rgb(ACCENT.0, ACCENT.1, ACCENT.2));
+        use_color(ui_accent_color());
         accent(cr, 0.9);
         cr.set_line_width(1.5);
         for (_, (px, py, pw, ph)) in &pages {
@@ -5034,20 +5084,13 @@ fn draw_curvature(cr: &cairo::Context, ed: &Editor, nodes: &[Node], closed: bool
         cr.curve_to(c1.x, c1.y, c2.x, c2.y, p.x, p.y);
     }
     if closed {
-        // Vorschau der geschlossenen Form, wie sie nach dem Klick entsteht
+        // Zeiger über dem Startpunkt: die Linie schließt sich so, wie der Klick sie schließt
         if let Some(last) = nodes.last() {
             let c1 = v.to_screen(last.h_out);
             let c2 = v.to_screen(first.h_in);
             cr.curve_to(c1.x, c1.y, c2.x, c2.y, f.x, f.y);
         }
         cr.close_path();
-        if let Some(fc) = ed.defaults.fill {
-            set_color(cr, fc);
-            cr.push_group();
-            let _ = cr.fill_preserve();
-            let _ = cr.pop_group_to_source();
-            let _ = cr.paint_with_alpha(0.6);
-        }
     }
     let c = ed.defaults.stroke.unwrap_or(Color::BLACK);
     set_color(cr, c);
@@ -5058,10 +5101,7 @@ fn draw_curvature(cr: &cairo::Context, ed: &Editor, nodes: &[Node], closed: bool
     let _ = cr.stroke();
     // gesetzte Punkte (ohne Zeigerpunkt); Eckpunkte als Quadrat, sonst als Kreis
     if let Some(pts) = &ed.curv {
-        let near_first = ed
-            .pointer
-            .map(|p| pts.len() >= 2 && v.to_screen(p).dist(v.to_screen(pts[0].0)) <= HANDLE_RADIUS + 1.0)
-            .unwrap_or(false);
+        let near_first = ed.curvature_near_start();
         for (i, (p, corner)) in pts.iter().enumerate() {
             let s = v.to_screen(*p);
             let big = i == 0 && near_first;
@@ -5075,12 +5115,6 @@ fn draw_curvature(cr: &cairo::Context, ed: &Editor, nodes: &[Node], closed: bool
                 accent(cr, 1.0);
                 cr.set_line_width(1.0);
                 let _ = cr.stroke();
-            }
-        }
-        // Wartezeit bis zur Vorschau als wachsender Ring um den Startpunkt
-        if let (Some(prog), Some((p0, _))) = (ed.curvature_close_progress(), pts.first()) {
-            if prog < 1.0 {
-                wait_ring(cr, v.to_screen(*p0), prog);
             }
         }
     }
@@ -5486,13 +5520,41 @@ pub fn draw_thumbnail(cr: &cairo::Context, w: f64, h: f64, doc: &Document, layer
 
 /// Vorschaubild einer Ebene nur mit ihren Objekten (ohne Zeichenfläche dahinter);
 /// Lage wie auf der Seite, was darüber hinausragt, wird am Bildrand abgeschnitten.
-pub fn draw_layer_objects(cr: &cairo::Context, w: f64, h: f64, doc: &Document, layer: &Layer) {
-    let (x, y, pw, _) = thumb_page_rect(w, h, doc);
-    let s = pw / doc.width;
+pub fn draw_layer_objects(
+    cr: &cairo::Context,
+    w: f64,
+    h: f64,
+    frame: Rect,
+    boards: &[Rect],
+    dark: bool,
+    layer: &Layer,
+) {
+    // `frame`: gezeigter Ausschnitt in Dokumentkoordinaten – für alle Ebenen derselbe
+    // (alle Zeichenflächen und aller Inhalt), damit die Vorschaubilder vergleichbar bleiben
+    let pad = 6.0;
+    let (fw, fh) = (frame.width().max(1e-6), frame.height().max(1e-6));
+    let s = ((w - 2.0 * pad) / fw).min((h - 2.0 * pad) / fh).max(1e-9);
+    let (x, y) = ((w - fw * s) / 2.0, (h - fh * s) / 2.0);
     let _ = cr.save();
     cr.rectangle(0.0, 0.0, w, h);
     cr.clip();
-    cr.translate(x, y);
+    // Zeichenflächen nur andeuten (bei mehreren sieht man, wo was liegt)
+    if boards.len() > 1 {
+        for b in boards {
+            cr.rectangle(
+                (x + (b.x0 - frame.x0) * s).round() + 0.5,
+                (y + (b.y0 - frame.y0) * s).round() + 0.5,
+                (b.width() * s).round(),
+                (b.height() * s).round(),
+            );
+        }
+        let a = if dark { 0.18 } else { 0.14 };
+        let c = if dark { 1.0 } else { 0.0 };
+        cr.set_source_rgba(c, c, c, a);
+        cr.set_line_width(1.0);
+        let _ = cr.stroke();
+    }
+    cr.translate(x - frame.x0 * s, y - frame.y0 * s);
     cr.scale(s, s);
     draw_layer(cr, layer);
     let _ = cr.restore();

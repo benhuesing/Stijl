@@ -77,6 +77,46 @@
   </keywords>
 
   <releases>
+    <release version="0.9.57" date="2026-10-23">
+      <description>
+        <p>Tool groups open right in the toolbar – no more right-clicking for ellipse, star or the eraser – and tool settings such as corners or eraser size have their own small bar under the tools. A friendlier start page with evenly sized cards.</p>
+      </description>
+    </release>
+    <release version="0.9.55" date="2026-10-23">
+      <description>
+        <p>Clicks are no longer mistaken for small drags, so objects and points stay where they are. The Curvature Pen shows the line exactly as it will be, including the closed shape over the starting point. Library sections are expandable rows of one card. Layer previews show everything in the file, any artboard can be deleted, and Blend moved to the right-click menu.</p>
+      </description>
+    </release>
+    <release version="0.9.53" date="2026-10-23">
+      <description>
+        <p>Aligning in the properties always uses the page, Align in the floating bar aligns objects to each other. Path operations are now icons in the floating bar instead of a section in the properties.</p>
+      </description>
+    </release>
+    <release version="0.9.52" date="2026-10-23">
+      <description>
+        <p>More compact properties with fewer headings and lines; the Position section is back. Text styles can be saved to the library with a “+” in the text options. The floating bar now offers aligning and path operations for several objects; duplicate, delete and add to library moved to the right-click menu.</p>
+      </description>
+    </release>
+    <release version="0.9.51" date="2026-10-23">
+      <description>
+        <p>Tidier properties: every section is now a GNOME-style card with one setting per row and evenly sized controls. Convert Stroke to Fill keeps the exact look of the stroke, and list bullets and numbers scale with the text.</p>
+      </description>
+    </release>
+    <release version="0.9.45" date="2026-10-23">
+      <description>
+        <p>Follows the GNOME design guidelines more closely: floating tool, view and zoom bars over the canvas, document details under the title, sidebars that float over the canvas in narrow windows, Keyboard Shortcuts and Help in the main menu, Ctrl+Q to quit, better screen reader support and the system accent colour for selections.</p>
+      </description>
+    </release>
+    <release version="0.9.44" date="2026-10-23">
+      <description>
+        <p>Cleaner window: the tools are now in the header bar, layers and library in a sidebar on the left and the properties on the right; both sidebars can be shown or hidden with the buttons at the top.</p>
+      </description>
+    </release>
+    <release version="0.9.43" date="2026-10-22">
+      <description>
+        <p>Layers and Library now open in a panel on the right, so they can be used together with the properties. Artboards snap while moving and can be duplicated with their contents. Text frame padding scales with the text.</p>
+      </description>
+    </release>
     <release version="0.9.42" date="2026-10-21">
       <description>
         <p>Documentation in English; English is now the default language on all systems that are not set to German.</p>

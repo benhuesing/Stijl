@@ -1015,7 +1015,7 @@ impl Pdf {
         }
         if trailers.iter().any(|t| t.contains_key("Encrypt")) {
             return Err(
-                tr("Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen.").into(),
+                tr("Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen").into(),
             );
         }
         let root = trailers
@@ -1031,7 +1031,7 @@ impl Pdf {
                     .cloned()
             })
             .ok_or_else(|| {
-                tr("Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog).").to_string()
+                tr("Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog)").to_string()
             })?;
         pdf.root = root;
         Ok(pdf)

@@ -107,9 +107,11 @@ pub const DEFS: &[Def] = &[
         "copy-image",
         "Als Bild kopieren",
         GROUP_EDIT,
-        &["<Control><Alt>c"],
+        // kein Standardkürzel (GNOME: Alt nicht für Kürzel); eigenes lässt sich festlegen
+        &[],
         Action("win.copy-image"),
     ),
+    d("quit", "Beenden", GROUP_FILE, &["<Control>q"], Action("app.quit")),
     d(
         "close-tab",
         "Tab schließen",
@@ -263,6 +265,20 @@ pub const DEFS: &[Def] = &[
         GROUP_VIEW,
         &["F9"],
         Action("win.toggle-panel"),
+    ),
+    d(
+        "shortcuts",
+        "Tastenkürzel",
+        GROUP_VIEW,
+        &["<Control>question"],
+        Action("win.shortcuts"),
+    ),
+    d(
+        "toggle-sidebar",
+        "Ebenen und Bibliothek ein-/ausblenden",
+        GROUP_VIEW,
+        &["F8"],
+        Action("win.toggle-sidebar"),
     ),
     d(
         "tool-select",
@@ -542,26 +558,26 @@ pub fn allowed(kind: Kind, accel: &str) -> Result<(), &'static str> {
     let has_ctrl_or_alt = a.contains("<Control>") || a.contains("<Alt>");
     let key = a.rsplit('>').next().unwrap_or("");
     match kind {
-        Kind::Fixed => Err(tr("Diese Taste ist fest.")),
+        Kind::Fixed => Err(tr("Diese Taste ist fest")),
         Action(_) => {
             let fkey = key.len() >= 2 && key.starts_with('F') && key[1..].chars().all(|c| c.is_ascii_digit());
             if has_ctrl_or_alt || fkey {
                 Ok(())
             } else {
                 Err(tr(
-                    "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe.",
+                    "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe",
                 ))
             }
         }
         Kind::Tool(_) | Kind::Flip { .. } => {
             if has_ctrl_or_alt {
                 Err(tr(
-                    "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt.",
+                    "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt",
                 ))
             } else if key.chars().count() == 1 {
                 Ok(())
             } else {
-                Err(tr("Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig."))
+                Err(tr("Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig"))
             }
         }
     }

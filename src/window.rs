@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 Bendix Hüsing
 
-//! Hauptfenster: Kopfleiste (Titel, Rückgängig/Wiederholen, Neu, Menü), Tabs,
-//! Werkzeugleiste links, Zeichenfläche mit Linealen, rechts Eigenschaften und Ebenen.
+//! Hauptfenster: Kopfleiste (links Seitenleiste, Rückgängig/Wiederholen; in der Mitte die
+//! Werkzeuge; rechts Eigenschaften, Neu, Menü), Tabs, links Ebenen und Bibliothek,
+//! Zeichenfläche mit Linealen, rechts die Eigenschaften.
 
 use crate::i18n::{tr, trf};
 use std::cell::{Cell, RefCell};
@@ -66,7 +67,7 @@ const EFFECT_DPI: [f64; 3] = [150.0, 300.0, 600.0];
 struct StartTab {
     page: adw::TabPage,
     /// eine Reihe Karten der zuletzt geöffneten Dokumente
-    recent_list: gtk::Box,
+    recent_list: gtk::FlowBox,
     recent_box: gtk::Box,
 }
 
@@ -592,9 +593,9 @@ fn slider_row_unit(label: &str, scale: &gtk::Scale, unit: &str) -> gtk::Box {
         return line;
     }
     let l = gtk::Label::builder().label(label).xalign(0.0).build();
-    l.add_css_class("caption");
-    l.add_css_class("dim-label");
-    let b = vbox(2);
+    let b = vbox(4);
+    b.add_css_class("mondrian-prow");
+    b.add_css_class("mondrian-prow-wide");
     b.append(&l);
     b.append(&line);
     b
@@ -619,11 +620,11 @@ fn fx_fold(
     let hint = gtk::Label::new(None);
     let arrow = gtk::Button::from_icon_name("pan-end-symbolic");
     let head = fold_head(&t, &hint, None, &arrow);
-    let detail = vbox(8);
+    // alles in einer Gruppe: Art, Stärke und Entfernen ohne Trennlinien
+    let detail = group_box();
     let choice = gtk::DropDown::from_strings(choices);
-    choice.set_hexpand(true);
     if !choices.is_empty() {
-        detail.append(&choice);
+        detail.append(&prow(tr("Art"), &choice));
     }
     let scale = new_slider(0.0, 100.0);
     scale.set_tooltip_text(Some(tr("Stärke")));
@@ -637,7 +638,7 @@ fn fx_fold(
     let remove = gtk::Button::with_label(remove_label);
     remove.add_css_class("mondrian-layer-delete");
     remove.set_action_name(Some(remove_action));
-    detail.append(&remove);
+    detail.append(&wide(&remove));
     detail.set_visible(false);
     let open = Rc::new(Cell::new(false));
     let idx = fold_register(&detail, &arrow, &open);
@@ -651,7 +652,7 @@ fn fx_fold(
         click.connect_released(move |_, _, _, _| fold_set(idx, !open.get()));
         t.add_controller(click);
     }
-    let root = vbox(8);
+    let root = rows_box();
     root.add_css_class("mondrian-fold");
     root.append(&head);
     root.append(&detail);
@@ -681,6 +682,7 @@ fn fold_head(
     arrow.set_valign(gtk::Align::Center);
     arrow.set_tooltip_text(Some(tr("Auf- oder zuklappen")));
     let head = hbox(6);
+    head.add_css_class("mondrian-fold-head");
     head.append(title);
     head.append(hint);
     if let Some(c) = chip {
@@ -865,7 +867,8 @@ fn draw_swatch(
     let r = if selected { outer - 3.5 } else { outer - 0.5 };
     if selected {
         cr.arc(cx, cy, outer - 0.75, 0.0, std::f64::consts::TAU);
-        cr.set_source_rgb(0.21, 0.52, 0.89);
+        let a = render::ui_accent();
+        cr.set_source_rgb(a.0, a.1, a.2);
         cr.set_line_width(1.5);
         let _ = cr.stroke();
     }
@@ -913,7 +916,7 @@ fn draw_swatch(
 
 impl Swatches {
     fn new(title: &str, target: SwTarget) -> Rc<Swatches> {
-        let root = vbox(8);
+        let root = rows_box();
         let title = gtk::Label::builder().label(title).xalign(0.0).build();
         title.add_css_class("heading");
         // Reiter Farbe / Verlauf
@@ -941,7 +944,7 @@ impl Swatches {
         tab_row.append(&pattern_tab);
         // Pipette rechts neben den Reitern
         let pipette_btn = gtk::ToggleButton::new();
-        pipette_btn.set_icon_name("mondrian-eyedropper-symbolic");
+        pipette_btn.set_icon_name("color-select-symbolic");
         pipette_btn.add_css_class("flat");
         pipette_btn.set_valign(gtk::Align::Center);
         pipette_btn.set_tooltip_text(Some(tr(
@@ -1046,13 +1049,17 @@ impl Swatches {
         arrow.set_tooltip_text(Some(tr("Farbwahl auf- oder zuklappen")));
         let hint = gtk::Label::new(None);
         let head = fold_head(&title, &hint, Some(&chip), &arrow);
-        let extra = vbox(8);
-        let detail = vbox(8);
-        detail.append(&tabs_line);
-        detail.append(&grad_area);
-        detail.append(&pattern_area);
-        detail.append(&picker.root);
-        detail.append(&grid);
+        // aufgeklappt: Farbwahl (mit Innenabstand), darunter weitere Einstellungen als Zeilen
+        let extra = rows_box();
+        let pick = vbox(8);
+        pick.add_css_class("mondrian-pad");
+        pick.append(&tabs_line);
+        pick.append(&grad_area);
+        pick.append(&pattern_area);
+        pick.append(&picker.root);
+        pick.append(&grid);
+        let detail = rows_box();
+        detail.append(&pick);
         detail.append(&extra);
         detail.set_visible(false);
         // ohne Verlauf (Textrahmen) bzw. nur Deckkraft (Bilder)
@@ -1425,7 +1432,8 @@ impl Swatches {
                     if i == sel {
                         cr.new_path();
                         cr.arc(x, cy, 11.0, 0.0, std::f64::consts::TAU);
-                        cr.set_source_rgb(0.21, 0.52, 0.89);
+                        let a = render::ui_accent();
+                        cr.set_source_rgb(a.0, a.1, a.2);
                         cr.set_line_width(2.0);
                         let _ = cr.stroke();
                     }
@@ -1836,6 +1844,7 @@ fn lib_paint_dialog(ui: &Rc<Ui>, c: Color, g: Option<Gradient>, editable: bool) 
         });
         lib_added(&u, added, what);
     });
+    label_icon_buttons(dlg.upcast_ref());
     dlg.present(Some(&ui.window));
 }
 
@@ -1926,11 +1935,7 @@ fn update_swatches(ui: &Rc<Ui>) {
             })
             .unwrap_or_default()
     };
-    let width = if ui.dock.is_visible() && ui.lib_paned.position() >= 150 {
-        ui.lib_paned.position()
-    } else {
-        ui.lib_width.get()
-    };
+    let width = props_panel_width(ui);
     // Ränder der Eigenschaften abziehen
     let avail = (width - 24 - 12).max(SWATCH);
     let cols = ((avail + 6) / (SWATCH + 6)).max(1);
@@ -1946,94 +1951,15 @@ fn update_swatches(ui: &Rc<Ui>) {
     }
 }
 
-/// Menümodell als einfache Knopfliste (ohne Rollbereich, anders als GtkPopoverMenu): Abschnitte
-/// werden durch Trennlinien getrennt, Untermenüs öffnen sich als eigenes Popover daneben.
-fn fill_menu_box(bx: &gtk::Box, model: &gio::MenuModel, root: &gtk::Popover) {
-    for i in 0..model.n_items() {
-        if let Some(section) = model.item_link(i, "section") {
-            if bx.first_child().is_some() {
-                bx.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-            }
-            fill_menu_box(bx, &section, root);
-            continue;
-        }
-        let label = model
-            .item_attribute_value(i, "label", None)
-            .and_then(|v| v.str().map(str::to_string))
-            .unwrap_or_default();
-        let row = hbox(18);
-        let lab = gtk::Label::new(Some(&label));
-        lab.set_xalign(0.0);
-        lab.set_hexpand(true);
-        row.append(&lab);
-        let btn = gtk::Button::new();
-        btn.add_css_class("flat");
-        if let Some(sub) = model.item_link(i, "submenu") {
-            row.append(&gtk::Image::from_icon_name("pan-end-symbolic"));
-            btn.set_child(Some(&row));
-            let root = root.clone();
-            btn.connect_clicked(move |b| {
-                let pop = gtk::Popover::new();
-                pop.set_parent(b);
-                pop.set_position(gtk::PositionType::Right);
-                pop.set_has_arrow(false);
-                pop.add_css_class("menu");
-                let inner = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                fill_menu_box(&inner, &sub, &root);
-                pop.set_child(Some(&inner));
-                pop.connect_closed(|p| {
-                    let p = p.clone();
-                    glib::idle_add_local_once(move || p.unparent());
-                });
-                pop.popup();
-            });
-        } else {
-            let by_action = model
-                .item_attribute_value(i, "action", None)
-                .and_then(|v| v.str().map(str::to_string))
-                .and_then(|a| KEYMAP.with(|k| k.borrow().accel_for_action(&a)));
-            if let Some(acc) = by_action.or_else(|| {
-                model
-                    .item_attribute_value(i, "accel", None)
-                    .and_then(|v| v.str().map(str::to_string))
-            }) {
-                if let Some((key, mods)) = gtk::accelerator_parse(crate::keys::to_gtk(&acc)) {
-                    let text = gtk::accelerator_get_label(key, mods);
-                    let l = gtk::Label::new(Some(text.as_str()));
-                    l.add_css_class("dim-label");
-                    row.append(&l);
-                }
-            }
-            btn.set_child(Some(&row));
-            if let Some(action) = model
-                .item_attribute_value(i, "action", None)
-                .and_then(|v| v.str().map(str::to_string))
-            {
-                btn.set_action_name(Some(&action));
-                if let Some(t) = model.item_attribute_value(i, "target", None) {
-                    btn.set_action_target_value(Some(&t));
-                }
-            }
-            let root = root.clone();
-            btn.connect_clicked(move |_| root.popdown());
-        }
-        bx.append(&btn);
-    }
-}
-
-/// Menü als Popover an der Zeichenfläche öffnen. Alle Einträge stehen untereinander ohne
-/// Rollbereich; Untermenüs erscheinen als eigene Popover daneben. Das Popover wird bei jedem
-/// Öffnen neu gebaut und danach entfernt.
+/// Menü als Popover an der Zeichenfläche öffnen – das normale GNOME-Menü (GtkPopoverMenu):
+/// gleiche Abstände wie in anderen Programmen, Pfeiltasten und Zugriffstasten. Untermenüs
+/// erscheinen als eigene Popover daneben. Das Popover wird bei jedem Öffnen neu gebaut und
+/// danach entfernt.
 fn popup_menu(d: &DocTab, menu: &gio::Menu, rect: gdk::Rectangle, class: Option<&str>) {
-    let pop = gtk::Popover::new();
-    pop.add_css_class("menu");
+    let pop = gtk::PopoverMenu::from_model_full(menu, gtk::PopoverMenuFlags::NESTED);
     if let Some(c) = class {
         pop.add_css_class(c);
     }
-    let bx = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    bx.set_size_request(210, -1);
-    fill_menu_box(&bx, menu.upcast_ref(), &pop);
-    pop.set_child(Some(&bx));
     pop.set_parent(&d.canvas);
     pop.set_has_arrow(false);
     pop.set_halign(gtk::Align::Start);
@@ -2106,20 +2032,18 @@ struct FloatBar {
     ungroup: gtk::Button,
     sep: gtk::Separator,
     lock: gtk::Button,
-    library: gtk::Button,
-    delete: gtk::Button,
     /// Effekte für alle ausgewählten Objekte
     effects: gtk::Button,
-    /// Übergang zwischen zwei Formen (nur bei genau zwei Objekten) mit Zahl der Schritte
-    blend: gtk::MenuButton,
-    blend_steps: gtk::SpinButton,
-    blend_make: gtk::Button,
     /// Bild in Vektorflächen umwandeln (nur bei einem Bild mit flachen Farbflächen)
     trace: gtk::MenuButton,
     trace_colors: gtk::SpinButton,
     trace_make: gtk::Button,
-    /// gleiche Abstände herstellen (ab drei Objekten bzw. Gruppen)
-    distribute: gtk::MenuButton,
+    /// mehrere Objekte aneinander ausrichten, ab drei auch gleichmäßig verteilen
+    arrange: gtk::MenuButton,
+    /// Menü des Knopfs: nur Ausrichten bzw. Ausrichten und Verteilen
+    arrange_menus: (gio::Menu, gio::Menu),
+    /// Pfadoperationen (ab zwei Objekten)
+    bools: gtk::Box,
     /// weitere Möglichkeiten (dasselbe Menü wie beim Rechtsklick)
     more: gtk::Button,
     /// zuletzt gesetzte Lage (x, y) und Zustand der Knöpfe
@@ -2171,22 +2095,13 @@ fn build_float_bar() -> FloatBar {
     let sep = gtk::Separator::new(gtk::Orientation::Vertical);
     sep.set_margin_top(6);
     sep.set_margin_bottom(6);
-    let lock = float_button("mondrian-unlocked-symbolic", tr("Sperren"), "win.lock-toggle");
-    let dup = float_button(
-        "edit-copy-symbolic",
-        &key_tip(tr("Duplizieren"), "duplicate"),
-        "win.duplicate",
-    );
-    let library = float_button(
-        "mondrian-library-symbolic",
-        tr("Zur Bibliothek hinzufügen …"),
-        "win.lib-add-ask",
-    );
-    let delete = float_button("user-trash-symbolic", tr("Löschen (Entf)"), "win.delete");
-    delete.add_css_class("mondrian-layer-delete");
-    let effects = gtk::Button::from_icon_name("mondrian-effect-symbolic");
+    let lock = float_button("changes-allow-symbolic", tr("Sperren"), "win.lock-toggle");
+    // „fx“ als Schrift (wie in vielen Grafikprogrammen) statt eines Symbols
+    let effects = gtk::Button::with_label("fx");
     effects.set_tooltip_text(Some(tr("Effekte – für alle ausgewählten Objekte")));
     effects.add_css_class("flat");
+    effects.add_css_class("mondrian-fx");
+    effects.update_property(&[gtk::accessible::Property::Label(tr("Effekte"))]);
     effects.set_focusable(false);
     // Knopf mit Symbol und Text, der ein Fenster öffnet
     let label_menu_button = |icon: &str, label: &str, tip: &str| {
@@ -2201,25 +2116,6 @@ fn build_float_bar() -> FloatBar {
         b.set_visible(false);
         b
     };
-    let blend = label_menu_button(
-        "mondrian-blend-symbolic",
-        tr("Übergang"),
-        tr("Übergang zwischen den beiden Formen erzeugen"),
-    );
-    let blend_steps = spin(1.0, 100.0, 1.0, 0, tr("Anzahl der Zwischenschritte"));
-    blend_steps.set_value(5.0);
-    let blend_make = gtk::Button::with_label(tr("Erstellen"));
-    blend_make.add_css_class("suggested-action");
-    let blend_box = vbox(10);
-    blend_box.set_margin_top(10);
-    blend_box.set_margin_bottom(10);
-    blend_box.set_margin_start(10);
-    blend_box.set_margin_end(10);
-    blend_box.append(&row(tr("Schritte"), &blend_steps));
-    blend_box.append(&blend_make);
-    let blend_pop = gtk::Popover::new();
-    blend_pop.set_child(Some(&blend_box));
-    blend.set_popover(Some(&blend_pop));
     let trace = label_menu_button(
         "insert-image-symbolic",
         tr("Nachzeichnen"),
@@ -2239,26 +2135,78 @@ fn build_float_bar() -> FloatBar {
     let trace_pop = gtk::Popover::new();
     trace_pop.set_child(Some(&trace_box));
     trace.set_popover(Some(&trace_pop));
-    let distribute = label_menu_button(
-        "mondrian-distribute-symbolic",
-        tr("Verteilen"),
-        tr("Objekte mit gleichen Abständen verteilen"),
+    // Ausrichten aneinander (ab zwei Objekten), Verteilen (ab drei)
+    let arrange = label_menu_button(
+        "mondrian-page-hcenter-symbolic",
+        tr("Ausrichten"),
+        tr("Objekte aneinander ausrichten"),
     );
-    let dist_menu = gio::Menu::new();
-    dist_menu.append(Some(tr("Horizontal verteilen")), Some("win.distribute-h"));
-    dist_menu.append(Some(tr("Vertikal verteilen")), Some("win.distribute-v"));
-    distribute.set_menu_model(Some(&dist_menu));
+    let align_section = |items: [(&str, &str); 3]| {
+        let m = gio::Menu::new();
+        for (label, action) in items {
+            m.append(Some(label), Some(action));
+        }
+        m
+    };
+    let mk_arrange_menu = |dist: bool| {
+        let m = gio::Menu::new();
+        m.append_section(
+            None,
+            &align_section([
+                (tr("Links ausrichten"), "win.sel-align-left"),
+                (tr("Waagerecht mittig ausrichten"), "win.sel-align-hcenter"),
+                (tr("Rechts ausrichten"), "win.sel-align-right"),
+            ]),
+        );
+        m.append_section(
+            None,
+            &align_section([
+                (tr("Oben ausrichten"), "win.sel-align-top"),
+                (tr("Senkrecht mittig ausrichten"), "win.sel-align-vcenter"),
+                (tr("Unten ausrichten"), "win.sel-align-bottom"),
+            ]),
+        );
+        if dist {
+            let d = gio::Menu::new();
+            d.append(Some(tr("Horizontal verteilen")), Some("win.distribute-h"));
+            d.append(Some(tr("Vertikal verteilen")), Some("win.distribute-v"));
+            m.append_section(None, &d);
+        }
+        m
+    };
+    let arrange_menus = (mk_arrange_menu(false), mk_arrange_menu(true));
+    arrange.set_menu_model(Some(&arrange_menus.0));
+    // Pfadoperationen direkt als Symbole
+    let bools = hbox(0);
+    for (icon, tip, action) in [
+        ("mondrian-union-symbolic", tr("Vereinigen"), "win.bool-union"),
+        (
+            "mondrian-subtract-symbolic",
+            tr("Vorderes abziehen"),
+            "win.bool-subtract",
+        ),
+        (
+            "mondrian-intersect-symbolic",
+            tr("Schnittmenge"),
+            "win.bool-intersect",
+        ),
+        (
+            "mondrian-exclude-symbolic",
+            tr("Überlappung entfernen"),
+            "win.bool-exclude",
+        ),
+    ] {
+        bools.append(&float_button(icon, tip, action));
+    }
+    bools.set_visible(false);
     bar.append(&group);
     bar.append(&ungroup);
-    bar.append(&blend);
+    bar.append(&arrange);
+    bar.append(&bools);
     bar.append(&trace);
-    bar.append(&distribute);
     bar.append(&sep);
     bar.append(&lock);
-    bar.append(&dup);
-    bar.append(&library);
     bar.append(&effects);
-    bar.append(&delete);
     let more = gtk::Button::from_icon_name("view-more-symbolic");
     more.add_css_class("flat");
     more.set_tooltip_text(Some(tr("Weitere Möglichkeiten")));
@@ -2270,20 +2218,64 @@ fn build_float_bar() -> FloatBar {
         ungroup,
         sep,
         lock,
-        library,
-        delete,
         effects,
-        blend,
-        blend_steps,
-        blend_make,
         trace,
         trace_colors,
         trace_make,
-        distribute,
+        arrange,
+        arrange_menus,
+        bools,
         more,
         shown: Cell::new(None),
         pending: Cell::new(false),
     }
+}
+
+thread_local! {
+    /// zuletzt gewählte Zahl der Zwischenschritte eines Übergangs
+    static BLEND_STEPS: Cell<f64> = const { Cell::new(5.0) };
+}
+
+/// Übergang zwischen den beiden ausgewählten Formen: Zahl der Zwischenschritte erfragen.
+fn blend_dialog(ui: &Rc<Ui>) {
+    let Some(d) = cur(ui) else { return };
+    if !d.ed.borrow().can_blend() {
+        return;
+    }
+    let dlg = adw::AlertDialog::new(
+        Some(tr("Übergang")),
+        Some(tr("Übergang zwischen den beiden Formen erzeugen")),
+    );
+    let steps = spin(1.0, 100.0, 1.0, 0, tr("Anzahl der Zwischenschritte"));
+    steps.set_value(BLEND_STEPS.with(|c| c.get()));
+    let r = hbox(12);
+    let l = gtk::Label::builder()
+        .label(tr("Schritte"))
+        .xalign(0.0)
+        .hexpand(true)
+        .build();
+    r.append(&l);
+    r.append(&steps);
+    dlg.set_extra_child(Some(&r));
+    dlg.add_response("cancel", tr("_Abbrechen"));
+    dlg.add_response("create", tr("_Erstellen"));
+    dlg.set_response_appearance("create", adw::ResponseAppearance::Suggested);
+    dlg.set_default_response(Some("create"));
+    dlg.set_close_response("cancel");
+    let u = ui.clone();
+    dlg.connect_response(None, move |_, r| {
+        if r != "create" {
+            return;
+        }
+        steps.update();
+        let n = steps.value().round().max(1.0);
+        BLEND_STEPS.with(|c| c.set(n));
+        if let Some(d) = cur(&u) {
+            d.ed.borrow_mut().blend_selected(n as usize);
+            refresh(&u);
+        }
+    });
+    dlg.present(Some(&ui.window));
 }
 
 /// Nachfragen, was aus der Auswahl in die Bibliothek soll: Farbe, Stil oder abbrechen.
@@ -2334,6 +2326,7 @@ fn lib_add_dialog(ui: &Rc<Ui>) {
             a.activate(None);
         }
     });
+    label_icon_buttons(dlg.upcast_ref());
     dlg.present(Some(&ui.window));
 }
 
@@ -2368,27 +2361,14 @@ fn update_float(ui: &Ui, d: &DocTab) {
                 let b = ed.selection_bbox(&ui.metrics)?;
                 let a = ed.view.to_screen(Pt::new(b.x0, b.y0));
                 let c = ed.view.to_screen(Pt::new(b.x1, b.y1));
-                let has_lib = ed.selected_lib_style(false).is_some()
-                    || ed.selected_lib_style(true).is_some()
-                    || ed.selected_color(false).is_some()
-                    || ed.selected_color(true).is_some();
                 let can_trace = ed
                     .traceable_image()
                     .is_some_and(|(_, data)| crate::render::image_is_flat(&data));
-                Some((
-                    st,
-                    a,
-                    c,
-                    has_lib,
-                    ed.selection_counts(),
-                    ed.can_blend(),
-                    can_trace,
-                ))
+                Some((st, a, c, ed.selection_counts(), can_trace))
             })
         }
     };
-    let Some(((locked, can_group, can_ungroup), a, c, has_lib, (_, n_unit), blendable, traceable)) = state
-    else {
+    let Some(((locked, can_group, can_ungroup), a, c, (n_obj, n_unit), traceable)) = state else {
         hide();
         return;
     };
@@ -2397,34 +2377,39 @@ fn update_float(ui: &Ui, d: &DocTab) {
         hide();
         return;
     }
-    // Übergang nur bei genau zwei Objekten, Verteilen ab drei Objekten bzw. Gruppen
-    let can_blend = blendable && !locked;
+    // Ausrichten aneinander ab zwei Objekten bzw. Gruppen, Verteilen ab drei;
+    // Pfadoperationen ab zwei Objekten
+    let can_align = n_unit >= 2 && !locked;
     let can_dist = n_unit >= 3 && !locked;
+    let can_bool = n_obj >= 2 && !locked;
     let can_trace = traceable && !locked;
     let flags = locked as u8
         | (can_group as u8) << 1
         | (can_ungroup as u8) << 2
-        | (has_lib as u8) << 3
-        | (can_blend as u8) << 4
+        | (can_align as u8) << 3
         | (can_dist as u8) << 5
-        | (can_trace as u8) << 6;
+        | (can_trace as u8) << 6
+        | (can_bool as u8) << 7;
     if fb.shown.get().map(|s| s.2) != Some(flags) {
         fb.group.set_visible(can_group);
         fb.ungroup.set_visible(can_ungroup);
-        fb.blend.set_visible(can_blend);
         fb.trace.set_visible(can_trace);
-        fb.distribute.set_visible(can_dist);
-        fb.sep
-            .set_visible(can_group || can_ungroup || can_blend || can_dist || can_trace);
-        fb.library.set_visible(has_lib);
-        fb.lock.set_icon_name(if locked {
-            "mondrian-lock-symbolic"
+        fb.arrange.set_visible(can_align);
+        fb.arrange.set_menu_model(Some(if can_dist {
+            &fb.arrange_menus.1
         } else {
-            "mondrian-unlocked-symbolic"
+            &fb.arrange_menus.0
+        }));
+        fb.bools.set_visible(can_bool);
+        fb.sep
+            .set_visible(can_group || can_ungroup || can_align || can_bool || can_trace);
+        fb.lock.set_icon_name(if locked {
+            "changes-prevent-symbolic"
+        } else {
+            "changes-allow-symbolic"
         });
         fb.lock
             .set_tooltip_text(Some(if locked { tr("Entsperren") } else { tr("Sperren") }));
-        fb.delete.set_sensitive(!locked);
         fb.group.set_sensitive(!locked);
     }
     fb.bar.set_visible(true);
@@ -2479,15 +2464,6 @@ impl DocTab {
     }
 }
 
-/// Name eines Werkzeugs neben seinem Symbol (anfangs ausgeblendet).
-fn tool_label(text: &str) -> gtk::Label {
-    gtk::Label::builder()
-        .label(text)
-        .xalign(0.0)
-        .visible(false)
-        .build()
-}
-
 /// Kurzname aus dem Tooltip („Auswahl (V)“ → „Auswahl“).
 fn short_label(l: &str) -> &str {
     l.split(" (").next().unwrap_or(l).split(" –").next().unwrap_or(l)
@@ -2502,14 +2478,116 @@ struct Variant {
     label: &'static str,
 }
 
-/// Ein Knopf der Werkzeugleiste mit ggf. mehreren Varianten (Rechtsklick).
+/// Ein Platz der Werkzeugleiste: ein Werkzeug oder eine Gruppe (z. B. die Formen). Ist
+/// ein Werkzeug der Gruppe aktiv, klappt sie auf und zeigt alle Varianten; sonst steht nur
+/// die zuletzt benutzte da.
 struct Slot {
-    button: gtk::ToggleButton,
-    image: gtk::Image,
-    /// Name neben dem Symbol (nur bei eingeblendeten Werkzeugnamen)
-    label: gtk::Label,
+    /// je Variante ein Knopf, jeder in einem Revealer (zum Auf- und Zuklappen)
+    buttons: Vec<gtk::ToggleButton>,
+    revealers: Vec<gtk::Revealer>,
+    /// kleiner Pfeil rechts im Knopf: zugeklappt gibt es hier weitere Werkzeuge
+    arrows: Vec<gtk::Image>,
+    /// Rahmen der Gruppe (aufgeklappt mit eigenem Hintergrund)
+    group: gtk::Box,
     variants: Vec<Variant>,
     current: Cell<usize>,
+}
+
+/// Einstellungen des aktiven Werkzeugs: zweite schwebende Leiste unter den Werkzeugen
+/// (nur bei Werkzeugen, die etwas einzustellen haben).
+struct ToolOpts {
+    bar: gtk::Box,
+    corners_box: gtk::Box,
+    corners: gtk::SpinButton,
+    eraser_box: gtk::Box,
+    eraser: gtk::SpinButton,
+    pencil_box: gtk::Box,
+    smooth: gtk::SpinButton,
+    close: gtk::SpinButton,
+}
+
+/// Beschriftete Zahl für die Werkzeugeinstellungen: „Ecken [ 5 ]“, „Größe [ 20 ] px“.
+fn opt_spin(
+    label: &str,
+    min: f64,
+    max: f64,
+    step: f64,
+    unit: &str,
+    tip: &str,
+) -> (gtk::Box, gtk::SpinButton) {
+    let b = hbox(6);
+    let l = gtk::Label::new(Some(label));
+    l.set_margin_start(6);
+    b.append(&l);
+    let sp = spin(min, max, step, 0, tip);
+    sp.set_width_chars(4);
+    b.append(&sp);
+    if !unit.is_empty() {
+        let u = gtk::Label::new(Some(unit));
+        u.add_css_class("dim-label");
+        b.append(&u);
+    }
+    (b, sp)
+}
+
+fn build_tool_opts() -> ToolOpts {
+    let bar = osd_bar();
+    bar.set_margin_top(6);
+    bar.set_margin_bottom(0);
+    bar.set_margin_start(0);
+    bar.set_margin_end(0);
+    bar.set_halign(gtk::Align::Start);
+    bar.set_spacing(12);
+    let (corners_box, corners) = opt_spin(
+        tr("Ecken"),
+        3.0,
+        64.0,
+        1.0,
+        "",
+        tr("Anzahl der Ecken neuer Vielecke und Sterne (und der ausgewählten)"),
+    );
+    let (eraser_box, eraser) = opt_spin(
+        tr("Größe"),
+        1.0,
+        2000.0,
+        1.0,
+        "px",
+        tr("Durchmesser des Radierers ( [ und ] ändern ihn )"),
+    );
+    let pencil_box = hbox(12);
+    let (sb, smooth) = opt_spin(
+        tr("Glättung"),
+        0.0,
+        100.0,
+        5.0,
+        "%",
+        tr("Wie stark zittrige Striche geglättet werden"),
+    );
+    let (cb, close) = opt_spin(
+        tr("Schließen bis"),
+        0.0,
+        200.0,
+        1.0,
+        "px",
+        tr("Liegen Anfang und Ende näher beieinander, wird die Form geschlossen (0 = nie)"),
+    );
+    pencil_box.append(&sb);
+    pencil_box.append(&cb);
+    for b in [&corners_box, &eraser_box, &pencil_box] {
+        b.set_visible(false);
+        bar.append(b);
+    }
+    bar.set_visible(false);
+    ToolOpts {
+        bar,
+        corners_box,
+        corners,
+        eraser_box,
+        eraser,
+        pencil_box,
+        smooth,
+        close,
+    }
 }
 
 fn slot_definitions() -> Vec<Vec<Variant>> {
@@ -2579,7 +2657,7 @@ fn slot_definitions() -> Vec<Vec<Variant>> {
             v(
                 Tool::Scissors,
                 None,
-                "mondrian-scissors-symbolic",
+                "edit-cut-symbolic",
                 tr("Schere (C) – eine Linie ziehen zerschneidet Formen und Pfade"),
             ),
         ],
@@ -2696,8 +2774,6 @@ struct Panel {
     stroke_cmyk: gtk::Box,
     stroke_cmyk_scales: [gtk::Scale; 4],
     arrange_group: gtk::Box,
-    /// Ausrichten an der Auswahl oder an der Seite (nur bei mehreren Objekten sichtbar)
-    align_ref: gtk::DropDown,
     /// fester Bereich unten: Trennlinie + Position
     pinned: gtk::Box,
     angle: gtk::SpinButton,
@@ -2723,18 +2799,12 @@ struct Panel {
     tframe_width: gtk::SpinButton,
     tframe_inset: gtk::SpinButton,
     tframe_release: gtk::Button,
-    pencil_group: gtk::Box,
-    eraser_group: gtk::Box,
-    eraser_size: gtk::SpinButton,
-    pencil_smooth: gtk::Scale,
-    pencil_close: gtk::SpinButton,
     image_group: gtk::Box,
     image_crop: gtk::Button,
     image_modes_box: gtk::Box,
     image_modes: [gtk::ToggleButton; 3],
     image_release: gtk::Button,
     convert: gtk::Button,
-    bool_group: gtk::Box,
     guide_group: gtk::Box,
     guide_angle_row: gtk::Box,
     guide_angle: gtk::SpinButton,
@@ -2755,14 +2825,38 @@ pub struct Ui {
     toasts: adw::ToastOverlay,
     title: adw::WindowTitle,
     slots: Vec<Rc<Slot>>,
-    tools_revealer: gtk::Revealer,
-    /// linke ausklappbare Leiste und ihr Inhalt
+    /// schwebende Leisten über der Zeichenfläche: Werkzeuge (oben links), Ansicht und Seiten
+    /// (unten links), Zoom (unten rechts)
+    tools_bar: gtk::Box,
+    /// Einstellungen des aktiven Werkzeugs (unter den Werkzeugen)
+    tool_opts: ToolOpts,
+    view_bar: gtk::Box,
+    zoom_bar: gtk::Box,
+    /// Ebene über den Dokumenten (schwebende Leisten; in schmalen Fenstern auch die
+    /// Seitenleisten)
+    canvas_overlay: gtk::Overlay,
+    /// schmales Fenster: Seitenleisten schweben über der Zeichenfläche, nur eine zugleich
+    narrow: Cell<bool>,
+    /// rechte ausklappbare Leiste (Eigenschaften), ihr Inhalt und die Trennung zur
+    /// Zeichenfläche
     dock: gtk::Box,
     dock_stack: gtk::Stack,
-    /// (Seite, Knopf) der Leisten
-    dock_toggles: Vec<(&'static str, gtk::ToggleButton)>,
-    statusbar: gtk::Box,
-    status_label: gtk::Label,
+    props_paned: gtk::Paned,
+    /// linke ausklappbare Leiste (Ebenen oder Bibliothek), ihr Inhalt und die Trennung
+    side_dock: gtk::Box,
+    side_stack: gtk::Stack,
+    side_paned: gtk::Paned,
+    /// Breite der linken Leiste
+    side_width: Cell<i32>,
+    /// Knöpfe: Eigenschaften (oben rechts), linke Leiste (oben links), Reiter „Ebenen“
+    props_toggle: gtk::ToggleButton,
+    /// Informationen zum Dokument (rechte Leiste, statt der Eigenschaften)
+    info_toggle: gtk::ToggleButton,
+    info: InfoWidgets,
+    side_toggle: gtk::ToggleButton,
+    layers_toggle: gtk::ToggleButton,
+    /// zuletzt gezeigter Inhalt der linken Seitenleiste
+    side_last: Cell<&'static str>,
     snap_corners: Cell<bool>,
     snap_mids: Cell<bool>,
     snap_anchors: Cell<bool>,
@@ -2784,14 +2878,16 @@ pub struct Ui {
     libraries: RefCell<Vec<Library>>,
     lib_current: Cell<usize>,
     lib: LibWidgets,
-    lib_paned: gtk::Paned,
-    /// Breite der Bibliotheksleiste
-    lib_width: Cell<i32>,
+    /// Breite der Eigenschaften
+    props_width: Cell<i32>,
     /// Speichern der Einstellungen ist bereits vorgemerkt
     save_pending: Cell<bool>,
     /// gemeinsame Zwischenablage aller Tabs: (Quelldokument, Objekte)
     clipboard: RefCell<(usize, Vec<crate::model::Object>)>,
     thumbs: RefCell<Vec<gtk::DrawingArea>>,
+    /// Ausschnitt der Ebenen-Vorschaubilder (alle Zeichenflächen und aller Inhalt), wird
+    /// beim nächsten Zeichnen neu bestimmt
+    thumb_frame: Cell<Option<crate::geom::Rect>>,
     /// (Dokument, Ebenenversion), für die die Liste zuletzt aufgebaut wurde.
     layers_shown: RefCell<(usize, u64, Vec<u64>)>,
     layers_shown_active: Cell<u64>,
@@ -3099,16 +3195,131 @@ fn face_index(faces: &[FontFace], weight: u16, italic: bool) -> u32 {
         .unwrap_or(gtk::INVALID_LIST_POSITION)
 }
 
-/// Abschnitt der Eigenschaftenleiste mit kleiner Überschrift.
-fn group(title: &str) -> gtk::Box {
-    let g = vbox(6);
+/// Breite der Bedienelemente rechts in den Zeilen der Eigenschaften: alle gleich breit,
+/// damit sie untereinander bündig stehen.
+const CTRL_W: i32 = 150;
+
+/// Liste von Einstellungszeilen mit Trennlinien dazwischen (wie eine GNOME-Liste).
+fn rows_box() -> gtk::Box {
+    let b = vbox(0);
+    b.add_css_class("mondrian-rows");
+    b
+}
+
+/// Karte: Liste von Zeilen mit abgerundetem Rahmen („boxed list“ wie in den
+/// GNOME-Einstellungen).
+fn card() -> gtk::Box {
+    let c = rows_box();
+    c.add_css_class("card");
+    c
+}
+
+/// Abschnitt der Eigenschaftenleiste: Überschrift über einer Karte. Liefert (Abschnitt,
+/// Karte); die Überschrift verschwindet mit der Karte.
+fn section(title: &str) -> (gtk::Box, gtk::Box) {
+    let g = vbox(8);
+    let c = card();
     if !title.is_empty() {
         let l = gtk::Label::builder().label(title).xalign(0.0).build();
-        l.add_css_class("caption-heading");
-        l.add_css_class("dim-label");
+        l.add_css_class("heading");
+        c.bind_property("visible", &l, "visible").sync_create().build();
         g.append(&l);
     }
+    g.append(&c);
+    (g, c)
+}
+
+/// Gruppe zusammengehöriger Zeilen innerhalb einer Karte: ohne Trennlinien dazwischen,
+/// zu den Nachbargruppen durch eine Linie getrennt.
+fn group_box() -> gtk::Box {
+    let g = vbox(0);
+    g.add_css_class("mondrian-group");
     g
+}
+
+/// Zeile einer Karte: Beschriftung links, Bedienelement rechts (einheitlich breit).
+/// Die Zeile ist sichtbar, solange das Bedienelement sichtbar ist.
+fn prow(label: &str, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
+    prow_with(&gtk::Label::new(Some(label)), widget)
+}
+
+/// Wie `prow`, mit eigener Beschriftung (deren Text sich ändern kann).
+fn prow_with(label: &gtk::Label, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
+    label.set_xalign(0.0);
+    label.set_hexpand(true);
+    label.set_wrap(true);
+    label.set_wrap_mode(pango::WrapMode::WordChar);
+    let w: &gtk::Widget = widget.upcast_ref();
+    w.set_valign(gtk::Align::Center);
+    w.set_hexpand(false);
+    if !w.is::<gtk::Switch>() {
+        w.set_size_request(CTRL_W, -1);
+    }
+    let r = hbox(12);
+    r.add_css_class("mondrian-prow");
+    r.append(label);
+    r.append(w);
+    w.bind_property("visible", &r, "visible").sync_create().build();
+    r
+}
+
+/// Zeile einer Karte über die ganze Breite (Umschaltgruppen, Auswahllisten, Knöpfe).
+/// Die Zeile ist sichtbar, solange ihr Inhalt sichtbar ist.
+fn wide(widget: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let w: &gtk::Widget = widget.upcast_ref();
+    w.set_hexpand(true);
+    w.set_valign(gtk::Align::Center);
+    let r = hbox(0);
+    r.add_css_class("mondrian-prow");
+    r.add_css_class("mondrian-prow-wide");
+    r.append(w);
+    w.bind_property("visible", &r, "visible").sync_create().build();
+    r
+}
+
+/// Verbundene Knöpfe, alle gleich breit.
+fn linked_box<W: IsA<gtk::Widget>>(items: &[&W]) -> gtk::Box {
+    let b = hbox(0);
+    b.add_css_class("linked");
+    b.set_homogeneous(true);
+    for w in items {
+        w.set_hexpand(true);
+        b.append(*w);
+    }
+    b
+}
+
+/// `target` ist sichtbar, solange eines von `items` sichtbar ist.
+fn show_if_any(target: &impl IsA<gtk::Widget>, items: &[gtk::Widget]) {
+    let t = target.upcast_ref::<gtk::Widget>().downgrade();
+    let weak: Vec<glib::WeakRef<gtk::Widget>> = items.iter().map(|w| w.downgrade()).collect();
+    let update = Rc::new(move || {
+        if let Some(t) = t.upgrade() {
+            // eigener Schalter, nicht `is_visible` (das prüft auch die Eltern: eine gerade
+            // verborgene Leiste würde ihre Karte sonst dauerhaft ausblenden)
+            t.set_visible(
+                weak.iter()
+                    .any(|w| w.upgrade().is_some_and(|w| w.property::<bool>("visible"))),
+            );
+        }
+    });
+    (*update)();
+    for w in items {
+        let u = update.clone();
+        w.connect_notify_local(Some("visible"), move |_, _| (*u)());
+    }
+}
+
+/// Karte oder Zeilenliste ausblenden, solange keine ihrer Zeilen sichtbar ist (sonst
+/// bliebe ein leerer Rahmen bzw. eine doppelte Trennlinie stehen).
+fn auto_hide(b: &gtk::Box) {
+    let mut items = Vec::new();
+    let mut c = b.first_child();
+    while let Some(w) = c {
+        c = w.next_sibling();
+        items.push(w);
+    }
+    show_if_any(b, &items);
 }
 
 /// Zeile „Beschriftung …… Bedienelement“.
@@ -3136,6 +3347,7 @@ fn unit_spin(
 ) -> (gtk::Box, gtk::SpinButton) {
     let s = spin(min, max, step, digits, tooltip);
     s.set_hexpand(true);
+    s.set_width_chars(5);
     let unit = gtk::Label::new(Some(suffix));
     unit.add_css_class("dim-label");
     unit.set_width_chars(2);
@@ -3158,7 +3370,7 @@ fn sub_heading(title: &str) -> gtk::Label {
 /// Vier Schieberegler für C, M, Y, K (0–100 %).
 fn cmyk_block() -> (gtk::Box, [gtk::Scale; 4]) {
     let b = vbox(0);
-    b.set_margin_start(24);
+    b.add_css_class("mondrian-pad");
     let mk = |name: &str| {
         let r = hbox(6);
         let l = gtk::Label::builder()
@@ -3252,6 +3464,8 @@ struct Settings {
     /// zuletzt gewählte Bibliothek
     library: String,
     library_width: i32,
+    /// Breite der linken Leiste (Ebenen, Bibliothek)
+    side_width: i32,
     /// einmal am Tag nach neuen Versionen suchen
     updates: bool,
     /// Zeitpunkt der letzten Suche (Sekunden seit 1970)
@@ -3290,6 +3504,7 @@ fn load_settings() -> Settings {
         panel_width: PANEL_WIDTH,
         library: String::new(),
         library_width: 248,
+        side_width: 280,
         updates: crate::update::enabled_by_default(),
         update_checked: 0,
     };
@@ -3336,6 +3551,7 @@ fn load_settings() -> Settings {
             Some(("library", v)) => st.library = v.to_string(),
             Some(("library_width", v)) => st.library_width = v.parse().unwrap_or(248).clamp(200, 700),
             Some(("split", v)) => st.split = v.parse().unwrap_or(460).max(100),
+            Some(("side_width", v)) => st.side_width = v.parse().unwrap_or(280).clamp(200, 700),
             Some(("updates", v)) => st.updates = v == "true",
             Some(("update_checked", v)) => st.update_checked = v.parse().unwrap_or(0),
             _ => {}
@@ -3355,7 +3571,7 @@ fn save_settings(ui: &Ui) {
         let _ = std::fs::create_dir_all(dir);
     }
     let text = format!(
-        "scheme={}\nlanguage={}\nunit={}\ncolor={}\nbackground={}\nrulers={}\nview={}\nguides={}\nguide_snap={}\nsnap_corners={}\nsnap_mids={}\nsnap_anchors={}\nsnap_page={}\nsnap_paths={}\nspacing={}\ngrid={}\ngrid_size={}\ndwell={}\nsplit={}\npanel_width={}\nlibrary={}\nlibrary_width={}\nupdates={}\nupdate_checked={}\n",
+        "scheme={}\nlanguage={}\nunit={}\ncolor={}\nbackground={}\nrulers={}\nview={}\nguides={}\nguide_snap={}\nsnap_corners={}\nsnap_mids={}\nsnap_anchors={}\nsnap_page={}\nsnap_paths={}\nspacing={}\ngrid={}\ngrid_size={}\ndwell={}\nsplit={}\npanel_width={}\nlibrary={}\nlibrary_width={}\nside_width={}\nupdates={}\nupdate_checked={}\n",
         ui.scheme.get().name(),
         ui.language.borrow(),
         ui.unit.get().name(),
@@ -3381,7 +3597,8 @@ fn save_settings(ui: &Ui) {
             .get(ui.lib_current.get())
             .map(|l| l.name.clone())
             .unwrap_or_default(),
-        ui.lib_width.get(),
+        ui.props_width.get(),
+        ui.side_width.get(),
         ui.updates.get(),
         ui.update_checked.get(),
     );
@@ -3400,8 +3617,12 @@ fn unit_digits(u: Unit) -> u32 {
 
 fn menu_item(label: &str, action: &str, accel: Option<&str>) -> gio::MenuItem {
     let item = gio::MenuItem::new(Some(label), Some(action));
-    if let Some(a) = accel {
-        item.set_attribute_value("accel", Some(&a.to_variant()));
+    // angezeigtes Kürzel: aus der eigenen Belegung, sonst das feste (Strg, auf dem Mac ⌘)
+    let acc = KEYMAP
+        .with(|k| k.borrow().accel_for_action(action))
+        .or_else(|| accel.map(str::to_string));
+    if let Some(a) = acc {
+        item.set_attribute_value("accel", Some(&crate::keys::to_gtk(&a).to_variant()));
     }
     item
 }
@@ -3413,12 +3634,9 @@ fn edit_menu() -> gio::Menu {
     let s1 = gio::Menu::new();
     s1.append_item(&menu_item(tr("Ausschneiden"), "win.cut", Some("<Control>x")));
     s1.append_item(&menu_item(tr("Kopieren"), "win.copy", Some("<Control>c")));
-    s1.append_item(&menu_item(
-        tr("Als Bild kopieren"),
-        "win.copy-image",
-        Some("<Control><Alt>c"),
-    ));
+    s1.append_item(&menu_item(tr("Als Bild kopieren"), "win.copy-image", None));
     s1.append_item(&menu_item(tr("Einfügen"), "win.paste", Some("<Control>v")));
+    s1.append_item(&menu_item(tr("Duplizieren"), "win.duplicate", Some("<Control>d")));
     menu.append_section(None, &s1);
     let s2 = gio::Menu::new();
     s2.append_item(&menu_item(tr("Skalieren …"), "win.scale-dialog", None));
@@ -3463,6 +3681,20 @@ fn edit_menu() -> gio::Menu {
     menu
 }
 
+/// Letzte Abschnitte des Kontextmenüs: Bibliothek, Löschen.
+fn context_menu_end(menu: &gio::Menu) {
+    let lib = gio::Menu::new();
+    lib.append_item(&menu_item(
+        tr("Zur Bibliothek hinzufügen …"),
+        "win.lib-add-ask",
+        None,
+    ));
+    menu.append_section(None, &lib);
+    let del = gio::Menu::new();
+    del.append_item(&menu_item(tr("Löschen"), "win.delete", Some("Delete")));
+    menu.append_section(None, &del);
+}
+
 /// Kontextmenü der Zeichenfläche inkl. „In Ebene verschieben“.
 fn context_menu(d: &DocTab) -> gio::Menu {
     let menu = edit_menu();
@@ -3470,7 +3702,14 @@ fn context_menu(d: &DocTab) -> gio::Menu {
     if ed.selection.is_empty() {
         return menu;
     }
+    // Übergang nur bei genau zwei Formen
+    if ed.can_blend() && !ed.selected_objects().iter().any(|o| o.locked) {
+        let sec = gio::Menu::new();
+        sec.append_item(&menu_item(tr("Übergang …"), "win.blend-dialog", None));
+        menu.append_section(None, &sec);
+    }
     if ed.doc.layers.len() < 2 {
+        context_menu_end(&menu);
         return menu;
     }
     let here = ed.selection_layers();
@@ -3486,36 +3725,45 @@ fn context_menu(d: &DocTab) -> gio::Menu {
     let sec = gio::Menu::new();
     sec.append_submenu(Some(tr("Auf Ebene verschieben")), &layers);
     menu.append_section(None, &sec);
+    context_menu_end(&menu);
     menu
 }
 
 fn main_menu() -> gio::Menu {
+    // Unterstrich: Zugriffstaste (in jeder Sprache eigene, innerhalb des Menüs eindeutig)
     let menu = gio::Menu::new();
     let s1 = gio::Menu::new();
-    s1.append(Some(tr("Neu")), Some("win.new"));
-    s1.append(Some(tr("Öffnen…")), Some("win.open"));
+    s1.append(Some(tr("_Neu")), Some("win.new"));
+    s1.append(Some(tr("_Öffnen…")), Some("win.open"));
     menu.append_section(None, &s1);
     let s2 = gio::Menu::new();
-    s2.append(Some(tr("Speichern")), Some("win.save"));
-    s2.append(Some(tr("Speichern unter…")), Some("win.save-as"));
-    s2.append(Some(tr("Exportieren…")), Some("win.export"));
-    s2.append(Some(tr("Auswahl exportieren…")), Some("win.export-selection"));
+    s2.append(Some(tr("_Speichern")), Some("win.save"));
+    s2.append(Some(tr("Speichern _unter…")), Some("win.save-as"));
+    s2.append(Some(tr("_Exportieren…")), Some("win.export"));
+    s2.append(Some(tr("_Auswahl exportieren…")), Some("win.export-selection"));
     menu.append_section(None, &s2);
     let s3 = gio::Menu::new();
     s3.append_item(&menu_item(
-        tr("Bild einfügen…"),
+        tr("_Bild einfügen…"),
         "win.insert-image",
         Some("<Control>i"),
     ));
     menu.append_section(None, &s3);
+    // Standardeinträge am Ende (GNOME): Einstellungen, Tastenkürzel, Hilfe, Info
     let s4 = gio::Menu::new();
     s4.append_item(&menu_item(
-        tr("Einstellungen"),
+        tr("E_instellungen"),
         "win.preferences",
         Some("<Control>comma"),
     ));
-    s4.append(Some(tr("Fehler melden…")), Some("win.report-bug"));
-    s4.append(Some(tr("Über Stijl")), Some("win.about"));
+    s4.append_item(&menu_item(
+        tr("_Tastenkürzel"),
+        "win.shortcuts",
+        Some("<Control>question"),
+    ));
+    s4.append(Some(tr("_Hilfe")), Some("win.help"));
+    s4.append(Some(tr("_Fehler melden…")), Some("win.report-bug"));
+    s4.append(Some(tr("_Über Stijl")), Some("win.about"));
     menu.append_section(None, &s4);
     menu
 }
@@ -3528,6 +3776,8 @@ fn build_panel() -> (gtk::Box, Panel) {
     content.set_margin_bottom(12);
     content.set_margin_start(12);
     content.set_margin_end(12);
+    // Karten und Zeilenlisten, die sich ausblenden, wenn keine ihrer Zeilen sichtbar ist
+    let mut cards: Vec<gtk::Box> = Vec::new();
 
     let heading = gtk::Label::builder().label(tr("Auswahl")).xalign(0.0).build();
     heading.add_css_class("mondrian-panel-title");
@@ -3537,7 +3787,7 @@ fn build_panel() -> (gtk::Box, Panel) {
     let empty_title = gtk::Label::new(Some(tr("Nichts ausgewählt")));
     empty_title.add_css_class("title-4");
     let empty_text = gtk::Label::builder()
-        .label(tr("Klicke ein Objekt an, um es zu bearbeiten."))
+        .label(tr("Klicke ein Objekt an, um es zu bearbeiten"))
         .wrap(true)
         .justify(gtk::Justification::Center)
         .build();
@@ -3551,21 +3801,20 @@ fn build_panel() -> (gtk::Box, Panel) {
     content.append(&empty_hint);
 
     // Form
-    let shape_group = group(tr("Form"));
+    let (shape_group, shape_card) = section(tr("Form"));
+    cards.push(shape_card.clone());
     let names: Vec<&str> = SHAPE_KINDS.iter().map(|&(_, n)| tr(n)).collect();
     let shape_kind = gtk::DropDown::from_strings(&names);
-    shape_kind.set_valign(gtk::Align::Center);
-    shape_group.append(&row(tr("Art"), &shape_kind));
-    let corners = spin(3.0, 64.0, 1.0, 0, tr("Anzahl der Ecken"));
-    let corners_row = row(tr("Ecken"), &corners);
-    shape_group.append(&corners_row);
-    let radius = spin(0.0, 5000.0, 1.0, 0, tr("Eckenradius in px"));
-    let radius_row = row(tr("Eckenradius"), &radius);
-    shape_group.append(&radius_row);
+    shape_card.append(&prow(tr("Art"), &shape_kind));
+    let (corners_box, corners) = unit_spin(3.0, 64.0, 1.0, 0, "", tr("Anzahl der Ecken"));
+    let corners_row = prow(tr("Ecken"), &corners_box);
+    shape_card.append(&corners_row);
+    let (radius_box, radius) = unit_spin(0.0, 5000.0, 1.0, 0, "px", tr("Eckenradius in px"));
+    let radius_row = prow(tr("Eckenradius"), &radius_box);
+    shape_card.append(&radius_row);
 
-    // Text: eigener Ausklappbereich; in der Kopfzeile Schrift und Größe
-    let text_group = vbox(8);
-    text_group.add_css_class("mondrian-fold");
+    // Text: eigene Karte zum Aufklappen; in der Kopfzeile Schrift und Größe
+    let text_group = card();
     let text_title = gtk::Label::new(Some(tr("Text")));
     text_title.add_css_class("heading");
     let text_hint = gtk::Label::new(None);
@@ -3574,7 +3823,7 @@ fn build_panel() -> (gtk::Box, Panel) {
     let text_arrow = gtk::Button::from_icon_name("pan-end-symbolic");
     let text_head = fold_head(&text_title, &text_hint, None, &text_arrow);
     // (Name bleibt: alle Textoptionen landen im aufklappbaren Inhalt)
-    let text_body = vbox(8);
+    let text_body = rows_box();
     text_body.set_visible(false);
     let text_open = Rc::new(Cell::new(false));
     let text_fold = fold_register(&text_body, &text_arrow, &text_open);
@@ -3605,36 +3854,45 @@ fn build_panel() -> (gtk::Box, Panel) {
         .build();
     // (steht wie die Bibliotheksfarben unten im Ausklappbereich, ohne Überschrift)
     let text_styles_box = vbox(4);
+    text_styles_box.add_css_class("mondrian-pad");
     text_styles_box.append(&text_styles);
-    text_styles_box.set_visible(false);
 
-    // Schriftart als Ausklappliste wie in einer Textverarbeitung, daneben die Größe
+    // ── Schrift: Familie, Schnitt, Größe, bei variablen Schriften die Strichstärke
+    // Zusammengehöriges steht ohne Trennlinien in einer Gruppe, Gruppen sind durch
+    // Linien getrennt (statt Zwischenüberschriften)
+    let g_font = group_box();
+    let g_char = group_box();
+    let g_para = group_box();
+    let g_box = group_box();
+    let g_path = group_box();
+    for g in [&g_font, &g_char, &g_para, &g_box, &g_path] {
+        text_group.append(g);
+        cards.push(g.clone());
+    }
     let font = font_dropdown();
-    font.set_hexpand(true);
-    let size = spin(1.0, 2000.0, 1.0, 0, tr("Schriftgröße in px"));
-    let font_row = hbox(6);
-    font_row.append(&font);
-    font_row.append(&size);
-    text_group.append(&font_row);
+    g_font.append(&wide(&font));
     // Schnitt statt Fett/Kursiv: alle Schnitte der Familie, bei variablen Schriften ein Regler
     let face = gtk::DropDown::from_strings(&[]);
     face.set_tooltip_text(Some(tr("Schnitt")));
-    face.set_hexpand(true);
-    text_group.append(&face);
+    g_font.append(&wide(&face));
+    let (size_box, size) = unit_spin(1.0, 2000.0, 1.0, 0, "px", tr("Schriftgröße in px"));
+    g_font.append(&prow(tr("Größe"), &size_box));
     let weight = new_slider(100.0, 900.0);
     weight.adjustment().set_step_increment(10.0);
     weight.set_tooltip_text(Some(tr("Strichstärke (variable Schrift)")));
     let weight_row = slider_row_unit(tr("Strichstärke"), &weight, "");
     weight_row.set_visible(false);
-    text_group.append(&weight_row);
+    g_font.append(&weight_row);
+
+    // ── Zeichen: Auszeichnungen und Zeichenabstand
     let fmt_toggle = |icon: &str, tip: &str| {
         gtk::ToggleButton::builder()
             .icon_name(icon)
             .tooltip_text(tip)
             .build()
     };
-    let underline = fmt_toggle("mondrian-underline-symbolic", tr("Unterstrichen"));
-    let strike = fmt_toggle("mondrian-strike-symbolic", tr("Durchgestrichen"));
+    let underline = fmt_toggle("format-text-underline-symbolic", tr("Unterstrichen"));
+    let strike = fmt_toggle("format-text-strikethrough-symbolic", tr("Durchgestrichen"));
     // OpenType-Funktionen der Schrift: Kapitälchen und Ligaturen (fi, fl …, standardmäßig an)
     let small_caps = fmt_toggle(
         "mondrian-smallcaps-symbolic",
@@ -3645,15 +3903,39 @@ fn build_panel() -> (gtk::Box, Panel) {
         tr("Ligaturen (fi, fl …) verwenden, soweit die Schrift sie hat"),
     );
     ligatures.set_active(true);
-    let styles = hbox(0);
-    styles.add_css_class("linked");
-    styles.append(&underline);
-    styles.append(&strike);
-    styles.append(&small_caps);
-    styles.append(&ligatures);
-    // Aufzählung: Knopf schaltet ein/aus, der kleine Pfeil wählt den Stil
+    let styles = linked_box(&[&underline, &strike, &small_caps, &ligatures]);
+    g_char.append(&wide(&styles));
+    let (tracking_box, tracking) = unit_spin(
+        -300.0,
+        2000.0,
+        10.0,
+        0,
+        "",
+        tr("Zeichenabstand in 1/1000 Geviert"),
+    );
+    g_char.append(&prow(tr("Zeichenabstand"), &tracking_box));
+
+    // ── Absatz: Ausrichtung, Aufzählung, Abstände
+    let mk_toggle = |icon: &str, tip: &str| {
+        gtk::ToggleButton::builder()
+            .icon_name(icon)
+            .tooltip_text(tip)
+            .build()
+    };
+    let align = [
+        mk_toggle("format-justify-left-symbolic", tr("Linksbündig")),
+        mk_toggle("format-justify-center-symbolic", tr("Zentriert")),
+        mk_toggle("format-justify-right-symbolic", tr("Rechtsbündig")),
+        mk_toggle("format-justify-fill-symbolic", tr("Blocksatz")),
+    ];
+    for b in &align[1..] {
+        b.set_group(Some(&align[0]));
+    }
+    let align_box = linked_box(&[&align[0], &align[1], &align[2], &align[3]]);
+    g_para.append(&wide(&align_box));
+    // Aufzählung: Knopf schaltet ein/aus, der kleine Pfeil wählt den Stil; davor der Einzug
     let list_style = Rc::new(Cell::new(ListStyle::Dot));
-    let list_on = fmt_toggle("mondrian-list-symbolic", tr("Aufzählung"));
+    let list_on = fmt_toggle("view-list-bullet-symbolic", tr("Aufzählung"));
     let list_menu = gio::Menu::new();
     for ls in ListStyle::ALL {
         list_menu.append(
@@ -3673,28 +3955,41 @@ fn build_panel() -> (gtk::Box, Panel) {
     list_links.append(&list_arrow);
     // Einzug verkleinern/vergrößern (Absätze der Markierung bzw. alle)
     let indent_less = gtk::Button::builder()
-        .icon_name("mondrian-indent-less-symbolic")
+        .icon_name("format-indent-less-symbolic")
         .tooltip_text(tr("Einzug verkleinern"))
         .build();
     let indent_more = gtk::Button::builder()
-        .icon_name("mondrian-indent-more-symbolic")
+        .icon_name("format-indent-more-symbolic")
         .tooltip_text(tr("Einzug vergrößern"))
         .build();
-    let indent_links = hbox(0);
-    indent_links.add_css_class("linked");
-    indent_links.append(&indent_less);
-    indent_links.append(&indent_more);
-    let list_box = hbox(6);
-    list_box.append(&indent_links);
-    list_box.append(&list_links);
-    text_group.append(&styles);
-    text_group.append(&list_box);
+    let indent_links = linked_box(&[&indent_less, &indent_more]);
+    let list_controls = hbox(6);
+    list_controls.append(&indent_links);
+    list_controls.append(&list_links);
+    let list_box = prow(tr("Aufzählung"), &list_controls);
+    g_para.append(&list_box);
+    let (ls_box, line_spacing) = unit_spin(
+        50.0,
+        500.0,
+        5.0,
+        0,
+        "%",
+        tr("Zeilenabstand in % der Schriftgröße"),
+    );
+    g_para.append(&prow(tr("Zeilenabstand"), &ls_box));
+    let (para_box, para_spacing) = unit_spin(
+        0.0,
+        500.0,
+        10.0,
+        0,
+        "%",
+        tr("Abstand zwischen Absätzen in % der Schriftgröße"),
+    );
+    let para_row = prow(tr("Absatzabstand"), &para_box);
+    g_para.append(&para_row);
+    // Der Text wird direkt im Dokument bearbeitet; das Feld bleibt nur intern bestehen.
     let text = gtk::TextView::new();
     text.set_wrap_mode(gtk::WrapMode::WordChar);
-    text.set_top_margin(6);
-    text.set_bottom_margin(6);
-    text.set_left_margin(6);
-    text.set_right_margin(6);
     let text_scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .min_content_height(64)
@@ -3704,34 +3999,10 @@ fn build_panel() -> (gtk::Box, Panel) {
         .build();
     let text_frame = gtk::Frame::new(None);
     text_frame.set_child(Some(&text_scroll));
-    // Der Text wird direkt im Dokument bearbeitet; das Feld bleibt nur intern bestehen.
     text_frame.set_visible(false);
     text_group.append(&text_frame);
-    // Ausrichtung
-    let align_box = hbox(0);
-    align_box.add_css_class("linked");
-    let mk_toggle = |icon: &str, tip: &str| {
-        gtk::ToggleButton::builder()
-            .icon_name(icon)
-            .tooltip_text(tip)
-            .hexpand(true)
-            .build()
-    };
-    let align = [
-        mk_toggle("mondrian-align-left-symbolic", tr("Linksbündig")),
-        mk_toggle("mondrian-align-center-symbolic", tr("Zentriert")),
-        mk_toggle("mondrian-align-right-symbolic", tr("Rechtsbündig")),
-        mk_toggle("mondrian-align-justify-symbolic", tr("Blocksatz")),
-    ];
-    for b in &align[1..] {
-        b.set_group(Some(&align[0]));
-    }
-    for b in &align {
-        align_box.append(b);
-    }
-    text_group.append(&align_box);
-    let valign_box = hbox(0);
-    valign_box.add_css_class("linked");
+
+    // ── Textfeld: Lage im Feld, Spalten, Abstand zum Rahmen
     let valign = [
         mk_toggle("mondrian-valign-top-symbolic", tr("Im Feld oben")),
         mk_toggle("mondrian-valign-middle-symbolic", tr("Im Feld mittig")),
@@ -3740,68 +4011,54 @@ fn build_panel() -> (gtk::Box, Panel) {
     for b in &valign[1..] {
         b.set_group(Some(&valign[0]));
     }
-    for b in &valign {
-        valign_box.append(b);
-    }
-    text_group.append(&valign_box);
-    let line_spacing = spin(50.0, 500.0, 5.0, 0, tr("Zeilenabstand in % der Schriftgröße"));
-    let ls_row = hbox(8);
-    let ls_icon = gtk::Image::from_icon_name("mondrian-line-spacing-symbolic");
-    ls_icon.set_tooltip_text(Some(tr("Zeilenabstand (%)")));
-    ls_row.append(&ls_icon);
-    line_spacing.set_hexpand(true);
-    ls_row.append(&line_spacing);
-    let tracking = spin(-300.0, 2000.0, 10.0, 0, tr("Zeichenabstand in 1/1000 Geviert"));
-    let tr_icon = gtk::Image::from_icon_name("mondrian-letter-spacing-symbolic");
-    tr_icon.set_tooltip_text(Some(tr("Zeichenabstand (1/1000 Geviert)")));
-    ls_row.append(&tr_icon);
-    tracking.set_hexpand(true);
-    ls_row.append(&tracking);
-    text_group.append(&ls_row);
-    let (para_box, para_spacing) = unit_spin(
-        0.0,
-        500.0,
-        10.0,
-        0,
-        "%",
-        tr("Abstand zwischen Absätzen in % der Schriftgröße"),
-    );
-    let para_row = row(tr("Absatzabstand"), &para_box);
-    text_group.append(&para_row);
-    let columns = spin(
+    let valign_box = prow(tr("Vertikal"), &linked_box(&[&valign[0], &valign[1], &valign[2]]));
+    g_box.append(&valign_box);
+    let (columns_box, columns) = unit_spin(
         1.0,
         crate::model::MAX_COLUMNS as f64,
         1.0,
         0,
+        "",
         tr("Spaltenzahl – der Text läuft von Spalte zu Spalte"),
     );
-    let columns_row = row(tr("Spalten"), &columns);
-    text_group.append(&columns_row);
-    let offset = spin(-10000.0, 10000.0, 1.0, 0, tr("Abstand vom Pfadanfang in px"));
-    let offset_row = row(tr("Versatz auf dem Pfad"), &offset);
-    text_group.append(&offset_row);
-    // Text auf Pfad: unter der Linie und/oder umgekehrte Laufrichtung (z. B. unten am Kreis lesbar)
+    let columns_row = prow(tr("Spalten"), &columns_box);
+    g_box.append(&columns_row);
+    let (inset_box, tframe_inset) = unit_spin(0.0, 1000.0, 1.0, 0, "px", tr("Abstand des Textes zum Rahmen"));
+    let inset_row = prow(tr("Abstand zum Rahmen"), &inset_box);
+    g_box.append(&inset_row);
+
+    // ── Text auf Pfad: Versatz, unter der Linie und/oder umgekehrte Laufrichtung
+    let (offset_box, offset) = unit_spin(
+        -10000.0,
+        10000.0,
+        1.0,
+        0,
+        "px",
+        tr("Abstand vom Pfadanfang in px"),
+    );
+    let offset_row = prow(tr("Versatz"), &offset_box);
+    g_path.append(&offset_row);
     let path_below = gtk::ToggleButton::builder()
         .icon_name("mondrian-path-below-symbolic")
         .tooltip_text(tr("Text unter dem Pfad statt darüber"))
-        .hexpand(true)
         .build();
     let path_reverse = gtk::ToggleButton::builder()
         .icon_name("mondrian-path-reverse-symbolic")
         .tooltip_text(tr(
             "Laufrichtung umkehren (Text andersherum, z. B. unten am Kreis lesbar)",
         ))
-        .hexpand(true)
         .build();
-    let pb = hbox(0);
-    pb.add_css_class("linked");
-    pb.append(&path_below);
-    pb.append(&path_reverse);
-    let path_box = row(tr("Am Pfad"), &pb);
-    text_group.append(&path_box);
+    let path_box = wide(&linked_box(&[&path_below, &path_reverse]));
+    g_path.append(&path_box);
+    text_group.append(&text_styles_box);
+    // gehört zu den Textoptionen, nicht zur Position
+    let convert = gtk::Button::with_label(tr("Text in Pfade umwandeln"));
+    convert.set_action_name(Some("win.to-path"));
+    text_group.append(&wide(&convert));
 
     // Knoten
-    let node_group = group(tr("Knoten"));
+    let (node_group, node_card) = section(tr("Knoten"));
+    cards.push(node_card.clone());
     let node_corner = gtk::Button::with_label(tr("Eckig"));
     node_corner.set_action_name(Some("win.node-corner"));
     let node_smooth = gtk::Button::with_label(tr("Glatt"));
@@ -3809,12 +4066,7 @@ fn build_panel() -> (gtk::Box, Panel) {
     let node_delete = gtk::Button::from_icon_name("user-trash-symbolic");
     node_delete.set_tooltip_text(Some(tr("Knoten löschen (Entf)")));
     node_delete.set_action_name(Some("win.node-delete"));
-    let node_buttons = hbox(0);
-    node_buttons.add_css_class("linked");
-    node_buttons.append(&node_corner);
-    node_buttons.append(&node_smooth);
-    node_buttons.append(&node_delete);
-    node_group.append(&node_buttons);
+    node_card.append(&wide(&linked_box(&[&node_corner, &node_smooth, &node_delete])));
     let node_radius = spin(
         0.0,
         5000.0,
@@ -3825,80 +4077,44 @@ fn build_panel() -> (gtk::Box, Panel) {
     // Eckenradius nur durch Ziehen der runden Punkte an den Ecken
     let _ = &node_radius;
 
-    // Darstellung
-    // ohne eigene Überschrift: „Füllung“, „Kontur“ … stehen direkt darin
-    let style_group = group("");
+    // Darstellung: Füllung, Kontur, Schatten und Effekte als aufklappbare Zeilen einer Karte
+    let style_group = vbox(18);
+    let appear = card();
+    cards.push(appear.clone());
     let fill_sw = Swatches::new(tr("Füllung"), SwTarget::Paint(PaintTarget::Fill));
-    style_group.append(&fill_sw.root);
     // Bilder: „Füllung“ ist nur ihre Deckkraft
     let image_sw = Swatches::new(tr("Füllung"), SwTarget::ImageOpacity);
     // Farbtemperatur des Bildes: −100 % kalt, 0 % Original, 100 % warm
     let temp = gtk::Scale::with_range(gtk::Orientation::Horizontal, -100.0, 100.0, 5.0);
     temp.set_tooltip_text(Some(tr("Temperatur: −100 % kalt, 0 % Original, 100 % warm")));
     image_sw.extra.append(&slider_row(tr("Temperatur"), &temp));
-    style_group.append(&image_sw.root);
     let (fill_cmyk, fill_cmyk_scales) = cmyk_block();
     fill_sw.extra.append(&fill_cmyk);
-    // Farbverlauf (kein eigenes Werkzeug: direkt an der Füllung)
+    // Farbverlauf: kommt über den Reiter „Verlauf“ der Farbwahl; die alten Bedienelemente
+    // bleiben nur intern bestehen
     let grad_add = gtk::Button::with_label(tr("Farbverlauf hinzufügen"));
-    grad_add.set_tooltip_text(Some(tr(
-        "Füllung als Verlauf; im Dokument erscheint die Verlaufslinie",
-    )));
-    style_group.append(&grad_add);
+    grad_add.set_visible(false);
     let grad_box = vbox(6);
     let grad_bar = gtk::DrawingArea::new();
     grad_bar.set_content_height(38);
-    grad_bar.set_hexpand(true);
-    grad_bar.set_tooltip_text(Some(
-        tr("Farbstopp anklicken zum Auswählen, ziehen zum Verschieben; Klick auf den Balken fügt eine Farbe hinzu"),
-    ));
     grad_box.append(&grad_bar);
     let grad_color = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::builder().with_alpha(true).build()));
-    grad_color.set_tooltip_text(Some(tr("Farbe des gewählten Farbstopps")));
-    let grad_add_stop = gtk::Button::from_icon_name("list-add-symbolic");
-    grad_add_stop.set_tooltip_text(Some(tr("Weitere Farbe hinzufügen")));
-    grad_add_stop.set_action_name(Some("win.gradient-add-stop"));
     let grad_remove_stop = gtk::Button::from_icon_name("list-remove-symbolic");
-    grad_remove_stop.set_tooltip_text(Some(tr("Gewählte Farbe entfernen")));
     grad_remove_stop.set_action_name(Some("win.gradient-remove-stop"));
-    let stop_buttons = hbox(0);
-    stop_buttons.add_css_class("linked");
-    stop_buttons.append(&grad_add_stop);
-    stop_buttons.append(&grad_remove_stop);
-    let stop_row = hbox(8);
-    let stop_label = gtk::Label::builder()
-        .label(tr("Farbe"))
-        .xalign(0.0)
-        .hexpand(true)
-        .build();
-    stop_label.set_label(tr("Farbstopp"));
-    stop_row.append(&stop_label);
-    // die Farbe des Farbstopps stellt die Farbwahl darunter ein
-    grad_color.set_visible(false);
-    stop_row.append(&grad_color);
-    stop_row.append(&stop_buttons);
-    grad_box.append(&stop_row);
     let grad_angle = spin(-180.0, 180.0, 1.0, 0, tr("Winkel des Verlaufs in Grad"));
     grad_angle.set_wrap(true);
-    grad_box.append(&row(tr("Winkel (°)"), &grad_angle));
     let kind_names: Vec<&str> = GradientKind::ALL.iter().map(|k| k.label()).collect();
     let grad_kind = gtk::DropDown::from_strings(&kind_names);
-    grad_kind.set_valign(gtk::Align::Center);
-    // Körnig/Pixel sind jetzt Texturen (unter „Textur“)
-    let grad_remove = gtk::Button::with_label(tr("Verlauf entfernen"));
-    grad_remove.set_action_name(Some("win.gradient-remove"));
-    grad_box.append(&grad_remove);
-    // (die alte Verlaufsleiste wird nicht mehr angezeigt; Verläufe stehen in der Farbwahl)
+
     let stroke_sw = Swatches::new(tr("Kontur"), SwTarget::Paint(PaintTarget::Stroke));
-    style_group.append(&stroke_sw.root);
     let (stroke_cmyk, stroke_cmyk_scales) = cmyk_block();
     stroke_sw.extra.append(&stroke_cmyk);
-    // Stärke, Lage, Ecken, Enden und Linienenden stehen im aufgeklappten Bereich der Kontur
-    let width = spin(0.0, 500.0, 0.5, 1, tr("Linienstärke in px"));
-    stroke_sw.extra.append(&row(tr("Linienstärke"), &width));
-    let stroke_align_box = hbox(0);
-    stroke_align_box.add_css_class("linked");
-    stroke_align_box.set_valign(gtk::Align::Center);
+    // Stärke, Lage, Linie, Ecken, Enden und Linienenden im aufgeklappten Bereich der Kontur
+    let (width_box, width) = unit_spin(0.0, 500.0, 0.5, 1, "px", tr("Linienstärke in px"));
+    let g_line = group_box();
+    stroke_sw.extra.append(&g_line);
+    cards.push(g_line.clone());
+    g_line.append(&prow(tr("Linienstärke"), &width_box));
     let stroke_align = [
         (tr("Mitte"), tr("Kontur mittig auf der Linie")),
         (tr("Innen"), tr("Kontur innen")),
@@ -3908,16 +4124,19 @@ fn build_panel() -> (gtk::Box, Panel) {
     for b in &stroke_align[1..] {
         b.set_group(Some(&stroke_align[0]));
     }
-    for b in &stroke_align {
-        stroke_align_box.append(b);
-    }
-    let stroke_align_row = row(tr("Lage"), &stroke_align_box);
-    stroke_sw.extra.append(&stroke_align_row);
+    g_line.append(&wide(&linked_box(&[
+        &stroke_align[0],
+        &stroke_align[1],
+        &stroke_align[2],
+    ])));
+    // Strichmuster
+    let dash_names: Vec<&str> = crate::model::Dash::ALL.iter().map(|d| d.label()).collect();
+    let dash = gtk::DropDown::from_strings(&dash_names);
+    dash.set_tooltip_text(Some(tr("Durchgezogen, gestrichelt oder gepunktet")));
+    let dash_row = prow(tr("Linie"), &dash);
+    g_line.append(&dash_row);
     // Ecken und Enden der Kontur
-    let linked3 = |items: [(&str, &str); 3]| {
-        let bx = hbox(0);
-        bx.add_css_class("linked");
-        bx.set_valign(gtk::Align::Center);
+    let toggles3 = |items: [(&str, &str); 3]| {
         let bs = items.map(|(icon, tip)| {
             gtk::ToggleButton::builder()
                 .icon_name(icon)
@@ -3927,54 +4146,37 @@ fn build_panel() -> (gtk::Box, Panel) {
         for b in &bs[1..] {
             b.set_group(Some(&bs[0]));
         }
-        for b in &bs {
-            bx.append(b);
-        }
-        (bx, bs)
+        bs
     };
-    let (join_box, join) = linked3([
+    let join = toggles3([
         ("mondrian-join-miter-symbolic", tr("Spitze Ecken")),
         ("mondrian-join-round-symbolic", tr("Runde Ecken")),
         ("mondrian-join-bevel-symbolic", tr("Abgeschrägte Ecken")),
     ]);
-    // Strichmuster
-    let dash_names: Vec<&str> = crate::model::Dash::ALL.iter().map(|d| d.label()).collect();
-    let dash = gtk::DropDown::from_strings(&dash_names);
-    dash.set_valign(gtk::Align::Center);
-    dash.set_tooltip_text(Some(tr("Durchgezogen, gestrichelt oder gepunktet")));
-    let dash_row = row(tr("Linie"), &dash);
-    stroke_sw.extra.append(&dash_row);
-    let join_row = row(tr("Ecken"), &join_box);
-    stroke_sw.extra.append(&join_row);
-    let (cap_box, cap) = linked3([
+    let join_row = prow(tr("Ecken"), &linked_box(&[&join[0], &join[1], &join[2]]));
+    g_line.append(&join_row);
+    let cap = toggles3([
         ("mondrian-cap-butt-symbolic", tr("Gerade Enden")),
         ("mondrian-cap-round-symbolic", tr("Runde Enden")),
         ("mondrian-cap-square-symbolic", tr("Überstehende Enden")),
     ]);
-    let cap_row = row(tr("Enden"), &cap_box);
-    stroke_sw.extra.append(&cap_row);
+    let cap_row = prow(tr("Enden"), &linked_box(&[&cap[0], &cap[1], &cap[2]]));
+    g_line.append(&cap_row);
     // Linienenden (nur offene Linien)
+    let marker_row = group_box();
     let marker_names: Vec<&str> = Marker::ALL.iter().map(|m| m.label()).collect();
     let marker = gtk::DropDown::from_strings(&marker_names);
-    marker.set_valign(gtk::Align::Center);
     marker.set_tooltip_text(Some(tr("Form der Linienenden, z. B. Pfeil")));
-    let marker_row = vbox(6);
-    marker_row.append(&row(tr("Linienende"), &marker));
-    let marker_ends_box = hbox(0);
-    marker_ends_box.add_css_class("linked");
-    let mk_end = |label: &str| gtk::ToggleButton::builder().label(label).hexpand(true).build();
+    marker_row.append(&prow(tr("Linienende"), &marker));
+    let mk_end = |label: &str| gtk::ToggleButton::builder().label(label).build();
     let marker_ends = [mk_end(tr("Anfang")), mk_end(tr("Ende")), mk_end(tr("Beide"))];
     for b in &marker_ends[1..] {
         b.set_group(Some(&marker_ends[0]));
     }
-    for b in &marker_ends {
-        marker_ends_box.append(b);
-    }
+    let marker_ends_box = wide(&linked_box(&[&marker_ends[0], &marker_ends[1], &marker_ends[2]]));
     marker_row.append(&marker_ends_box);
     let (msize_box, marker_size) = unit_spin(10.0, 1000.0, 10.0, 0, "%", tr("Größe der Linienenden"));
-    let marker_size_row = hbox(8);
-    marker_size_row.append(&gtk::Label::builder().label(tr("Größe")).xalign(0.0).build());
-    marker_size_row.append(&msize_box);
+    let marker_size_row = prow(tr("Größe"), &msize_box);
     marker_row.append(&marker_size_row);
     stroke_sw.extra.append(&marker_row);
     let outline_button = gtk::Button::with_label(tr("Kontur in Fläche umwandeln"));
@@ -3982,43 +4184,46 @@ fn build_panel() -> (gtk::Box, Panel) {
     outline_button.set_tooltip_text(Some(tr(
         "Die Kontur wird ein eigenes Objekt – skalierbar, mit eigener Füllung und Kontur",
     )));
-    stroke_sw.extra.append(&outline_button);
+    stroke_sw.extra.append(&wide(&outline_button));
 
-    // Effekte: Schatten und Textur erscheinen erst, wenn man sie über
-    // „Effekt anwenden“ hinzufügt; jeder hat oben rechts ein × zum Entfernen.
-    // Entfernen-Knopf am Ende eines Effekts
+    // Rahmen eines Textfeldes: Füllung und Kontur stehen unter denen des Textes
+    let frame_fill_sw = Swatches::new(tr("Rahmenfüllung"), SwTarget::FrameFill);
+    let frame_stroke_sw = Swatches::new(tr("Rahmenkontur"), SwTarget::FrameStroke);
+    let (tframe_width_box, tframe_width) =
+        unit_spin(0.0, 500.0, 0.5, 1, "px", tr("Linienstärke des Rahmens in px"));
+    let tframe_width_row = prow(tr("Linienstärke"), &tframe_width_box);
+    frame_stroke_sw.extra.append(&tframe_width_row);
+    // (frühere Bedienelemente des Rahmens, nur noch intern)
+    let fdlg = gtk::ColorDialog::builder().with_alpha(true).build();
+    let tframe_fill_on = gtk::CheckButton::with_label(tr("Rahmenfüllung"));
+    let tframe_fill = gtk::ColorDialogButton::new(Some(fdlg.clone()));
+    let tframe_stroke_on = gtk::CheckButton::with_label(tr("Rahmenkontur"));
+    let tframe_stroke = gtk::ColorDialogButton::new(Some(fdlg));
+
+    // Effekte: jeder angewendete Effekt ist eine eigene aufklappbare Zeile; sie erscheinen
+    // erst, wenn man sie über „Effekt anwenden“ hinzufügt
     let remove_button = |label: &str, action: &str| {
         let b = gtk::Button::with_label(label);
         b.add_css_class("mondrian-layer-delete");
         b.set_action_name(Some(action));
-        b
+        wide(&b)
     };
-    // Effekte: jeder angewendete Effekt ist ein eigener Ausklappbereich
     let shadow_sw = Swatches::new(tr("Schatten"), SwTarget::Paint(PaintTarget::Shadow));
-    let shadow_box = vbox(6);
+    let shadow_box = group_box();
     // Deckkraft des Schattens = Deckkraftleiste seiner Farbe
     let (_sop_row, shadow_opacity) = unit_spin(0.0, 100.0, 5.0, 0, "%", tr("Deckkraft des Schattens"));
-    let (sbl_row, shadow_blur) = unit_spin(0.0, 500.0, 1.0, 0, "px", tr("Unschärfe des Schattens"));
-    shadow_box.append(&row(tr("Unschärfe"), &sbl_row));
-    let shadow_dx = spin(-1000.0, 1000.0, 1.0, 0, tr("Versatz nach rechts in px"));
-    let shadow_dy = spin(-1000.0, 1000.0, 1.0, 0, tr("Versatz nach unten in px"));
-    let off = hbox(6);
-    let xl = gtk::Label::new(Some("X"));
-    xl.add_css_class("dim-label");
-    let yl = gtk::Label::new(Some("Y"));
-    yl.add_css_class("dim-label");
-    off.append(&xl);
-    off.append(&shadow_dx);
-    off.append(&yl);
-    off.append(&shadow_dy);
-    shadow_box.append(&row(tr("Versatz"), &off));
+    let (sbl_box, shadow_blur) = unit_spin(0.0, 500.0, 1.0, 0, "px", tr("Unschärfe des Schattens"));
+    shadow_box.append(&prow(tr("Unschärfe"), &sbl_box));
+    let (sdx_box, shadow_dx) = unit_spin(-1000.0, 1000.0, 1.0, 0, "px", tr("Versatz nach rechts in px"));
+    shadow_box.append(&prow(tr("Versatz X"), &sdx_box));
+    let (sdy_box, shadow_dy) = unit_spin(-1000.0, 1000.0, 1.0, 0, "px", tr("Versatz nach unten in px"));
+    shadow_box.append(&prow(tr("Versatz Y"), &sdy_box));
     shadow_sw.extra.append(&shadow_box);
     shadow_sw.extra.append(&remove_button(
         tr("Schatten entfernen"),
         "win.effect-remove-shadow",
     ));
     let shadow_section = shadow_sw.root.clone();
-    style_group.append(&shadow_section);
 
     // Deckkraft steht an jeder Farbe (Leiste in der Farbwahl); der Wert bleibt intern
     let (_opacity_row, opacity) = unit_spin(0.0, 100.0, 5.0, 0, "%", tr("Deckkraft in Prozent"));
@@ -4083,19 +4288,29 @@ fn build_panel() -> (gtk::Box, Panel) {
         tr("Bildfilter entfernen"),
         "win.effect-remove-tint",
     );
-    for f in [
-        &blend_fold,
-        &tex_fold,
-        &art_fold,
-        &lens_fold,
-        &tint_fold,
-        &mirror_fold,
+    for r in [
+        &fill_sw.root,
+        &image_sw.root,
+        &stroke_sw.root,
+        &frame_fill_sw.root,
+        &frame_stroke_sw.root,
+        &shadow_section,
+        &blend_fold.root,
+        &tex_fold.root,
+        &art_fold.root,
+        &lens_fold.root,
+        &tint_fold.root,
+        &mirror_fold.root,
     ] {
-        style_group.append(&f.root);
+        appear.append(r);
     }
+    // Text zuerst, darunter die Darstellung
+    style_group.append(&text_group_outer);
+    style_group.append(&appear);
 
-    // Position: Drehwinkel, darunter Drehen und Spiegeln (steht fest unten in der Leiste)
-    let arrange_group = group(tr("Position"));
+    // Position: Drehwinkel, Drehen und Spiegeln, Ausrichten (steht fest unten in der Leiste)
+    let (arrange_group, arrange_card) = section(tr("Position"));
+    cards.push(arrange_card.clone());
     let pinned = vbox(0);
     let (angle_row, angle) = unit_spin(
         -180.0,
@@ -4106,52 +4321,41 @@ fn build_panel() -> (gtk::Box, Panel) {
         tr("Drehwinkel in Grad (gegen den Uhrzeigersinn) – eintippen oder mit − und + ändern"),
     );
     angle.set_wrap(true);
-    let arr = hbox(0);
-    arr.add_css_class("linked");
-    for (icon, tip, action) in [
+    arrange_card.append(&prow(tr("Drehung"), &angle_row));
+    let arr: Vec<gtk::Button> = [
         (
-            "mondrian-rotate-left-symbolic",
+            "object-rotate-left-symbolic",
             tr("90° nach links drehen"),
             "win.rotate-left",
         ),
         (
-            "mondrian-rotate-right-symbolic",
+            "object-rotate-right-symbolic",
             tr("90° nach rechts drehen"),
             "win.rotate-right",
         ),
         (
-            "mondrian-flip-h-symbolic",
+            "object-flip-horizontal-symbolic",
             tr("Horizontal spiegeln (Umschalt H)"),
             "win.flip-h",
         ),
         (
-            "mondrian-flip-v-symbolic",
+            "object-flip-vertical-symbolic",
             tr("Vertikal spiegeln (Umschalt V)"),
             "win.flip-v",
         ),
-    ] {
+    ]
+    .into_iter()
+    .map(|(icon, tip, action)| {
         let b = gtk::Button::from_icon_name(icon);
         b.set_tooltip_text(Some(tip));
         b.set_action_name(Some(action));
-        b.set_hexpand(true);
-        arr.append(&b);
-    }
-    arrange_group.append(&angle_row);
-    arrange_group.append(&arr);
-    // Ausrichten: ein Objekt an der Seite, mehrere wahlweise aneinander oder an der Seite
-    let align_head = hbox(6);
-    let align_title = sub_heading(tr("Ausrichten"));
-    align_title.set_hexpand(true);
-    align_head.append(&align_title);
-    let align_ref = gtk::DropDown::from_strings(&[tr("an der Auswahl"), tr("an der Seite")]);
-    align_ref.set_tooltip_text(Some(tr(
-        "Mehrere Objekte aneinander oder an der Seite ausrichten",
-    )));
-    align_ref.set_valign(gtk::Align::End);
-    align_ref.add_css_class("flat");
-    align_head.append(&align_ref);
-    arrange_group.append(&align_head);
+        b
+    })
+    .collect();
+    arrange_card.append(&wide(&linked_box(&arr.iter().collect::<Vec<_>>())));
+    // Ausrichten hier immer an der Seite (aneinander: Schwebeleiste)
     let page_rows = hbox(6);
+    page_rows.set_homogeneous(true);
     for items in [
         [
             (
@@ -4188,35 +4392,30 @@ fn build_panel() -> (gtk::Box, Panel) {
             ),
         ],
     ] {
-        let linked = hbox(0);
-        linked.add_css_class("linked");
-        linked.set_hexpand(true);
-        for (icon, tip, action) in items {
-            let b = gtk::Button::from_icon_name(icon);
-            b.set_tooltip_text(Some(tip));
-            b.set_action_name(Some(action));
-            b.set_hexpand(true);
-            linked.append(&b);
-        }
-        page_rows.append(&linked);
+        let bs: Vec<gtk::Button> = items
+            .into_iter()
+            .map(|(icon, tip, action)| {
+                let b = gtk::Button::from_icon_name(icon);
+                b.set_tooltip_text(Some(tip));
+                b.set_action_name(Some(action));
+                b
+            })
+            .collect();
+        page_rows.append(&linked_box(&bs.iter().collect::<Vec<_>>()));
     }
-    arrange_group.append(&page_rows);
-    let convert = gtk::Button::with_label(tr("Text in Pfade umwandeln"));
-    convert.set_action_name(Some("win.to-path"));
+    arrange_card.append(&wide(&page_rows));
 
     // Bild: zuschneiden, in Rahmen setzen
-    let image_group = group(tr("Bild"));
+    let (image_group, image_card) = section(tr("Bild"));
+    cards.push(image_card.clone());
     let image_crop = gtk::Button::with_label(tr("Zuschneiden"));
     image_crop.set_action_name(Some("win.image-crop"));
     image_crop.set_tooltip_text(Some(tr("Rahmen um das Bild legen und anpassen")));
-    image_group.append(&image_crop);
-    let image_modes_box = hbox(0);
-    image_modes_box.add_css_class("linked");
+    image_card.append(&wide(&image_crop));
     let mk_mode = |label: &str, tip: &str| {
         gtk::ToggleButton::builder()
             .label(label)
             .tooltip_text(tip)
-            .hexpand(true)
             .build()
     };
     let image_modes = [
@@ -4230,163 +4429,81 @@ fn build_panel() -> (gtk::Box, Panel) {
     for b in &image_modes[1..] {
         b.set_group(Some(&image_modes[0]));
     }
-    for b in &image_modes {
-        image_modes_box.append(b);
-    }
-    image_group.append(&image_modes_box);
+    let image_modes_box = linked_box(&[&image_modes[0], &image_modes[1], &image_modes[2]]);
+    image_card.append(&wide(&image_modes_box));
     let image_release = gtk::Button::with_label(tr("Rahmen lösen"));
     image_release.set_action_name(Some("win.image-release"));
-    image_group.append(&image_release);
+    image_card.append(&wide(&image_release));
 
-    // Rahmen eines Textfeldes
-    let tframe_group = group("");
-    let frame_fill_sw = Swatches::new(tr("Rahmenfüllung"), SwTarget::FrameFill);
-    let frame_stroke_sw = Swatches::new(tr("Rahmenkontur"), SwTarget::FrameStroke);
-    // gleiche Abstände wie Füllung und Kontur: in derselben Gruppe darunter
-    style_group.insert_child_after(&frame_fill_sw.root, Some(&stroke_sw.root));
-    style_group.insert_child_after(&frame_stroke_sw.root, Some(&frame_fill_sw.root));
-    let fdlg = gtk::ColorDialog::builder().with_alpha(true).build();
-    let tframe_fill_on = gtk::CheckButton::with_label(tr("Rahmenfüllung"));
-    tframe_fill_on.set_hexpand(true);
-    let tframe_fill = gtk::ColorDialogButton::new(Some(fdlg.clone()));
-    let r1 = hbox(8);
-    r1.append(&tframe_fill_on);
-    r1.append(&tframe_fill);
-    let tframe_stroke_on = gtk::CheckButton::with_label(tr("Rahmenkontur"));
-    tframe_stroke_on.set_hexpand(true);
-    let tframe_stroke = gtk::ColorDialogButton::new(Some(fdlg));
-    let r2 = hbox(8);
-    r2.append(&tframe_stroke_on);
-    r2.append(&tframe_stroke);
-    let tframe_width = spin(0.0, 500.0, 0.5, 1, tr("Linienstärke des Rahmens in px"));
-    let tframe_width_row = row(tr("Linienstärke"), &tframe_width);
-    frame_stroke_sw.extra.append(&tframe_width_row);
-    // Abstand zum Rahmen gehört zu den Textoptionen
-    let (inset_box, tframe_inset) = unit_spin(0.0, 1000.0, 1.0, 0, "px", tr("Abstand des Textes zum Rahmen"));
-    let inset_row = row(tr("Abstand zum Rahmen"), &inset_box);
-    text_group.append(&inset_row);
-    text_group.append(&text_styles_box);
-    // gehört zu den Textoptionen, nicht zur Position
-    text_group.append(&convert);
+    // Textfeld in einer Form: Form wieder lösen
+    let (tframe_group, tframe_card) = section("");
+    cards.push(tframe_card.clone());
     let tframe_release = gtk::Button::with_label(tr("Form lösen"));
     tframe_release.set_action_name(Some("win.text-release"));
     tframe_release.set_tooltip_text(Some(tr(
         "Text wieder rechteckig umbrechen; die Form bleibt als eigenes Objekt",
     )));
-    tframe_group.append(&tframe_release);
-
-    // Freihand
-    let eraser_group = group(tr("Radierer"));
-    let (eraser_row, eraser_size) = unit_spin(
-        1.0,
-        2000.0,
-        1.0,
-        0,
-        "px",
-        tr("Durchmesser des Radierers ( [ und ] ändern ihn )"),
-    );
-    eraser_group.append(&gtk::Label::builder().label(tr("Größe")).xalign(0.0).build());
-    eraser_group.append(&eraser_row);
-    let pencil_group = group(tr("Freihand"));
-    let pencil_smooth = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 5.0);
-    pencil_smooth.set_tooltip_text(Some(tr("Wie stark zittrige Striche geglättet werden")));
-    pencil_group.append(&slider_row(tr("Glättung"), &pencil_smooth));
-    let (pencil_close_row, pencil_close) = unit_spin(
-        0.0,
-        200.0,
-        1.0,
-        0,
-        "px",
-        tr("Liegen Anfang und Ende näher beieinander, wird die Form geschlossen (0 = nie)"),
-    );
-    pencil_group.append(
-        &gtk::Label::builder()
-            .label(tr("Schließen bis"))
-            .xalign(0.0)
-            .build(),
-    );
-    pencil_group.append(&pencil_close_row);
-
-    // Pfadoperationen
-    let bool_group = group(tr("Pfadoperationen"));
-    let bools = hbox(0);
-    bools.add_css_class("linked");
-    for (icon, tip, action) in [
-        ("mondrian-union-symbolic", tr("Vereinigen"), "win.bool-union"),
-        (
-            "mondrian-subtract-symbolic",
-            tr("Vorderes abziehen"),
-            "win.bool-subtract",
-        ),
-        (
-            "mondrian-intersect-symbolic",
-            tr("Schnittmenge"),
-            "win.bool-intersect",
-        ),
-        (
-            "mondrian-exclude-symbolic",
-            tr("Überlappung entfernen"),
-            "win.bool-exclude",
-        ),
-    ] {
-        let b = gtk::Button::from_icon_name(icon);
-        b.set_tooltip_text(Some(tip));
-        b.set_action_name(Some(action));
-        b.set_hexpand(true);
-        bools.append(&b);
-    }
-    bool_group.append(&bools);
+    tframe_card.append(&wide(&tframe_release));
 
     // Hilfslinien
-    let guide_group = group(tr("Hilfslinien"));
-    let guide_angle = spin(-180.0, 180.0, 1.0, 1, tr("Winkel der Hilfslinie in Grad"));
+    let (guide_group, guide_card) = section(tr("Hilfslinien"));
+    cards.push(guide_card.clone());
+    let (guide_angle_box, guide_angle) =
+        unit_spin(-180.0, 180.0, 1.0, 1, "°", tr("Winkel der Hilfslinie in Grad"));
     guide_angle.set_wrap(true);
-    let guide_angle_row = row(tr("Winkel (°)"), &guide_angle);
-    guide_group.append(&guide_angle_row);
-    let guide_pos = spin(-100000.0, 100000.0, 1.0, 1, tr("Lage der gewählten Hilfslinie"));
-    let guide_pos_row = hbox(8);
-    let guide_pos_label = gtk::Label::builder()
-        .label(tr("Position"))
-        .xalign(0.0)
-        .hexpand(true)
-        .build();
-    guide_pos_row.append(&guide_pos_label);
-    guide_pos_row.append(&guide_pos);
-    guide_group.append(&guide_pos_row);
+    let guide_angle_row = prow(tr("Winkel"), &guide_angle_box);
+    guide_card.append(&guide_angle_row);
+    let (guide_pos_box, guide_pos) = unit_spin(
+        -100000.0,
+        100000.0,
+        1.0,
+        1,
+        "",
+        tr("Lage der gewählten Hilfslinie"),
+    );
+    let guide_pos_label = gtk::Label::new(Some(tr("Position")));
+    let guide_pos_row = prow_with(&guide_pos_label, &guide_pos_box);
+    guide_card.append(&guide_pos_row);
     let guide_show = gtk::Switch::new();
-    guide_show.set_valign(gtk::Align::Center);
     // Ein-/Ausblenden geschieht über die Zeile „Hilfslinien“ in der Ebenenliste.
-    let show_row = row(tr("Anzeigen"), &guide_show);
+    let show_row = prow(tr("Anzeigen"), &guide_show);
     show_row.set_visible(false);
-    guide_group.append(&show_row);
+    guide_card.append(&show_row);
     let guide_snap = gtk::Switch::new();
-    guide_snap.set_valign(gtk::Align::Center);
-    guide_group.append(&row(tr("Einrasten"), &guide_snap));
+    guide_card.append(&prow(tr("Einrasten"), &guide_snap));
     let guide_delete = gtk::Button::with_label(tr("Löschen"));
     guide_delete.set_action_name(Some("win.guide-delete"));
-    guide_delete.set_hexpand(true);
     let guide_clear = gtk::Button::with_label(tr("Alle löschen"));
     guide_clear.set_action_name(Some("win.guide-clear"));
-    guide_clear.set_hexpand(true);
     let gb = hbox(6);
+    gb.set_homogeneous(true);
     gb.append(&guide_delete);
     gb.append(&guide_clear);
-    guide_group.append(&gb);
+    guide_card.append(&wide(&gb));
 
-    // Textoptionen als erster Ausklappbereich zwischen den anderen (gleiche Abstände)
-    style_group.prepend(&text_group_outer);
     for g in [
         &shape_group,
         &node_group,
         &style_group,
         &tframe_group,
         &image_group,
-        &pencil_group,
-        &eraser_group,
-        &bool_group,
         &guide_group,
     ] {
         content.append(g);
+    }
+    // Karten und Listen ohne sichtbare Zeile (samt Überschrift) ausblenden
+    for sw in [
+        &fill_sw,
+        &image_sw,
+        &stroke_sw,
+        &frame_fill_sw,
+        &frame_stroke_sw,
+        &shadow_sw,
+    ] {
+        cards.push(sw.extra.clone());
+    }
+    for c in &cards {
+        auto_hide(c);
     }
 
     let panel = Panel {
@@ -4475,7 +4592,6 @@ fn build_panel() -> (gtk::Box, Panel) {
         stroke_cmyk,
         stroke_cmyk_scales,
         arrange_group,
-        align_ref,
         pinned,
         angle,
         marker_row,
@@ -4499,18 +4615,12 @@ fn build_panel() -> (gtk::Box, Panel) {
         tframe_width,
         tframe_inset,
         tframe_release,
-        pencil_group,
-        eraser_group,
-        eraser_size,
-        pencil_smooth,
-        pencil_close,
         image_group,
         image_crop,
         image_modes_box,
         image_modes,
         image_release,
         convert,
-        bool_group,
         guide_group,
         guide_angle_row,
         guide_angle,
@@ -4538,15 +4648,29 @@ impl Ui {
             &key_tip(tr("Wiederholen"), "redo"),
             "win.redo",
         );
-        // oben links: Namen der Werkzeuge ein-/ausblenden (die Leiste selbst bleibt)
-        let names_toggle = gtk::ToggleButton::builder()
-            .icon_name("sidebar-show-symbolic")
-            .tooltip_text(tr("Werkzeugnamen ein-/ausblenden"))
+        // oben links: Ebenen und Bibliothek – je ein Knopf öffnet die linke Seitenleiste mit
+        // diesem Inhalt (ein zweiter Klick schließt sie)
+        let lib = build_library_panel();
+        let layers_toggle = gtk::ToggleButton::builder()
+            .icon_name("mondrian-layers-symbolic")
+            .tooltip_text(key_tip(tr("Ebenen und Zeichenflächen"), "toggle-sidebar"))
             .build();
-        header.pack_start(&names_toggle);
+        lib.toggle.remove_css_class("flat");
+        lib.toggle.set_margin_start(0);
+        lib.toggle.set_margin_end(0);
+        lib.toggle.set_margin_bottom(0);
+        lib.toggle.set_tooltip_text(Some(tr("Bibliothek")));
+        // Zustand „linke Seitenleiste offen“ (unsichtbar; F8 und schmale Fenster nutzen ihn)
+        let side_toggle = gtk::ToggleButton::new();
+        header.pack_start(&layers_toggle);
+        header.pack_start(&lib.toggle);
+        let gap = gtk::Separator::new(gtk::Orientation::Vertical);
+        gap.add_css_class("spacer");
+        header.pack_start(&gap);
         header.pack_start(&undo_button);
         header.pack_start(&redo_button);
 
+        // Mitte: Name des Dokuments, darunter Speicherort und Format
         let title = adw::WindowTitle::new("Stijl", "");
         header.set_title_widget(Some(&title));
 
@@ -4562,6 +4686,20 @@ impl Ui {
             &key_tip(tr("Neues Dokument"), "new"),
             "win.new",
         ));
+        // oben rechts: Eigenschaften ein-/ausblenden
+        let props_toggle = gtk::ToggleButton::builder()
+            .icon_name("mondrian-props-symbolic")
+            .tooltip_text(key_tip(tr("Eigenschaften"), "toggle-panel"))
+            .active(true)
+            .build();
+        header.pack_end(&props_toggle);
+        // daneben: Informationen zum Dokument (wie in der Bildbetrachtung)
+        let info_toggle = gtk::ToggleButton::builder()
+            .icon_name("help-about-symbolic")
+            .tooltip_text(tr("Informationen zum Dokument"))
+            .build();
+        header.pack_end(&info_toggle);
+        let info = build_info_panel();
 
         // Tabs (nur sichtbar, wenn mehr als ein Dokument offen ist)
         let tab_view = adw::TabView::new();
@@ -4569,139 +4707,116 @@ impl Ui {
         tab_bar.set_view(Some(&tab_view));
         tab_bar.set_autohide(true);
 
-        // Werkzeugleiste
-        let tools_box = vbox(4);
-        tools_box.set_margin_top(8);
-        tools_box.set_margin_bottom(8);
-        tools_box.set_margin_start(6);
-        tools_box.set_margin_end(6);
+        // Werkzeuge: schwebende Leiste oben links über der Zeichenfläche
+        let tools_box = osd_bar();
+        tools_box.set_halign(gtk::Align::Start);
+        tools_box.set_valign(gtk::Align::Start);
         let mut slots: Vec<Rc<Slot>> = Vec::new();
-        let mut tool_labels: Vec<gtk::Label> = Vec::new();
         let mut first: Option<gtk::ToggleButton> = None;
         for variants in slot_definitions() {
-            let v0 = variants[0];
-            let image = gtk::Image::from_icon_name(v0.icon);
-            let overlay = gtk::Overlay::new();
-            overlay.set_child(Some(&image));
-            if variants.len() > 1 {
-                // kleines Dreieck: weitere Varianten per Rechtsklick
-                let corner = gtk::Image::from_icon_name("mondrian-corner-symbolic");
-                corner.set_pixel_size(6);
-                corner.set_halign(gtk::Align::End);
-                corner.set_valign(gtk::Align::End);
-                corner.set_can_target(false);
-                overlay.add_overlay(&corner);
+            // Gruppe: zugeklappt ist nur die zuletzt benutzte Variante zu sehen
+            let group = hbox(0);
+            group.add_css_class("mondrian-tool-group");
+            let mut buttons = Vec::new();
+            let mut revealers = Vec::new();
+            let mut arrows = Vec::new();
+            for (i, v) in variants.iter().enumerate() {
+                let b = gtk::ToggleButton::new();
+                if variants.len() > 1 {
+                    // Symbol und kleiner Pfeil nach rechts: Klick klappt die Gruppe auf
+                    let content = hbox(2);
+                    content.set_halign(gtk::Align::Center);
+                    content.append(&gtk::Image::from_icon_name(v.icon));
+                    let arrow = gtk::Image::from_icon_name("pan-end-symbolic");
+                    arrow.set_pixel_size(10);
+                    arrow.add_css_class("dim-label");
+                    content.append(&arrow);
+                    b.set_child(Some(&content));
+                    arrows.push(arrow);
+                } else {
+                    b.set_icon_name(v.icon);
+                }
+                b.add_css_class("flat");
+                b.set_tooltip_text(Some(v.label));
+                b.set_active(v.tool == Tool::Select);
+                b.set_margin_start(1);
+                b.set_margin_end(1);
+                if let Some(f) = &first {
+                    b.set_group(Some(f));
+                } else {
+                    first = Some(b.clone());
+                }
+                let r = gtk::Revealer::builder()
+                    .transition_type(gtk::RevealerTransitionType::SlideRight)
+                    .transition_duration(150)
+                    .reveal_child(i == 0)
+                    .child(&b)
+                    .build();
+                group.append(&r);
+                buttons.push(b);
+                revealers.push(r);
             }
-            let label = tool_label(short_label(v0.label));
-            tool_labels.push(label.clone());
-            let content = hbox(10);
-            content.append(&overlay);
-            content.append(&label);
-            let b = gtk::ToggleButton::new();
-            b.set_child(Some(&content));
-            b.add_css_class("flat");
-            b.set_active(v0.tool == Tool::Select);
-            let tip = if variants.len() > 1 {
-                trf("{} – Rechtsklick für weitere", &[&(v0.label)])
-            } else {
-                v0.label.to_string()
-            };
-            b.set_tooltip_text(Some(&tip));
-            if let Some(f) = &first {
-                b.set_group(Some(f));
-            } else {
-                first = Some(b.clone());
-            }
-            tools_box.append(&b);
+            tools_box.append(&group);
             slots.push(Rc::new(Slot {
-                button: b,
-                image,
-                label,
+                buttons,
+                revealers,
+                arrows,
+                group,
                 variants,
                 current: Cell::new(0),
             }));
         }
-        // unten in der Werkzeugleiste: Bibliothek ein-/ausblenden
-        let lib = build_library_panel();
+        // Werkzeuge und darunter ihre Einstellungen in einer Spalte oben links
+        tools_box.set_spacing(0);
+        tools_box.set_margin_top(0);
+        tools_box.set_margin_bottom(0);
+        tools_box.set_margin_start(0);
+        tools_box.set_margin_end(0);
+        let tool_opts = build_tool_opts();
         let tools_col = vbox(0);
+        tools_col.set_halign(gtk::Align::Start);
+        tools_col.set_valign(gtk::Align::Start);
+        tools_col.set_margin_top(12);
+        tools_col.set_margin_start(12);
         tools_col.append(&tools_box);
-        let tools_spacer = vbox(0);
-        tools_spacer.set_vexpand(true);
-        tools_col.append(&tools_spacer);
-        // unten links: Eigenschaften, Ebenen, Bibliothek – je eine ausklappbare Leiste
-        let mut mk_dock_toggle = |t: &gtk::ToggleButton, icon: &str, name: &str| {
-            let label = tool_label(name);
-            tool_labels.push(label.clone());
-            let content = hbox(10);
-            content.append(&gtk::Image::from_icon_name(icon));
-            content.append(&label);
-            t.set_child(Some(&content));
-            t.add_css_class("flat");
-            t.set_margin_start(6);
-            t.set_margin_end(6);
-            t.set_margin_bottom(4);
-        };
-        let props_toggle = gtk::ToggleButton::builder()
-            .tooltip_text(tr("Eigenschaften (F9)"))
-            .build();
-        mk_dock_toggle(&props_toggle, "mondrian-props-symbolic", tr("Eigenschaften"));
-        props_toggle.set_active(true);
-        let layers_toggle = gtk::ToggleButton::builder()
-            .tooltip_text(tr("Ebenen und Zeichenflächen"))
-            .build();
-        mk_dock_toggle(&layers_toggle, "mondrian-layers-symbolic", tr("Ebenen"));
-        mk_dock_toggle(&lib.toggle, "mondrian-library-symbolic", tr("Bibliothek"));
-        lib.toggle.set_margin_bottom(8);
-        tools_col.append(&props_toggle);
-        tools_col.append(&layers_toggle);
-        tools_col.append(&lib.toggle);
-        {
-            let labels = tool_labels.clone();
-            names_toggle.connect_toggled(move |b| {
-                for l in &labels {
-                    l.set_visible(b.is_active());
-                }
-            });
-        }
-        let tools_panel = hbox(0);
-        tools_panel.append(&tools_col);
-        tools_panel.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-        let tools_revealer = gtk::Revealer::builder()
-            .transition_type(gtk::RevealerTransitionType::SlideRight)
-            .reveal_child(true)
-            .child(&tools_panel)
-            .build();
-        tools_revealer.set_hexpand(false);
+        tools_col.append(&tool_opts.bar);
+        let tools_box = tools_col;
 
-        // Statusleiste unten: Format links, Zoom rechts
+        // Zoom: schwebende Leiste unten rechts (wie in der Bildbetrachtung)
         let zoom_label = gtk::Button::with_label("100 %");
         zoom_label.add_css_class("flat");
-        zoom_label.add_css_class("caption");
+        zoom_label.add_css_class("numeric");
         zoom_label.set_tooltip_text(Some(&key_tip(tr("Originalgröße"), "zoom-100")));
         zoom_label.set_action_name(Some("win.zoom-100"));
-        let status_label = gtk::Label::builder().xalign(0.0).hexpand(true).build();
-        status_label.add_css_class("dim-label");
-        status_label.add_css_class("caption");
-        status_label.set_margin_start(8);
-        let statusbar = hbox(2);
-        statusbar.add_css_class("mondrian-statusbar");
-        status_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
         {
             let css = gtk::CssProvider::new();
             css.load_from_string(
-                ".mondrian-statusbar { padding: 1px 4px; min-height: 0; }\n\
-                 .mondrian-statusbar button { min-height: 20px; min-width: 20px; padding: 1px 6px; margin: 0; }\n\
-                 .mondrian-statusbar button image { -gtk-icon-size: 14px; }\n\
-                 .mondrian-statusbar label { font-size: 0.85em; }\n\
+                ".mondrian-osd { border-radius: 12px; padding: 6px; }\n\
+                 .mondrian-osd separator { margin: 6px 4px; }\n\
+                 .mondrian-tool-group { border-radius: 9px; transition: background-color 150ms; }\n\
+                 .mondrian-tool-group-open { background-color: alpha(currentColor, 0.1); }\n\
+                 flowbox.mondrian-cards > flowboxchild, flowbox.mondrian-cards > flowboxchild:hover, \
+                   flowbox.mondrian-cards > flowboxchild:focus, flowbox.mondrian-cards > flowboxchild:selected \
+                   { padding: 0; background: none; outline: none; box-shadow: none; }\n\
+                 .mondrian-overlay-sidebar { background-color: @window_bg_color; \
+                   box-shadow: 0 0 0 1px alpha(black, 0.07), 0 2px 10px alpha(black, 0.22); }\n\
                  .mondrian-layer-delete { background-color: alpha(@destructive_bg_color, 0.18); color: @destructive_color; }\n\
                  .mondrian-float { background-color: @popover_bg_color; color: @popover_fg_color; border-radius: 10px; padding: 3px; \
                    box-shadow: 0 0 0 1px alpha(black, 0.07), 0 1px 3px alpha(black, 0.18), 0 3px 12px alpha(black, 0.12); }\n\
                  popover.mondrian-fxmenu > contents { min-width: 220px; }\n\
+                 button.mondrian-fx label { font-family: serif; font-style: italic; font-weight: 700; font-size: 1.15em; }\n\
                  scale.mondrian-slider trough { min-height: 14px; border-radius: 7px; background-color: alpha(currentColor, 0.15); }\n\
                  scale.mondrian-slider trough highlight, scale.mondrian-slider trough fill { background: none; }\n\
                  scale.mondrian-slider slider { background-color: @accent_bg_color; background-image: none; \
                    box-shadow: inset 0 0 0 3px white, 0 0 0 1px alpha(black, 0.35); border: none; }\n\
-                 .mondrian-fold { background-color: alpha(currentColor, 0.045); border-radius: 10px; padding: 6px 6px 6px 10px; }\n\
+                 .mondrian-rows > *:not(:first-child) { border-top: 1px solid alpha(currentColor, 0.1); }\n\
+                 .mondrian-prow { min-height: 42px; padding: 2px 12px; }\n\
+                 .mondrian-prow-wide { padding-top: 6px; padding-bottom: 6px; }\n\
+                 .mondrian-group { padding: 5px 0; }\n\
+                 .mondrian-group > .mondrian-prow { min-height: 36px; padding-top: 1px; padding-bottom: 1px; }\n\
+                 .mondrian-group > .mondrian-prow-wide { padding-top: 4px; padding-bottom: 4px; }\n\
+                 .mondrian-pad { padding: 10px 12px; }\n\
+                 .mondrian-fold-head { min-height: 46px; padding: 0 8px 0 12px; }\n\
                  image.mondrian-empty-hint { opacity: 0.35; }\n\
                  button.mondrian-pattern-btn { padding: 3px; border-radius: 9px; }\n\
                  button.mondrian-pattern-btn:checked { box-shadow: inset 0 0 0 2px @accent_bg_color; background: none; }\n\
@@ -4711,12 +4826,14 @@ impl Ui {
                  row.mondrian-dragging { opacity: 0.35; }\n\
                  row.mondrian-drop-above { margin-top: 48px; border-radius: 0; box-shadow: inset 0 3px 0 0 @accent_bg_color; }\n\
                  row.mondrian-drop-below { margin-bottom: 48px; border-radius: 0; box-shadow: inset 0 -3px 0 0 @accent_bg_color; }\n\
+                 row.mondrian-drop-into { background-color: alpha(@accent_bg_color, 0.08); }\n\
+                 .mondrian-drag-card { border-radius: 12px; background-color: @card_bg_color; \
+                   box-shadow: 0 0 0 1px alpha(black, 0.08), 0 4px 14px alpha(black, 0.25); }\n\
                  button.mondrian-layer-btn { min-height: 24px; min-width: 24px; padding: 0; }\n\
                  button.mondrian-layer-btn:checked { background-color: transparent; }\n\
                  button.mondrian-layer-btn:checked:hover { background-color: alpha(currentColor, 0.08); }\n\
                  button.mondrian-layer-btn.mondrian-layer-off, button.mondrian-layer-btn.mondrian-layer-off:checked { color: alpha(currentColor, 0.45); }\n\
                  button.mondrian-layer-trash:hover { color: @destructive_color; background-color: alpha(@destructive_bg_color, 0.12); }\n\
-                 row.mondrian-drop-into { background-color: alpha(@accent_bg_color, 0.08); }\n\
                  .mondrian-tab { border-radius: 0; box-shadow: inset 0 -1px alpha(currentColor, 0.15); }\n\
                  .mondrian-tab:checked { background: none; box-shadow: inset 0 -3px @accent_bg_color; font-weight: bold; }\n\
                  .mondrian-hex { border: 1px solid alpha(currentColor, 0.15); border-radius: 8px; padding: 2px 2px 2px 8px; }\n\
@@ -4741,12 +4858,14 @@ impl Ui {
                 );
             }
         }
-        statusbar.append(&status_label);
-        // Notizheft: Seitenanzeige mit Blättern, daneben der Umschalter der Ansicht
+        // Ansicht: schwebende Leiste unten links – Umschalter Zeichenfläche/Notizheft, im
+        // Notizheft dazu Blättern mit Seitenanzeige
         let page_label = gtk::Label::new(Some(tr("Seite 1 von 1")));
+        page_label.add_css_class("numeric");
         page_label.set_margin_start(4);
         page_label.set_margin_end(4);
         let page_box = hbox(0);
+        page_box.append(&gtk::Separator::new(gtk::Orientation::Vertical));
         page_box.append(&action_button(
             "go-previous-symbolic",
             tr("Vorige Seite (Bild ↑)"),
@@ -4758,29 +4877,36 @@ impl Ui {
             tr("Nächste Seite (Bild ↓)"),
             "win.page-next",
         ));
-        page_box.set_margin_end(6);
         page_box.set_visible(false);
-        statusbar.append(&page_box);
         let notebook_btn = gtk::ToggleButton::builder()
             .icon_name("mondrian-notebook-symbolic")
-            .tooltip_text(tr("Notizheft: eine Seite nach der anderen"))
+            .tooltip_text(key_tip(
+                tr("Notizheft: eine Seite nach der anderen"),
+                "view-notebook",
+            ))
             .action_name("win.notebook")
             .build();
         notebook_btn.add_css_class("flat");
-        notebook_btn.set_margin_end(6);
-        statusbar.append(&notebook_btn);
-        statusbar.append(&action_button(
+        let view_bar = osd_bar();
+        view_bar.set_halign(gtk::Align::Start);
+        view_bar.set_valign(gtk::Align::End);
+        view_bar.append(&notebook_btn);
+        view_bar.append(&page_box);
+        let zoom_bar = osd_bar();
+        zoom_bar.set_halign(gtk::Align::End);
+        zoom_bar.set_valign(gtk::Align::End);
+        zoom_bar.append(&action_button(
             "zoom-out-symbolic",
             &key_tip(tr("Verkleinern"), "zoom-out"),
             "win.zoom-out",
         ));
-        statusbar.append(&zoom_label);
-        statusbar.append(&action_button(
+        zoom_bar.append(&zoom_label);
+        zoom_bar.append(&action_button(
             "zoom-in-symbolic",
             &key_tip(tr("Vergrößern"), "zoom-in"),
             "win.zoom-in",
         ));
-        statusbar.append(&action_button(
+        zoom_bar.append(&action_button(
             "zoom-fit-best-symbolic",
             &key_tip(tr("Ganze Seite"), "zoom-fit"),
             "win.zoom-fit",
@@ -4789,6 +4915,10 @@ impl Ui {
         overlay.set_child(Some(&tab_view));
         overlay.set_hexpand(true);
         overlay.set_vexpand(true);
+        for bar in [&tools_box, &view_bar, &zoom_bar] {
+            bar.set_visible(false);
+            overlay.add_overlay(bar);
+        }
 
         // Rechte Seitenleiste: Eigenschaften oben, Ebenen unten
         let (panel_content, panel) = build_panel();
@@ -4910,35 +5040,64 @@ impl Ui {
         panel.pinned.set_vexpand(false);
         props_page.append(&panel.pinned);
         dock_stack.add_named(&props_page, Some("props"));
-        dock_stack.add_named(&layers_part, Some("layers"));
-        dock_stack.add_named(&lib.panel, Some("library"));
+        dock_stack.add_named(&info.page, Some("info"));
         dock_stack.set_size_request(PANEL_MIN - 20, -1);
         dock_stack.set_hexpand(true);
+        // rechte Leiste: Eigenschaften
         let dock = hbox(0);
-        dock.append(&dock_stack);
         dock.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+        dock.append(&dock_stack);
         dock.set_visible(false);
+        // linke Leiste: Ebenen oder Bibliothek (Reiter oben)
+        let side_stack = gtk::Stack::new();
+        side_stack.set_hhomogeneous(true);
+        side_stack.add_named(&layers_part, Some("layers"));
+        side_stack.add_named(&lib.panel, Some("library"));
+        side_stack.set_size_request(PANEL_MIN - 20, -1);
+        side_stack.set_hexpand(true);
+        side_stack.set_vexpand(true);
+        let side_inner = vbox(0);
+        side_inner.append(&side_stack);
+        let side_dock = hbox(0);
+        side_dock.append(&side_inner);
+        side_dock.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+        side_dock.set_visible(false);
 
         let middle = hbox(0);
-        middle.append(&tools_revealer);
-        // linke Leiste | Zeichenfläche: die Leiste lässt sich verbreitern
-        let lib_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
-        lib_paned.set_start_child(Some(&dock));
-        lib_paned.set_resize_start_child(false);
-        lib_paned.set_shrink_start_child(false);
-        lib_paned.set_resize_end_child(true);
-        lib_paned.set_shrink_end_child(false);
-        lib_paned.set_hexpand(true);
-        lib_paned.set_end_child(Some(&overlay));
-        middle.append(&lib_paned);
+        // Zeichenfläche | Eigenschaften: die Leiste lässt sich verbreitern und behält ihre
+        // Breite, wenn sich das Fenster ändert
+        let props_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+        props_paned.set_start_child(Some(&overlay));
+        props_paned.set_resize_start_child(true);
+        props_paned.set_shrink_start_child(false);
+        props_paned.set_end_child(Some(&dock));
+        props_paned.set_resize_end_child(false);
+        props_paned.set_shrink_end_child(false);
+        props_paned.set_hexpand(true);
+        // Ebenen/Bibliothek | Rest: die Leiste lässt sich verbreitern
+        let side_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+        side_paned.set_start_child(Some(&side_dock));
+        side_paned.set_resize_start_child(false);
+        side_paned.set_shrink_start_child(false);
+        side_paned.set_resize_end_child(true);
+        side_paned.set_shrink_end_child(false);
+        side_paned.set_hexpand(true);
+        side_paned.set_end_child(Some(&props_paned));
+        middle.append(&side_paned);
         middle.set_vexpand(true);
         let body = vbox(0);
         body.append(&middle);
-        body.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        body.append(&statusbar);
         let toasts = adw::ToastOverlay::new();
         toasts.set_child(Some(&body));
-        let editor_only: Vec<gtk::Widget> = vec![undo_button.upcast(), redo_button.upcast()];
+        let editor_only: Vec<gtk::Widget> = vec![
+            undo_button.upcast(),
+            redo_button.upcast(),
+            layers_toggle.clone().upcast(),
+            lib.toggle.clone().upcast(),
+            gap.clone().upcast(),
+            props_toggle.clone().upcast(),
+            info_toggle.clone().upcast(),
+        ];
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
         toolbar_view.add_top_bar(&tab_bar);
@@ -4966,16 +5125,25 @@ impl Ui {
             toasts,
             title,
             slots,
-            tools_revealer,
+            tools_bar: tools_box.clone(),
+            tool_opts,
+            view_bar,
+            zoom_bar,
+            canvas_overlay: overlay.clone(),
+            narrow: Cell::new(false),
             dock,
             dock_stack,
-            dock_toggles: vec![
-                ("props", props_toggle.clone()),
-                ("layers", layers_toggle.clone()),
-                ("library", lib.toggle.clone()),
-            ],
-            statusbar,
-            status_label,
+            props_paned,
+            side_dock,
+            side_stack,
+            side_paned,
+            side_width: Cell::new(settings.side_width),
+            props_toggle,
+            info_toggle,
+            info,
+            side_toggle,
+            layers_toggle,
+            side_last: Cell::new("layers"),
             panel,
             layers_list,
             artboards_list,
@@ -4989,11 +5157,11 @@ impl Ui {
             ),
             libraries: RefCell::new(libraries),
             lib,
-            lib_paned,
-            lib_width: Cell::new(settings.library_width),
+            props_width: Cell::new(settings.library_width),
             save_pending: Cell::new(false),
             clipboard: RefCell::new((0, Vec::new())),
             thumbs: RefCell::new(Vec::new()),
+            thumb_frame: Cell::new(None),
             layers_shown: RefCell::new((0, 0, Vec::new())),
             layers_shown_active: Cell::new(0),
             layer_drag: Cell::new(0),
@@ -5056,6 +5224,7 @@ impl Ui {
         setup_dock(&ui);
         add_start_tab(&ui);
         setup_recovery(&ui);
+        label_icon_buttons(ui.window.upcast_ref());
         ui
     }
 
@@ -5293,7 +5462,7 @@ fn read_document(path: &Path) -> Result<(Document, Vec<String>), String> {
     if is_import_file(path) {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         if !ai::looks_like_ai(&bytes) {
-            return Err(tr("Das ist keine Illustrator- oder PDF-Datei.").into());
+            return Err(tr("Das ist keine Illustrator- oder PDF-Datei").into());
         }
         let known = installed_families();
         let imp = ai::import(&bytes, &|f: &str| known.contains(&f.to_lowercase()))?;
@@ -5349,6 +5518,7 @@ pub fn open_path(ui: &Rc<Ui>, path: &Path) {
                 Some(&trf("Diese SVG-Datei enthält Inhalte, die Stijl nicht darstellen oder bearbeiten kann:\n{}\n\nDamit dabei nichts verloren geht, bleibt die Originaldatei unverändert: Speichern legt eine neue SVG-Datei an.", &[&(list)])),
             );
             dialog.add_response("ok", "_OK");
+            label_icon_buttons(dialog.upcast_ref());
             dialog.present(Some(&ui.window));
             return;
         }
@@ -5463,19 +5633,9 @@ fn refresh(ui: &Rc<Ui>) {
     let kind = d.ed.borrow().shape_kind;
     guarded(ui, || {
         for slot in &ui.slots {
-            let found = slot
-                .variants
-                .iter()
-                .position(|v| v.tool == tool && (v.kind.is_none() || v.kind == Some(kind)));
-            if let Some(i) = found {
-                if slot.current.get() != i {
-                    select_variant(slot, i);
-                }
-                if !slot.button.is_active() {
-                    slot.button.set_active(true);
-                }
-            }
+            sync_slot(slot, tool, kind);
         }
+        sync_tool_opts(ui, &d, tool, kind);
     });
     set_action_enabled(ui, "undo", can_undo);
     set_action_enabled(ui, "redo", can_redo);
@@ -5534,6 +5694,7 @@ fn refresh(ui: &Rc<Ui>) {
         }
     }
     if !dragging {
+        ui.thumb_frame.set(None);
         for t in ui.thumbs.borrow().iter() {
             t.queue_draw();
         }
@@ -5542,19 +5703,14 @@ fn refresh(ui: &Rc<Ui>) {
     let name = d.name();
     let shown = format!("{}{}", if dirty { "• " } else { "" }, name);
     ui.title.set_title(&shown);
-    // Speicherstand steht unten in der Statusleiste
+    // unter dem Titel: Speicherort (oder „Nicht gespeichert“) und Format
     let place = d
         .file
         .borrow()
         .as_ref()
         .map(|p| p.to_string_lossy().to_string())
         .map(|s| s.replace(&glib::home_dir().to_string_lossy().to_string(), "~"));
-    let save_state = match (&place, dirty) {
-        (None, _) => tr("Nicht gespeichert").to_string(),
-        (Some(p), true) => trf("Nicht gespeichert · {}", &[&(p)]),
-        (Some(p), false) => trf("Gespeichert · {}", &[&(p)]),
-    };
-    ui.title.set_subtitle("");
+    let save_state = place.unwrap_or_else(|| tr("Nicht gespeichert").to_string());
     ui.window.set_title(Some(&trf("{} – Stijl", &[&(shown)])));
     if let Some(p) = d.page.borrow().as_ref() {
         p.set_title(&shown);
@@ -5572,13 +5728,14 @@ fn refresh(ui: &Rc<Ui>) {
         let ed = d.ed.borrow();
         let u = doc_unit(ui, &ed);
         let k = u.px();
-        ui.status_label.set_label(&format!(
-            "{save_state}   ·   {} × {} {}",
+        ui.title.set_subtitle(&format!(
+            "{save_state} · {} × {} {}",
             fmt_num((ed.doc.width / k * 10.0).round() / 10.0),
             fmt_num((ed.doc.height / k * 10.0).round() / 10.0),
             u.name()
         ));
     }
+    refresh_info(ui);
     d.canvas.queue_draw();
     sync_im(&d);
 
@@ -5605,8 +5762,8 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
 
         // nur Vielecke und Sterne haben hier noch etwas einzustellen (Anzahl der Ecken)
         // Ecken: beim Zeichnen von Vielecken/Sternen und bei einem ausgewählten Vieleck/Stern
-        let poly_tool = info.show_shape && matches!(kind, ShapeKind::Polygon | ShapeKind::Star);
-        c.shape_group.set_visible(poly_tool || info.poly.is_some());
+        // Ecken des ausgewählten Vielecks/Sterns; für neue stehen sie unter den Werkzeugen
+        c.shape_group.set_visible(info.poly.is_some());
         let shape_widgets_visible = info.show_shape;
         let _ = shape_widgets_visible;
         // Die Form wird über die Werkzeugleiste gewählt (Rechtsklick auf das Formen-Werkzeug).
@@ -5614,7 +5771,7 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
         if let Some(i) = SHAPE_KINDS.iter().position(|(k, _)| *k == kind) {
             c.shape_kind.set_selected(i as u32);
         }
-        c.corners_row.set_visible(poly_tool || info.poly.is_some());
+        c.corners_row.set_visible(info.poly.is_some());
         c.corners
             .set_value(info.poly.map(|p| p.0).unwrap_or(corners) as f64);
         // Eckenradius nur noch durch Ziehen am Objekt (Knotenwerkzeug)
@@ -5885,12 +6042,6 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
         }
 
         c.arrange_group.set_visible(info.has_selection);
-        {
-            let ed = d.ed.borrow();
-            c.align_ref
-                .set_visible(ed.selection_units(&ui.metrics).len() >= 2);
-            c.align_ref.set_selected(if ed.align_selection { 0 } else { 1 });
-        }
         c.pinned.set_visible(info.has_selection && !info.empty_hint);
         c.angle.set_value((info.angle * 10.0).round() / 10.0);
         // Ecken und Enden der Kontur
@@ -5977,11 +6128,6 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
             tr("Kontur")
         });
         // Freihand
-        c.pencil_group.set_visible(info.show_pencil);
-        c.eraser_group.set_visible(info.show_eraser);
-        c.eraser_size.set_value(info.eraser_size.round());
-        c.pencil_smooth.set_value((info.pencil_smooth * 100.0).round());
-        c.pencil_close.set_value(info.pencil_close);
         // Bild
         c.image_group.set_visible(info.image.is_some());
         if let Some((framed, part)) = info.image {
@@ -6027,7 +6173,6 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
         c.guide_show.set_active(show_guides);
         c.guide_snap.set_active(snap_guides);
         c.convert.set_visible(info.can_convert);
-        c.bool_group.set_visible(info.can_boolean);
         // Auswahlwerkzeug ohne Auswahl: nur der Hinweis
         c.empty_hint.set_visible(info.empty_hint);
         if info.empty_hint {
@@ -6039,9 +6184,6 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
                 &c.arrange_group,
                 &c.image_group,
                 &c.tframe_group,
-                &c.pencil_group,
-                &c.eraser_group,
-                &c.bool_group,
                 &c.guide_group,
             ] {
                 g.set_visible(false);
@@ -6174,8 +6316,34 @@ fn setup_actions(ui: &Rc<Ui>) {
         let u = ui.clone();
         let a = gio::SimpleAction::new(name, None);
         a.connect_activate(move |_, _| {
+            // Eigenschaften: immer an der Seite ausrichten
             with_ed_m(&u, |e, m| {
+                let keep = e.align_selection;
+                e.align_selection = false;
                 e.align(h, v, m);
+                e.align_selection = keep;
+            });
+        });
+        ui.window.add_action(&a);
+    }
+    // Schwebeleiste: immer aneinander ausrichten (unabhängig von der Wahl in den
+    // Eigenschaften)
+    for (name, h, v) in [
+        ("sel-align-left", Some(-1i8), None),
+        ("sel-align-hcenter", Some(0), None),
+        ("sel-align-right", Some(1), None),
+        ("sel-align-top", None, Some(-1i8)),
+        ("sel-align-vcenter", None, Some(0)),
+        ("sel-align-bottom", None, Some(1)),
+    ] {
+        let u = ui.clone();
+        let a = gio::SimpleAction::new(name, None);
+        a.connect_activate(move |_, _| {
+            with_ed_m(&u, |e, m| {
+                let keep = e.align_selection;
+                e.align_selection = true;
+                e.align(h, v, m);
+                e.align_selection = keep;
             });
         });
         ui.window.add_action(&a);
@@ -6209,6 +6377,10 @@ fn setup_actions(ui: &Rc<Ui>) {
         }
     });
     add_action(ui, "preferences", preferences_dialog);
+    add_action(ui, "shortcuts", |u| preferences_dialog_at(u, 2));
+    add_action(ui, "help", |u| {
+        gtk::UriLauncher::new(HELP_URL).launch(Some(&u.window), gio::Cancellable::NONE, |_| {});
+    });
     add_action(ui, "insert-image", insert_image_dialog);
     add_action(ui, "artboard", artboard_dialog);
     add_action(ui, "scale-dialog", scale_dialog);
@@ -6223,6 +6395,11 @@ fn setup_actions(ui: &Rc<Ui>) {
         ("artboard-delete", |u: &Rc<Ui>, i: usize| {
             with_ed(u, |e| {
                 e.delete_artboard(i);
+            })
+        }),
+        ("artboard-duplicate", |u: &Rc<Ui>, i: usize| {
+            with_ed_m(u, |e, m| {
+                e.duplicate_artboard(i, m);
             })
         }),
     ] {
@@ -6249,6 +6426,7 @@ fn setup_actions(ui: &Rc<Ui>) {
             .license_type(gtk::License::Gpl30)
             .application_icon("io.github.benhuesing.Stijl")
             .build();
+        label_icon_buttons(about.upcast_ref());
         about.present(Some(&u.window));
     });
 
@@ -6400,6 +6578,7 @@ fn setup_actions(ui: &Rc<Ui>) {
         ui.window.add_action(&a);
     }
     add_action(ui, "lib-add-ask", lib_add_dialog);
+    add_action(ui, "blend-dialog", blend_dialog);
     edit_action(ui, "lock-toggle", |e, _| {
         let v = !e.selection_locked();
         e.set_selection_locked(v);
@@ -6410,14 +6589,11 @@ fn setup_actions(ui: &Rc<Ui>) {
     edit_action(ui, "ungroup", |e, _| {
         e.ungroup_selection();
     });
-    add_action(ui, "toggle-tools", |u| {
-        u.tools_revealer
-            .set_reveal_child(!u.tools_revealer.reveals_child())
+    add_action(ui, "toggle-sidebar", |u| {
+        u.side_toggle.set_active(!u.side_toggle.is_active());
     });
     add_action(ui, "toggle-panel", |u| {
-        if let Some((_, t)) = u.dock_toggles.iter().find(|(n, _)| *n == "props") {
-            t.set_active(!t.is_active());
-        }
+        u.props_toggle.set_active(!u.props_toggle.is_active());
     });
 }
 
@@ -6476,7 +6652,9 @@ fn setup_canvas(ui: &Rc<Ui>, d: &Rc<DocTab>) {
     {
         let wu = Rc::downgrade(ui);
         let wd = Rc::downgrade(d);
-        canvas.set_draw_func(move |_, cr, w, h| {
+        canvas.set_draw_func(move |da, cr, w, h| {
+            // Markierungen in der Akzentfarbe des Systems
+            render::set_ui_accent(accent_rgb(da));
             let (Some(u), Some(d)) = (wu.upgrade(), wd.upgrade()) else {
                 return;
             };
@@ -6738,18 +6916,6 @@ fn setup_canvas(ui: &Rc<Ui>, d: &Rc<DocTab>) {
             show_effect_menu(&d2, rect);
         });
     }
-    // „Übergang“ in der Schwebeleiste: Zwischenformen zwischen zwei Formen erzeugen
-    {
-        let (u, d2) = (ui.clone(), d.clone());
-        d.float.blend_make.connect_clicked(move |_| {
-            d2.float.blend_steps.update();
-            let steps = d2.float.blend_steps.value().round().max(1.0) as usize;
-            d2.float.blend.popdown();
-            d2.ed.borrow_mut().blend_selected(steps);
-            refresh(&u);
-        });
-    }
-
     // „Nachzeichnen“ in der Schwebeleiste: Bild mit flachen Farbflächen in Vektoren verwandeln
     {
         let (u, d2) = (ui.clone(), d.clone());
@@ -6765,7 +6931,7 @@ fn setup_canvas(ui: &Rc<Ui>, d: &Rc<DocTab>) {
                         d2.ed.borrow_mut().replace_with_traced(id, layers, w, h);
                     }
                     None => {
-                        d2.ed.borrow_mut().message = Some(tr("Das Bild lässt sich nicht lesen.").into());
+                        d2.ed.borrow_mut().message = Some(tr("Das Bild lässt sich nicht lesen").into());
                     }
                 }
             }
@@ -6810,7 +6976,6 @@ fn setup_canvas(ui: &Rc<Ui>, d: &Rc<DocTab>) {
             {
                 let mut ed = d.ed.borrow_mut();
                 ed.hover = None;
-                ed.curv_close = None;
                 if matches!(ed.drag, Drag::None) {
                     ed.pointer = None;
                     ed.hints.borrow_mut().clear();
@@ -7028,7 +7193,7 @@ fn setup_canvas(ui: &Rc<Ui>, d: &Rc<DocTab>) {
 fn ensure_ticker(d: &Rc<DocTab>) {
     fn waiting(d: &DocTab) -> bool {
         let ed = d.ed.borrow();
-        ed.frame_hover.is_some() || ed.lib_drop.is_some() || ed.curvature_close_progress().is_some()
+        ed.frame_hover.is_some() || ed.lib_drop.is_some()
     }
     if d.ticking.get() || !waiting(d) {
         return;
@@ -7245,7 +7410,26 @@ fn handle_key(ui: &Rc<Ui>, key: gdk::Key, st: gdk::ModifierType) -> glib::Propag
             let name = gtk::accelerator_name(lower, accel_mods(st));
             let found = KEYMAP.with(|k| k.borrow().find_canvas(name.as_str()).map(|d| d.kind));
             match found {
-                Some(crate::keys::Kind::Tool(t)) => ed.set_tool(t),
+                Some(crate::keys::Kind::Tool(t)) => {
+                    // nochmals die Taste des aktiven Werkzeugs: nächste Variante der Gruppe
+                    let group = (ed.tool == t)
+                        .then(|| {
+                            ui.slots
+                                .iter()
+                                .find(|s| s.variants.len() > 1 && s.variants.iter().any(|v| v.tool == t))
+                        })
+                        .flatten();
+                    match group {
+                        Some(s) => {
+                            let v = s.variants[(s.current.get() + 1) % s.variants.len()];
+                            if let Some(k) = v.kind {
+                                ed.shape_kind = k;
+                            }
+                            ed.set_tool(v.tool);
+                        }
+                        None => ed.set_tool(t),
+                    }
+                }
                 Some(crate::keys::Kind::Flip { horizontal }) => {
                     handled = ed.flip_selection(horizontal, &ui.metrics)
                 }
@@ -7264,17 +7448,51 @@ fn handle_key(ui: &Rc<Ui>, key: gdk::Key, st: gdk::ModifierType) -> glib::Propag
     }
 }
 
-fn select_variant(slot: &Slot, i: usize) {
-    slot.current.set(i);
-    let v = slot.variants[i];
-    slot.image.set_icon_name(Some(v.icon));
-    slot.label.set_label(short_label(v.label));
-    let tip = if slot.variants.len() > 1 {
-        trf("{} – Rechtsklick für weitere", &[&(v.label)])
+/// Gruppe an das aktive Werkzeug anpassen: enthält sie es, ist sie aufgeklappt und die
+/// Variante gedrückt; sonst zeigt sie nur die zuletzt benutzte Variante.
+fn sync_slot(slot: &Slot, tool: Tool, kind: ShapeKind) {
+    let found = slot
+        .variants
+        .iter()
+        .position(|v| v.tool == tool && (v.kind.is_none() || v.kind == Some(kind)));
+    if let Some(i) = found {
+        slot.current.set(i);
+        if !slot.buttons[i].is_active() {
+            slot.buttons[i].set_active(true);
+        }
+    }
+    let open = found.is_some() && slot.variants.len() > 1;
+    for (j, r) in slot.revealers.iter().enumerate() {
+        let show = open || j == slot.current.get();
+        if r.reveals_child() != show {
+            r.set_reveal_child(show);
+        }
+    }
+    // aufgeklappt braucht es den Pfeil nicht mehr
+    for a in &slot.arrows {
+        a.set_visible(!open);
+    }
+    if open {
+        slot.group.add_css_class("mondrian-tool-group-open");
     } else {
-        v.label.to_string()
-    };
-    slot.button.set_tooltip_text(Some(&tip));
+        slot.group.remove_css_class("mondrian-tool-group-open");
+    }
+}
+
+/// Zweite Leiste: nur, was das aktive Werkzeug einzustellen hat.
+fn sync_tool_opts(ui: &Ui, d: &DocTab, tool: Tool, kind: ShapeKind) {
+    let o = &ui.tool_opts;
+    let ed = d.ed.borrow();
+    let poly = tool == Tool::Shape && matches!(kind, ShapeKind::Polygon | ShapeKind::Star);
+    o.corners_box.set_visible(poly);
+    o.eraser_box.set_visible(tool == Tool::Eraser);
+    o.pencil_box.set_visible(tool == Tool::Pencil);
+    o.bar
+        .set_visible(poly || matches!(tool, Tool::Eraser | Tool::Pencil));
+    o.corners.set_value(ed.corners as f64);
+    o.eraser.set_value(ed.eraser_size.round());
+    o.smooth.set_value((ed.pencil_smooth * 100.0).round());
+    o.close.set_value(ed.pencil_close);
 }
 
 /// Aktuelle Variante eines Knopfes als Werkzeug setzen.
@@ -7296,57 +7514,48 @@ fn activate_slot(ui: &Rc<Ui>, slot: &Slot) {
 
 fn setup_tools(ui: &Rc<Ui>) {
     for slot in &ui.slots {
-        {
+        for (i, b) in slot.buttons.iter().enumerate() {
             let (u, sl) = (ui.clone(), slot.clone());
-            slot.button.connect_toggled(move |b| {
+            b.connect_toggled(move |b| {
                 if u.updating.get() || !b.is_active() {
                     return;
                 }
+                sl.current.set(i);
                 activate_slot(&u, &sl);
             });
         }
-        if slot.variants.len() < 2 {
-            continue;
-        }
-        // Rechtsklick (oder lange drücken): Varianten wählen
-        let popover = gtk::Popover::new();
-        popover.set_position(gtk::PositionType::Right);
-        let list = vbox(2);
-        for (i, v) in slot.variants.iter().enumerate() {
-            let row = hbox(8);
-            row.append(&gtk::Image::from_icon_name(v.icon));
-            row.append(&gtk::Label::new(Some(v.label)));
-            let b = gtk::Button::new();
-            b.set_child(Some(&row));
-            b.add_css_class("flat");
-            let (u, sl, pop) = (ui.clone(), slot.clone(), popover.clone());
-            b.connect_clicked(move |_| {
-                pop.popdown();
-                select_variant(&sl, i);
-                guarded(&u, || sl.button.set_active(true));
-                activate_slot(&u, &sl);
+    }
+    // Einstellungen des Werkzeugs
+    let o = &ui.tool_opts;
+    {
+        let u = ui.clone();
+        o.corners.connect_value_changed(move |s| {
+            let v = s.value() as u32;
+            with_ed(&u, |e| {
+                e.set_corners(v);
             });
-            list.append(&b);
-        }
-        popover.set_child(Some(&list));
-        popover.set_parent(&slot.button);
-        {
-            let pop = popover.clone();
-            slot.button.connect_destroy(move |_| pop.unparent());
-        }
-        let rc = gtk::GestureClick::new();
-        rc.set_button(gdk::BUTTON_SECONDARY);
-        {
-            let pop = popover.clone();
-            rc.connect_pressed(move |_, _, _, _| pop.popup());
-        }
-        slot.button.add_controller(rc);
-        let lp = gtk::GestureLongPress::new();
-        {
-            let pop = popover.clone();
-            lp.connect_pressed(move |_, _, _| pop.popup());
-        }
-        slot.button.add_controller(lp);
+        });
+    }
+    {
+        let u = ui.clone();
+        o.eraser.connect_value_changed(move |s| {
+            let v = s.value();
+            with_ed(&u, |e| e.eraser_size = v.max(1.0));
+        });
+    }
+    {
+        let u = ui.clone();
+        o.smooth.connect_value_changed(move |s| {
+            let v = (s.value() / 100.0).clamp(0.0, 1.0);
+            with_ed(&u, |e| e.pencil_smooth = v);
+        });
+    }
+    {
+        let u = ui.clone();
+        o.close.connect_value_changed(move |s| {
+            let v = s.value();
+            with_ed(&u, |e| e.pencil_close = v);
+        });
     }
 }
 
@@ -7438,7 +7647,8 @@ fn draw_gradient_bar(ui: &Ui, area: &gtk::DrawingArea, cr: &gtk::cairo::Context,
         cr.set_source_rgba(st.color.r, st.color.g, st.color.b, 1.0);
         let _ = cr.fill_preserve();
         if i == sel {
-            cr.set_source_rgb(0.208, 0.518, 0.894);
+            let a = render::ui_accent();
+            cr.set_source_rgb(a.0, a.1, a.2);
             cr.set_line_width(2.5);
         } else {
             cr.set_source_rgba(fg.red() as f64, fg.green() as f64, fg.blue() as f64, 0.7);
@@ -7881,27 +8091,6 @@ fn setup_panel(ui: &Rc<Ui>) {
             });
         });
     }
-    {
-        let u = ui.clone();
-        c.pencil_smooth.connect_value_changed(move |s| {
-            let v = (s.value() / 100.0).clamp(0.0, 1.0);
-            with_ed(&u, |e| e.pencil_smooth = v);
-        });
-    }
-    {
-        let u = ui.clone();
-        c.pencil_close.connect_value_changed(move |s| {
-            let v = s.value();
-            with_ed(&u, |e| e.pencil_close = v);
-        });
-    }
-    {
-        let u = ui.clone();
-        c.eraser_size.connect_value_changed(move |s| {
-            let v = s.value();
-            with_ed(&u, |e| e.eraser_size = v.max(1.0));
-        });
-    }
     for (i, b) in c.image_modes.iter().enumerate() {
         let u = ui.clone();
         b.connect_toggled(move |b| {
@@ -7989,13 +8178,6 @@ fn setup_panel(ui: &Rc<Ui>) {
             with_ed(&u, |e| {
                 e.set_corner_radius(v);
             });
-        });
-    }
-    {
-        let u = ui.clone();
-        c.align_ref.connect_selected_notify(move |dd| {
-            let v = dd.selected() == 0;
-            with_ed(&u, |e| e.align_selection = v);
         });
     }
     {
@@ -8549,6 +8731,7 @@ fn rebuild_layers(ui: &Rc<Ui>) {
     guarded(ui, || {
         ui.layers_list.remove_all();
         ui.thumbs.borrow_mut().clear();
+        ui.thumb_frame.set(None);
         ui.layer_rows.borrow_mut().clear();
         let single = rows.len() <= 1;
         for (id, name, visible, locked) in &rows {
@@ -8568,6 +8751,22 @@ fn rebuild_layers(ui: &Rc<Ui>) {
         }
     });
     ui.layers_shown_active.set(active);
+}
+
+/// Ausschnitt der Ebenen-Vorschaubilder: alle Zeichenflächen und aller Inhalt (auch
+/// außerhalb), für alle Ebenen gleich. Wird einmal je Aktualisierung berechnet.
+fn layer_thumb_frame(ui: &Ui, doc: &crate::model::Document) -> crate::geom::Rect {
+    if let Some(r) = ui.thumb_frame.get() {
+        return r;
+    }
+    let mut r = doc.artboards_bbox();
+    for o in doc.layers.iter().flat_map(|l| l.objects.iter()) {
+        if let Some(b) = crate::editor::Metrics::bbox(&ui.metrics, o) {
+            r = r.union(&b);
+        }
+    }
+    ui.thumb_frame.set(Some(r));
+    r
 }
 
 /// Größe der Vorschaubilder in der Ebenenliste
@@ -8627,9 +8826,9 @@ fn layer_pill(
     };
     let lock = gtk::ToggleButton::builder()
         .icon_name(if locked {
-            "mondrian-lock-symbolic"
+            "changes-prevent-symbolic"
         } else {
-            "mondrian-unlock-symbolic"
+            "changes-allow-symbolic"
         })
         .active(locked)
         .tooltip_text(tr("Sperren"))
@@ -8637,16 +8836,16 @@ fn layer_pill(
     small(lock.upcast_ref());
     lock.connect_toggled(|b| {
         b.set_icon_name(if b.is_active() {
-            "mondrian-lock-symbolic"
+            "changes-prevent-symbolic"
         } else {
-            "mondrian-unlock-symbolic"
+            "changes-allow-symbolic"
         });
     });
     let eye = gtk::ToggleButton::builder()
         .icon_name(if visible {
-            "mondrian-eye-symbolic"
+            "view-reveal-symbolic"
         } else {
-            "mondrian-eye-off-symbolic"
+            "view-conceal-symbolic"
         })
         .tooltip_text(tr("Ein-/Ausblenden"))
         .build();
@@ -8658,9 +8857,9 @@ fn layer_pill(
     }
     eye.connect_toggled(|b| {
         b.set_icon_name(if b.is_active() {
-            "mondrian-eye-symbolic"
+            "view-reveal-symbolic"
         } else {
-            "mondrian-eye-off-symbolic"
+            "view-conceal-symbolic"
         });
         if b.is_active() {
             b.remove_css_class("mondrian-layer-off");
@@ -8742,7 +8941,13 @@ fn artboard_row(ui: &Rc<Ui>, idx: usize) -> gtk::ListBoxRow {
     gear.set_action_name(Some("win.artboard-edit"));
     gear.set_action_target_value(Some(&(idx as u32).to_variant()));
     tools.append(&gear);
-    if idx > 0 {
+    let dup = gtk::Button::from_icon_name("edit-copy-symbolic");
+    dup.set_tooltip_text(Some(tr("Zeichenfläche mit Inhalt duplizieren")));
+    dup.set_action_name(Some("win.artboard-duplicate"));
+    dup.set_action_target_value(Some(&(idx as u32).to_variant()));
+    tools.append(&dup);
+    // jede Zeichenfläche lässt sich entfernen, solange eine weitere bleibt
+    if many {
         let del = gtk::Button::from_icon_name("user-trash-symbolic");
         del.set_tooltip_text(Some(tr("Zeichenfläche entfernen (die Objekte bleiben)")));
         del.add_css_class("mondrian-layer-delete");
@@ -8754,6 +8959,7 @@ fn artboard_row(ui: &Rc<Ui>, idx: usize) -> gtk::ListBoxRow {
     bx.append(&label);
     bx.append(&tools);
     row.set_child(Some(&bx));
+    label_icon_buttons(row.upcast_ref());
     row
 }
 
@@ -8812,7 +9018,10 @@ fn layer_row(ui: &Rc<Ui>, id: u64, name: &str, visible: bool, locked: bool, sing
             let _ = cr.save();
             round_rect(cr, 0.0, 0.0, w, h, 8.0);
             cr.clip();
-            render::draw_layer_objects(cr, w, h, &ed.doc, layer);
+            let boards: Vec<crate::geom::Rect> =
+                ed.doc.artboard_rects().into_iter().map(|(_, r)| r).collect();
+            let frame = layer_thumb_frame(&u, &ed.doc);
+            render::draw_layer_objects(cr, w, h, frame, &boards, dark, layer);
             let _ = cr.restore();
             if has_sel {
                 sel_badge(cr, w, h, col);
@@ -8824,8 +9033,9 @@ fn layer_row(ui: &Rc<Ui>, id: u64, name: &str, visible: bool, locked: bool, sing
     }
     ui.thumbs.borrow_mut().push(thumb.clone());
     if has_sel {
-        thumb.set_tooltip_text(Some(&format!(
-            "{name} – die Auswahl liegt auf dieser Ebene; das Kästchen auf eine andere Ebene ziehen, um sie zu verschieben"
+        thumb.set_tooltip_text(Some(&trf(
+            "{} – die Auswahl liegt auf dieser Ebene; das Kästchen auf eine andere Ebene ziehen, um sie zu verschieben",
+            &[&name],
         )));
         let sel_src = gtk::DragSource::new();
         sel_src.set_actions(gdk::DragAction::MOVE);
@@ -8956,11 +9166,25 @@ fn layer_row(ui: &Rc<Ui>, id: u64, name: &str, visible: bool, locked: bool, sing
     }
     {
         let (u, r) = (ui.clone(), row.clone());
-        src.connect_drag_begin(move |s, _| {
+        src.connect_drag_begin(move |_, drag| {
             u.layer_drag.set(id);
-            // Abbild der Zeile am Zeiger; die Zeile selbst wird blass
+            // Abbild der Zeile am Zeiger als eigene kleine Karte (rundum abgerundet); die
+            // Zeile selbst wird blass
             let img = gtk::WidgetPaintable::new(Some(&r)).current_image();
-            s.set_icon(Some(&img), 24, 16);
+            let pic = gtk::Picture::for_paintable(&img);
+            pic.set_can_shrink(false);
+            let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            card.add_css_class("mondrian-drag-card");
+            card.set_overflow(gtk::Overflow::Hidden);
+            card.append(&pic);
+            // Rand, damit der Schatten der Karte Platz hat
+            card.set_margin_start(12);
+            card.set_margin_end(12);
+            card.set_margin_top(12);
+            card.set_margin_bottom(12);
+            let icon = gtk::DragIcon::for_drag(drag);
+            icon.set_child(Some(&card));
+            drag.set_hotspot(36, 28);
             r.add_css_class("mondrian-dragging");
         });
     }
@@ -8973,6 +9197,7 @@ fn layer_row(ui: &Rc<Ui>, id: u64, name: &str, visible: bool, locked: bool, sing
         });
     }
     row.add_controller(src);
+    label_icon_buttons(row.upcast_ref());
     row
 }
 
@@ -9041,7 +9266,7 @@ fn confirm_discard(ui: &Rc<Ui>, d: &Rc<DocTab>, then: Then, cancel: Option<Then>
     }
     let dialog = adw::AlertDialog::new(
         Some(&trf("Änderungen an „{}“ speichern?", &[&(d.name())])),
-        Some(tr("Wenn du nicht speicherst, gehen die Änderungen verloren.")),
+        Some(tr("Wenn du nicht speicherst, gehen die Änderungen verloren")),
     );
     dialog.add_response("cancel", tr("_Abbrechen"));
     dialog.add_response("discard", tr("_Verwerfen"));
@@ -9076,6 +9301,7 @@ fn confirm_discard(ui: &Rc<Ui>, d: &Rc<DocTab>, then: Then, cancel: Option<Then>
             }
         }
     });
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -9263,6 +9489,9 @@ fn check_for_updates(ui: &Rc<Ui>, manual: bool) {
     });
 }
 
+/// Anleitung (Hilfe im Hauptmenü).
+const HELP_URL: &str = "https://github.com/benhuesing/Stijl/blob/main/docs/USER_GUIDE.md";
+
 /// Wohin „Fehler melden“ führt (neues Issue im Repository).
 const ISSUE_URL: &str = "https://github.com/benhuesing/Stijl/issues/new";
 
@@ -9406,6 +9635,7 @@ fn offer_crash_report(ui: &Rc<Ui>) {
         }
         let _ = std::fs::remove_file(&path);
     });
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -9488,6 +9718,7 @@ fn offer_recovery(ui: &Rc<Ui>) {
         }
         _ => {}
     });
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -9892,6 +10123,7 @@ fn new_document_dialog_with(ui: &Rc<Ui>, start: Option<&Preset>) {
         });
     }
     dialog.set_default_widget(Some(&create));
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -9954,14 +10186,234 @@ fn pretty_dir(p: &Path) -> String {
     }
 }
 
+// ───────────────────────────── Informationen zum Dokument ─────────────────────────────
+
+/// Rechte Leiste „Informationen“: Ordner, Format und Inhalt, Datei.
+struct InfoWidgets {
+    page: gtk::ScrolledWindow,
+    folder: adw::ActionRow,
+    folder_open: gtk::Button,
+    format: adw::ActionRow,
+    size: adw::ActionRow,
+    artboards: adw::ActionRow,
+    layers: adw::ActionRow,
+    objects: adw::ActionRow,
+    file_group: adw::PreferencesGroup,
+    file_size: adw::ActionRow,
+    created: adw::ActionRow,
+    modified: adw::ActionRow,
+}
+
+fn build_info_panel() -> InfoWidgets {
+    // Zeile mit kleinem Titel und dem Wert darunter
+    let prop = |title: &str| {
+        let r = adw::ActionRow::builder().title(title).subtitle("–").build();
+        r.add_css_class("property");
+        r.set_subtitle_selectable(true);
+        r
+    };
+    let group = |rows: &[&adw::ActionRow]| {
+        let g = adw::PreferencesGroup::new();
+        for r in rows {
+            g.add(*r);
+        }
+        g
+    };
+    let folder = prop(tr("Ordner"));
+    let folder_open = gtk::Button::from_icon_name("folder-open-symbolic");
+    folder_open.set_tooltip_text(Some(tr("Ordner öffnen")));
+    folder_open.set_valign(gtk::Align::Center);
+    folder_open.add_css_class("flat");
+    folder.add_suffix(&folder_open);
+    let format = prop(tr("Format"));
+    let size = prop(tr("Größe"));
+    let artboards = prop(tr("Zeichenflächen"));
+    let layers = prop(tr("Ebenen"));
+    let objects = prop(tr("Objekte"));
+    let file_size = prop(tr("Dateigröße"));
+    let created = prop(tr("Datei erstellt"));
+    let modified = prop(tr("Datei geändert"));
+    let file_group = group(&[&file_size, &created, &modified]);
+    let content = vbox(18);
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(12);
+    content.set_margin_end(12);
+    content.append(&group(&[&folder]));
+    content.append(&group(&[&format, &size, &artboards]));
+    content.append(&group(&[&layers, &objects]));
+    content.append(&file_group);
+    let page = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&content)
+        .build();
+    InfoWidgets {
+        page,
+        folder,
+        folder_open,
+        format,
+        size,
+        artboards,
+        layers,
+        objects,
+        file_group,
+        file_size,
+        created,
+        modified,
+    }
+}
+
+/// Datum und Uhrzeit in der Schreibweise des Systems.
+fn local_time(t: std::time::SystemTime) -> String {
+    t.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| glib::DateTime::from_unix_local(d.as_secs() as i64).ok())
+        .and_then(|d| d.format("%x %X").ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "–".into())
+}
+
+/// Informationen zum aktuellen Dokument eintragen (nur, wenn die Leiste sichtbar ist).
+fn refresh_info(ui: &Ui) {
+    if !ui.info_toggle.is_active() {
+        return;
+    }
+    let Some(d) = cur(ui) else { return };
+    let w = &ui.info;
+    let file = d.file.borrow().clone();
+    match file.as_ref().and_then(|f| f.parent().map(|p| p.to_path_buf())) {
+        Some(dir) => {
+            let name = dir
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| dir.to_string_lossy().to_string());
+            w.folder.set_subtitle(&name);
+            w.folder.set_tooltip_text(Some(&dir.to_string_lossy()));
+            w.folder_open.set_visible(true);
+        }
+        None => {
+            w.folder.set_subtitle(tr("Nicht gespeichert"));
+            w.folder.set_tooltip_text(None);
+            w.folder_open.set_visible(false);
+        }
+    }
+    {
+        let ed = d.ed.borrow();
+        let u = doc_unit(ui, &ed);
+        let k = u.px();
+        let rects = ed.doc.artboard_rects();
+        let r = rects[ed.page_index().unwrap_or(0).min(rects.len() - 1)].1;
+        w.format.set_subtitle("SVG");
+        w.size.set_subtitle(&format!(
+            "{} × {} {}",
+            fmt_num((r.width() / k * 10.0).round() / 10.0),
+            fmt_num((r.height() / k * 10.0).round() / 10.0),
+            u.name()
+        ));
+        w.artboards.set_subtitle(&rects.len().to_string());
+        w.layers.set_subtitle(&ed.doc.layers.len().to_string());
+        let n: usize = ed.doc.layers.iter().map(|l| l.objects.len()).sum();
+        w.objects.set_subtitle(&n.to_string());
+    }
+    let meta = file.as_ref().and_then(|f| std::fs::metadata(f).ok());
+    w.file_group.set_visible(meta.is_some());
+    if let Some(m) = meta {
+        w.file_size.set_subtitle(&glib::format_size(m.len()));
+        w.created
+            .set_subtitle(&m.created().map(local_time).unwrap_or_else(|_| "–".into()));
+        w.modified
+            .set_subtitle(&m.modified().map(local_time).unwrap_or_else(|_| "–".into()));
+    }
+}
+
 // ───────────────────────────── Willkommensseite ─────────────────────────────
 
-/// Werkzeuge, Seitenleiste und Statusleiste zeigen (Dokument) oder verbergen (Start-Tab).
+/// Akzentfarbe des Systems (für Markierungen, die selbst gezeichnet werden).
+fn accent_rgb(w: &impl IsA<gtk::Widget>) -> (f64, f64, f64) {
+    #[allow(deprecated)]
+    let c = w.as_ref().style_context().lookup_color("accent_color");
+    c.map(|c| (c.red() as f64, c.green() as f64, c.blue() as f64))
+        .unwrap_or((0.208, 0.518, 0.894))
+}
+
+/// Knöpfe, die nur ein Symbol zeigen, bekommen den Text ihrer Kurzinfo als Namen für
+/// Bildschirmleser (ohne Kürzel und Erklärung).
+fn label_icon_buttons(root: &gtk::Widget) {
+    fn has_text(w: &gtk::Widget) -> bool {
+        if let Some(l) = w.downcast_ref::<gtk::Label>() {
+            if !l.label().is_empty() {
+                return true;
+            }
+        }
+        let mut c = w.first_child();
+        while let Some(ch) = c {
+            if has_text(&ch) {
+                return true;
+            }
+            c = ch.next_sibling();
+        }
+        false
+    }
+    let mut todo = vec![root.clone()];
+    while let Some(w) = todo.pop() {
+        let mut c = w.first_child();
+        while let Some(ch) = c {
+            todo.push(ch.clone());
+            c = ch.next_sibling();
+        }
+        let button = w.is::<gtk::Button>() || w.is::<gtk::MenuButton>();
+        if !button || has_text(&w) {
+            continue;
+        }
+        if let Some(tip) = w.tooltip_text() {
+            let name = short_label(&tip).trim().to_string();
+            if !name.is_empty() {
+                w.update_property(&[gtk::accessible::Property::Label(&name)]);
+            }
+        }
+    }
+}
+
+/// Schwebende Leiste im Stil der Bildbetrachtung (dunkel, abgerundet).
+fn osd_bar() -> gtk::Box {
+    let b = hbox(2);
+    b.add_css_class("osd");
+    b.add_css_class("toolbar");
+    b.add_css_class("mondrian-osd");
+    b.set_margin_top(12);
+    b.set_margin_bottom(12);
+    b.set_margin_start(12);
+    b.set_margin_end(12);
+    b
+}
+
+/// Schwebende Leisten neben den Linealen halten.
+fn update_osd_margins(ui: &Ui) {
+    let r = if ui.show_rulers.get() { RULER as i32 } else { 0 };
+    ui.tools_bar.set_margin_top(12 + r);
+    ui.tools_bar.set_margin_start(12 + r);
+    ui.view_bar.set_margin_start(12 + r);
+}
+
+/// Werkzeuge, Seitenleisten und schwebende Leisten zeigen (Dokument) oder verbergen
+/// (Start-Tab).
 fn set_editor_chrome(ui: &Ui, on: bool) {
-    ui.tools_revealer.set_visible(on);
-    ui.dock
-        .set_visible(on && ui.dock_toggles.iter().any(|(_, t)| t.is_active()));
-    ui.statusbar.set_visible(on);
+    for bar in [&ui.tools_bar, &ui.view_bar, &ui.zoom_bar] {
+        bar.set_visible(on);
+    }
+    update_osd_margins(ui);
+    let props_was_hidden = !ui.dock.is_visible();
+    ui.dock.set_visible(on && right_open(ui));
+    if ui.dock.is_visible() && props_was_hidden {
+        apply_props_width(ui);
+    }
+    let side_was_hidden = !ui.side_dock.is_visible();
+    ui.side_dock.set_visible(on && ui.side_toggle.is_active());
+    if ui.side_dock.is_visible() && side_was_hidden {
+        ui.side_paned.set_position(ui.side_width.get());
+    }
+
     for w in &ui.editor_only {
         w.set_visible(on);
     }
@@ -9994,20 +10446,54 @@ fn add_start_tab(ui: &Rc<Ui>) {
 /// Höchstens so viele zuletzt geöffnete Dokumente (eine Reihe, daneben „Öffnen“).
 const RECENT_CARDS: usize = 4;
 
-fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::Box, gtk::Box) {
-    let content = vbox(28);
+fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
+    let content = vbox(32);
 
-    // Zuletzt geöffnet: eine Reihe Karten, am Ende „Öffnen …“
+    // Begrüßung (Platz für eine eigene Grafik: vorerst das App-Symbol)
+    let welcome = vbox(8);
+    welcome.set_margin_top(24);
+    welcome.set_margin_bottom(8);
+    let art = gtk::Image::builder()
+        .icon_name("io.github.benhuesing.Stijl")
+        .pixel_size(96)
+        .margin_bottom(8)
+        .accessible_role(gtk::AccessibleRole::Presentation)
+        .build();
+    let hello = gtk::Label::new(Some(tr("Willkommen bei Stijl")));
+    hello.add_css_class("title-1");
+    hello.set_wrap(true);
+    hello.set_justify(gtk::Justification::Center);
+    let hello_sub = gtk::Label::new(Some(tr(
+        "Leg ein neues Dokument an oder mach dort weiter, wo du aufgehört hast.",
+    )));
+    hello_sub.add_css_class("dim-label");
+    hello_sub.set_wrap(true);
+    hello_sub.set_justify(gtk::Justification::Center);
+    welcome.append(&art);
+    welcome.append(&hello);
+    welcome.append(&hello_sub);
+    content.append(&welcome);
+
+    // Zuletzt geöffnet: eine Reihe Karten, am Ende „Öffnen …“ – im selben Raster wie die
+    // Formate darunter, damit alle Karten gleich groß sind
     let recent_title = gtk::Label::builder()
         .label(tr("Zuletzt geöffnet"))
         .xalign(0.0)
         .build();
     recent_title.add_css_class("heading");
-    let recent_list = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(12)
-        .halign(gtk::Align::Start)
-        .build();
+    let recent_list = card_grid();
+    {
+        // bei jeder Breitenänderung neu entscheiden, wie viele Karten in die Reihe passen
+        let last = Cell::new(0);
+        recent_list.add_tick_callback(move |fb, _| {
+            let w = fb.width();
+            if w != last.get() {
+                last.set(w);
+                fit_recent_row(fb);
+            }
+            glib::ControlFlow::Continue
+        });
+    }
     let recent_box = vbox(8);
     recent_box.append(&recent_title);
     recent_box.append(&recent_list);
@@ -10037,16 +10523,9 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::Box, gtk::Box) {
     bar.append(&tab_print);
     bar.append(&tab_online);
     bar.append(&search);
-    let cards = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .homogeneous(true)
-        .min_children_per_line(2)
-        .max_children_per_line(5)
-        .column_spacing(12)
-        .row_spacing(12)
-        .build();
+    let cards = card_grid();
     let empty = gtk::Label::new(Some(tr(
-        "Kein passendes Format – „Eigenes Format …“ legt jede Größe an.",
+        "Kein passendes Format – „Eigenes Format …“ legt jede Größe an",
     )));
     empty.add_css_class("dim-label");
     empty.set_visible(false);
@@ -10125,9 +10604,8 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::Box, gtk::Box) {
         .tightening_threshold(560)
         .child(&content)
         .build();
-    // ohne Symbol und Begrüßung: der Platz gehört den Karten
-    clamp.set_margin_top(24);
-    clamp.set_margin_bottom(24);
+    clamp.set_margin_top(36);
+    clamp.set_margin_bottom(36);
     clamp.set_margin_start(12);
     clamp.set_margin_end(12);
     let page = gtk::ScrolledWindow::builder()
@@ -10138,39 +10616,94 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::Box, gtk::Box) {
     (page.upcast(), recent_list, recent_box)
 }
 
+/// Raster der Karten auf der Startseite (zuletzt geöffnet und Formate gleich groß).
+fn card_grid() -> gtk::FlowBox {
+    let g = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .homogeneous(true)
+        .min_children_per_line(2)
+        .max_children_per_line(5)
+        .column_spacing(12)
+        .row_spacing(12)
+        .valign(gtk::Align::Start)
+        .build();
+    g.add_css_class("mondrian-cards");
+    g
+}
+
+/// Nur so viele zuletzt geöffnete Dokumente zeigen, wie in eine Reihe passen („Öffnen …“
+/// bleibt immer am Ende). Die Spaltenzahl rechnet wie das Raster selbst.
+fn fit_recent_row(fb: &gtk::FlowBox) {
+    let w = fb.width();
+    let mut kids = Vec::new();
+    let mut c = fb.first_child();
+    while let Some(k) = c {
+        c = k.next_sibling();
+        kids.push(k);
+    }
+    let n = kids.len();
+    if w <= 0 || n == 0 {
+        return;
+    }
+    // Breite einer Karte: die immer sichtbare Kachel „Öffnen …“
+    let (cw, _, _, _) = kids[n - 1].measure(gtk::Orientation::Horizontal, -1);
+    let cols = ((w + 12) / (cw.max(1) + 12)).clamp(2, 5) as usize;
+    for (i, k) in kids.iter().enumerate() {
+        let show = i == n - 1 || i + 1 < cols;
+        if k.is_visible() != show {
+            k.set_visible(show);
+        }
+    }
+}
+
+/// Größe der Vorschau in den Karten der Startseite
+const CARD_PREVIEW_W: i32 = 120;
+const CARD_PREVIEW_H: i32 = 90;
+
+/// Inhalt einer Karte: Vorschau, Titel und eine kleine Zeile darunter (immer vorhanden,
+/// damit alle Karten gleich hoch sind).
+fn card_content(preview: &impl IsA<gtk::Widget>, title: &str, sub: &str) -> gtk::Box {
+    let name = gtk::Label::builder()
+        .label(title)
+        .ellipsize(pango::EllipsizeMode::End)
+        .max_width_chars(16)
+        .build();
+    name.add_css_class("heading");
+    let small = gtk::Label::builder()
+        .label(if sub.is_empty() { " " } else { sub })
+        .ellipsize(pango::EllipsizeMode::End)
+        .max_width_chars(18)
+        .build();
+    small.add_css_class("dim-label");
+    small.add_css_class("caption");
+    let b = vbox(6);
+    b.set_margin_top(14);
+    b.set_margin_bottom(12);
+    b.set_margin_start(10);
+    b.set_margin_end(10);
+    b.append(preview);
+    b.append(&name);
+    b.append(&small);
+    b
+}
+
 /// Gestrichelte Kachel in der Größe der Karten: Symbol statt Vorschau, darunter Titel
 /// und (wie bei den Formatkarten) optional eine kleine Zeile.
 fn dashed_tile(icon: &str, title: &str, sub: Option<&str>) -> gtk::Button {
     let symbol = gtk::Image::from_icon_name(icon);
     symbol.set_pixel_size(32);
-    symbol.set_vexpand(true);
-    symbol.set_valign(gtk::Align::Center);
-    symbol.set_halign(gtk::Align::Center);
     symbol.set_opacity(0.7);
-    let preview = vbox(0);
-    preview.set_size_request(120, 84);
-    preview.append(&symbol);
-    let name = gtk::Label::builder()
-        .label(title)
-        .ellipsize(pango::EllipsizeMode::End)
-        .build();
-    name.add_css_class("heading");
-    let b = vbox(6);
-    b.set_margin_top(12);
-    b.set_margin_bottom(12);
-    b.set_margin_start(8);
-    b.set_margin_end(8);
-    b.append(&preview);
-    b.append(&name);
-    if let Some(s) = sub {
-        let l = gtk::Label::new(Some(s));
-        l.add_css_class("dim-label");
-        l.add_css_class("caption");
-        b.append(&l);
-    }
+    // feste Größe wie die Vorschauen; Symbol mittig (ohne vexpand, sonst wachsen alle
+    // Karten der Reihe in die Höhe)
+    let preview = gtk::CenterBox::new();
+    preview.set_orientation(gtk::Orientation::Vertical);
+    preview.set_size_request(CARD_PREVIEW_W, CARD_PREVIEW_H);
+    preview.set_center_widget(Some(&symbol));
+    let b = card_content(&preview, title, sub.unwrap_or(""));
     let button = gtk::Button::new();
     button.set_child(Some(&b));
     button.add_css_class("mondrian-dash-card");
+    button.set_valign(gtk::Align::Start);
     button
 }
 
@@ -10178,8 +10711,8 @@ fn dashed_tile(icon: &str, title: &str, sub: Option<&str>) -> gtk::Button {
 fn format_card(p: &'static Preset) -> gtk::Button {
     let (w, h) = p.px();
     let preview = gtk::DrawingArea::new();
-    preview.set_content_width(120);
-    preview.set_content_height(84);
+    preview.set_content_width(CARD_PREVIEW_W);
+    preview.set_content_height(CARD_PREVIEW_H);
     preview.set_draw_func(move |area, cr, aw, ah| {
         let (aw, ah) = (aw as f64, ah as f64);
         let s = ((aw - 8.0) / w).min((ah - 8.0) / h);
@@ -10194,25 +10727,11 @@ fn format_card(p: &'static Preset) -> gtk::Button {
         cr.rectangle(x + 0.5, y + 0.5, pw - 1.0, ph - 1.0);
         let _ = cr.stroke();
     });
-    let name = gtk::Label::builder()
-        .label(tr(p.name))
-        .ellipsize(pango::EllipsizeMode::End)
-        .build();
-    name.add_css_class("heading");
-    let size = gtk::Label::new(Some(&p.size_label()));
-    size.add_css_class("dim-label");
-    size.add_css_class("caption");
-    let b = vbox(6);
-    b.set_margin_top(12);
-    b.set_margin_bottom(12);
-    b.set_margin_start(8);
-    b.set_margin_end(8);
-    b.append(&preview);
-    b.append(&name);
-    b.append(&size);
+    let b = card_content(&preview, tr(p.name), &p.size_label());
     let button = gtk::Button::new();
     button.set_child(Some(&b));
     button.add_css_class("card");
+    button.set_valign(gtk::Align::Start);
     button.set_tooltip_text(Some(&format!("{} – {}", tr(p.group), p.size_label())));
     button
 }
@@ -10464,7 +10983,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
                         *profile.borrow_mut() = Some((p, desc));
                         show();
                     }
-                    None => u.toast(tr("Das ist kein CMYK-Druckprofil (ICC).")),
+                    None => u.toast(tr("Das ist kein CMYK-Druckprofil (ICC)")),
                 }
             });
         });
@@ -10577,6 +11096,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
             choose_export_file(&u, &d, settings, Some(picked));
         });
     }
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -10740,6 +11260,7 @@ fn scale_dialog(ui: &Rc<Ui>) {
             dlg.close();
         });
     }
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -10829,6 +11350,7 @@ fn artboard_dialog_at(ui: &Rc<Ui>, idx: usize) {
             refresh(&u);
         });
     }
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -10878,7 +11400,7 @@ fn capture_shortcut(ui: &Rc<Ui>, parent: &impl IsA<gtk::Widget>, id: &'static st
     let info = gtk::Label::new(Some(tr("Jetzt die neue Tastenkombination drücken …")));
     info.add_css_class("title-3");
     let hint = gtk::Label::builder()
-        .label(tr("Esc bricht ab, ⌫ entfernt das Kürzel."))
+        .label(tr("Esc bricht ab, ⌫ entfernt das Kürzel"))
         .wrap(true)
         .build();
     hint.add_css_class("dim-label");
@@ -10950,14 +11472,20 @@ fn capture_shortcut(ui: &Rc<Ui>, parent: &impl IsA<gtk::Widget>, id: &'static st
             done();
         });
     }
+    label_icon_buttons(dlg.upcast_ref());
     dlg.present(Some(parent));
 }
 
 fn preferences_dialog(ui: &Rc<Ui>) {
+    preferences_dialog_at(ui, 0);
+}
+
+/// Einstellungen mit der Kategorie `start` (0 Ansicht, 1 Ausrichten, 2 Tastenkürzel).
+fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
     const CATS: [(&str, &str); 3] = [
         ("Ansicht", "preferences-desktop-appearance-symbolic"),
-        ("Ausrichten", "mondrian-align-center-symbolic"),
-        ("Shortcuts", "input-keyboard-symbolic"),
+        ("Ausrichten", "mondrian-guide-symbolic"),
+        ("Tastenkürzel", "input-keyboard-symbolic"),
     ];
     let entries: Rc<RefCell<Vec<PrefEntry>>> = Rc::new(RefCell::new(Vec::new()));
     let groups: Rc<RefCell<Vec<(usize, adw::PreferencesGroup)>>> = Rc::new(RefCell::new(Vec::new()));
@@ -11368,6 +11896,7 @@ fn preferences_dialog(ui: &Rc<Ui>) {
         let u = ui.clone();
         rulers_row.connect_active_notify(move |r| {
             u.show_rulers.set(r.is_active());
+            update_osd_margins(&u);
             save_settings(&u);
             redraw_all(&u);
         });
@@ -11551,7 +12080,7 @@ fn preferences_dialog(ui: &Rc<Ui>) {
         })
     };
     refilter();
-    side_list.select_row(side_list.row_at_index(0).as_ref());
+    side_list.select_row(side_list.row_at_index(start.min(CATS.len() - 1) as i32).as_ref());
     {
         let (cat, refilter, split, entry, toggle) = (
             cat.clone(),
@@ -11592,6 +12121,7 @@ fn preferences_dialog(ui: &Rc<Ui>) {
     dialog.set_content_width(860);
     dialog.set_content_height(620);
     dialog.set_child(Some(&split));
+    label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
 }
 
@@ -11605,7 +12135,7 @@ fn insert_image_file(ui: &Rc<Ui>, d: &Rc<DocTab>, path: &Path, at: Option<Pt>) -
         }
     };
     let Some((w, h)) = render::image_size(&data) else {
-        ui.toast(tr("Dieses Bildformat wird nicht unterstützt."));
+        ui.toast(tr("Dieses Bildformat wird nicht unterstützt"));
         return false;
     };
     let ok = d.ed.borrow_mut().insert_image(Rc::new(data), w, h, at);
@@ -11634,7 +12164,7 @@ fn insert_image_dialog(ui: &Rc<Ui>) {
 }
 
 /// Liste „Zuletzt geöffnet“ einer Startseite neu aufbauen.
-fn fill_recent(ui: &Rc<Ui>, recent_list: &gtk::Box, recent_box: &gtk::Box) {
+fn fill_recent(ui: &Rc<Ui>, recent_list: &gtk::FlowBox, recent_box: &gtk::Box) {
     while let Some(c) = recent_list.first_child() {
         recent_list.remove(&c);
     }
@@ -11654,8 +12184,8 @@ fn fill_recent(ui: &Rc<Ui>, recent_list: &gtk::Box, recent_box: &gtk::Box) {
             .and_then(|s| svg::read(&s).ok())
             .map(Rc::new);
         let thumb = gtk::DrawingArea::new();
-        thumb.set_content_width(120);
-        thumb.set_content_height(84);
+        thumb.set_content_width(CARD_PREVIEW_W);
+        thumb.set_content_height(CARD_PREVIEW_H);
         {
             let doc = doc.clone();
             thumb.set_draw_func(move |_, cr, w, h| {
@@ -11664,19 +12194,16 @@ fn fill_recent(ui: &Rc<Ui>, recent_list: &gtk::Box, recent_box: &gtk::Box) {
                 }
             });
         }
-        let label = gtk::Label::builder()
-            .label(name.as_str())
-            .ellipsize(pango::EllipsizeMode::End)
-            .max_width_chars(14)
-            .build();
-        label.add_css_class("heading");
-        let b = vbox(6);
-        b.set_margin_top(12);
-        b.set_margin_bottom(12);
-        b.set_margin_start(8);
-        b.set_margin_end(8);
-        b.append(&thumb);
-        b.append(&label);
+        // darunter, wann zuletzt geändert (wie bei den Formaten die Größe)
+        let when = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|d| glib::DateTime::from_unix_local(d.as_secs() as i64).ok())
+            .and_then(|t| t.format("%x").ok())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let b = card_content(&thumb, &name, &when);
         let card = gtk::Button::new();
         card.set_child(Some(&b));
         card.add_css_class("card");
@@ -11705,19 +12232,21 @@ fn fill_recent(ui: &Rc<Ui>, recent_list: &gtk::Box, recent_box: &gtk::Box) {
         let ov = gtk::Overlay::new();
         ov.set_child(Some(&card));
         ov.add_overlay(&remove);
-        recent_list.append(&ov);
+        ov.set_valign(gtk::Align::Start);
+        recent_list.insert(&ov, -1);
     }
     // „Öffnen …“ als gestrichelte Kachel in Größe der Karten am Ende der Reihe
     let open = dashed_tile("folder-open-symbolic", tr("Öffnen …"), None);
     open.set_action_name(Some("win.open"));
     open.set_tooltip_text(Some(&key_tip(tr("Dokument öffnen"), "open")));
-    recent_list.append(&open);
+    recent_list.insert(&open, -1);
+    fit_recent_row(recent_list);
     recent_box.set_visible(true);
 }
 
 /// Alle Startseiten auffrischen.
 fn refresh_starts(ui: &Rc<Ui>) {
-    let lists: Vec<(gtk::Box, gtk::Box)> = ui
+    let lists: Vec<(gtk::FlowBox, gtk::Box)> = ui
         .starts
         .borrow()
         .iter()
@@ -11923,20 +12452,37 @@ fn build_library_panel() -> LibWidgets {
     let dropdown = gtk::DropDown::from_strings(&[]);
     dropdown.set_tooltip_text(Some(tr("Bibliothek wählen")));
 
-    // Abschnittskopf mit „+“: aus der Auswahl übernehmen oder neu anlegen
-    let section = |label: &str, items: &[(&str, &str)]| {
-        let r = hbox(6);
-        let l = gtk::Label::builder()
-            .label(label)
-            .xalign(0.0)
-            .hexpand(true)
-            .build();
-        // dieselbe kleine Abschnittsüberschrift wie in den Eigenschaften (`group`)
-        l.add_css_class("caption-heading");
-        l.add_css_class("dim-label");
-        let _ = items;
-        r.append(&l);
-        r
+    // Abschnitte als aufklappbare Zeilen einer gemeinsamen Karte (wie Füllung und Kontur in
+    // den Eigenschaften); anders als dort können mehrere zugleich offen sein, anfangs alle
+    let section = |label: &str| {
+        let card = rows_box();
+        let title = gtk::Label::new(Some(label));
+        title.add_css_class("heading");
+        let hint = gtk::Label::new(None);
+        let arrow = gtk::Button::from_icon_name("pan-down-symbolic");
+        let head = fold_head(&title, &hint, None, &arrow);
+        let body = vbox(8);
+        body.add_css_class("mondrian-pad");
+        card.append(&head);
+        card.append(&body);
+        let toggle = {
+            let (body, arrow) = (body.clone(), arrow.clone());
+            move || {
+                let open = !body.property::<bool>("visible");
+                body.set_visible(open);
+                arrow.set_icon_name(if open {
+                    "pan-down-symbolic"
+                } else {
+                    "pan-end-symbolic"
+                });
+            }
+        };
+        let t2 = toggle.clone();
+        arrow.connect_clicked(move |_| t2());
+        let click = gtk::GestureClick::new();
+        click.connect_released(move |_, _, _, _| toggle());
+        title.add_controller(click);
+        (card, body)
     };
     let grid = || {
         gtk::Grid::builder()
@@ -11958,50 +12504,35 @@ fn build_library_panel() -> LibWidgets {
     let texts = grid();
     let texts_empty = empty(tr("Noch keine Textstile"));
 
-    let inner = vbox(8);
+    let inner = vbox(12);
     inner.set_margin_start(12);
     inner.set_margin_end(12);
+    inner.set_margin_top(4);
     inner.set_margin_bottom(12);
     let locked_note = empty(tr(
         "Die Standardbibliothek „Stijl“ lässt sich nicht ändern. Für eigene Farben und \
          Stile über ⋮ eine neue Bibliothek anlegen.",
     ));
     inner.append(&locked_note);
-    let colors_head = section(
-        tr("Farben"),
-        &[
-            (tr("Neue Farbe …"), "win.lib-new-color"),
-            (tr("Füllfarbe der Auswahl"), "win.lib-add-fill"),
-            (tr("Konturfarbe der Auswahl"), "win.lib-add-stroke"),
-        ],
-    );
-    inner.append(&colors_head);
-    inner.append(&colors);
-    inner.append(&colors_empty);
-    let styles_head = section(
-        tr("Stile"),
-        &[
-            (tr("Neuer Stil …"), "win.lib-new-style"),
-            (tr("Stil der Auswahl"), "win.lib-add-style"),
-        ],
-    );
-    inner.append(&styles_head);
-    inner.append(&styles);
-    inner.append(&styles_empty);
-    let texts_head = section(
-        tr("Textstile"),
-        &[
-            (tr("Neuer Textstil …"), "win.lib-new-textstyle"),
-            (tr("Textstil der Auswahl"), "win.lib-add-textstyle"),
-        ],
-    );
-    inner.append(&texts_head);
-    inner.append(&texts);
-    inner.append(&texts_empty);
+    let lib_card = card();
+    inner.append(&lib_card);
+    let (colors_card, colors_body) = section(tr("Farben"));
+    colors_body.append(&colors);
+    colors_body.append(&colors_empty);
+    lib_card.append(&colors_card);
+    // (Kopf = ganzer Abschnitt: wird bei der Standardbibliothek ohne Stile ausgeblendet)
+    let (styles_head, styles_body) = section(tr("Stile"));
+    styles_body.append(&styles);
+    styles_body.append(&styles_empty);
+    lib_card.append(&styles_head);
+    let (texts_card, texts_body) = section(tr("Textstile"));
+    texts_body.append(&texts);
+    texts_body.append(&texts_empty);
+    lib_card.append(&texts_card);
     let graphics = grid();
-    let graphics_head = section(tr("Grafiken"), &[]);
-    inner.append(&graphics_head);
-    inner.append(&graphics);
+    let (graphics_head, graphics_body) = section(tr("Grafiken"));
+    graphics_body.append(&graphics);
+    lib_card.append(&graphics_head);
     let scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
@@ -12184,13 +12715,9 @@ fn lib_add_cell(items: &[(&str, &str)], round: bool, w: i32, h: i32) -> gtk::Wid
 
 /// Felder je nach Breite der Leiste auf Zeilen verteilen.
 fn layout_library(ui: &Ui, force: bool) {
-    let width = if ui.dock.is_visible() && ui.lib_paned.position() >= 150 {
-        ui.lib_paned.position()
-    } else {
-        ui.lib_width.get()
-    };
-    // Ränder links/rechts und Trennlinie abziehen
-    let avail = (width - 24 - 8).max(LIB_SWATCH);
+    let width = side_panel_width(ui);
+    // Ränder links/rechts, Innenabstand der Karten und Trennlinie abziehen
+    let avail = (width - 24 - 24 - 8).max(LIB_SWATCH);
     let w = &ui.lib;
     let cells = w.cells.borrow();
     let mut cols = w.cols.get();
@@ -12227,9 +12754,7 @@ fn rebuild_text_styles(ui: &Rc<Ui>, styles: &[crate::library::LibStyle]) {
     while let Some(c) = fb.first_child() {
         fb.remove(&c);
     }
-    let mut any = false;
     for st in styles.iter().filter(|s| s.text.is_some()) {
-        any = true;
         let area = gtk::DrawingArea::new();
         area.set_content_width(LIB_TEXT_W - 16);
         area.set_content_height(LIB_CARD_H - 8);
@@ -12263,7 +12788,16 @@ fn rebuild_text_styles(ui: &Rc<Ui>, styles: &[crate::library::LibStyle]) {
         area.add_controller(click);
         fb.insert(&area, -1);
     }
-    ui.panel.text_styles_box.set_visible(any);
+    // „+“ am Ende: Textstil der Auswahl in die Bibliothek (wie bei den Farben)
+    let add = gtk::Button::from_icon_name("list-add-symbolic");
+    add.set_action_name(Some("win.lib-add-textstyle"));
+    add.set_tooltip_text(Some(tr("Textstil der Auswahl zur Bibliothek hinzufügen")));
+    add.set_size_request(LIB_TEXT_W - 16, LIB_CARD_H - 8);
+    let cell = hbox(0);
+    cell.add_css_class("mondrian-lib-add");
+    cell.append(&add);
+    fb.insert(&cell, -1);
+    ui.panel.text_styles_box.set_visible(true);
 }
 
 fn rebuild_library_content(ui: &Rc<Ui>) {
@@ -12561,7 +13095,7 @@ fn lib_name_dialog(ui: &Rc<Ui>, title: &str, old: &str, set: impl Fn(&mut Librar
         .build();
     let dlg = adw::AlertDialog::new(
         Some(title),
-        Some(tr("Der Name ist freiwillig und erscheint unter dem Feld.")),
+        Some(tr("Der Name ist freiwillig und erscheint unter dem Feld")),
     );
     dlg.set_extra_child(Some(&entry));
     dlg.add_response("cancel", tr("_Abbrechen"));
@@ -12577,6 +13111,7 @@ fn lib_name_dialog(ui: &Rc<Ui>, title: &str, old: &str, set: impl Fn(&mut Librar
         let name = entry.text().trim().to_string();
         with_library(&u, |l| set(l, &name));
     });
+    label_icon_buttons(dlg.upcast_ref());
     dlg.present(Some(&ui.window));
 }
 
@@ -12619,9 +13154,7 @@ fn lib_added(ui: &Rc<Ui>, added: bool, what: &str) {
         .unwrap_or_default();
     if added {
         ui.toast(&trf("{} zu „{}“ hinzugefügt", &[&(what), &(name)]));
-        if !ui.lib.toggle.is_active() {
-            ui.lib.toggle.set_active(true);
-        }
+        show_library(&ui);
     } else {
         ui.toast(&trf("{} ist schon in „{}“", &[&(what), &(name)]));
     }
@@ -13051,6 +13584,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
         let added = with_library_add(&u, |l| l.add_style(st));
         lib_added(&u, added, if text { tr("Textstil") } else { tr("Stil") });
     });
+    label_icon_buttons(dlg.upcast_ref());
     dlg.present(Some(&ui.window));
 }
 
@@ -13073,9 +13607,7 @@ fn reload_libraries(ui: &Rc<Ui>) {
 
 /// Zeichenflächen bearbeiten, solange die Leiste „Ebenen und Zeichenflächen“ offen ist.
 fn artboard_mode(ui: &Ui) -> bool {
-    ui.dock_toggles
-        .iter()
-        .any(|(n, t)| *n == "layers" && t.is_active())
+    ui.side_toggle.is_active() && ui.layers_toggle.is_active()
 }
 
 fn sync_artboard_mode(ui: &Ui) {
@@ -13086,41 +13618,250 @@ fn sync_artboard_mode(ui: &Ui) {
     redraw_all(ui);
 }
 
-/// Linke Leisten: immer nur eine offen; alle zu = Leiste ausgeblendet.
+/// Leisten: links Ebenen oder Bibliothek (je ein Knopf oben links), rechts die Eigenschaften
+/// (Knopf oben rechts); beide Seiten können zugleich offen sein.
 fn setup_dock(ui: &Rc<Ui>) {
-    for (name, t) in ui.dock_toggles.iter() {
+    {
+        // Informationen: Ordner des Dokuments in der Dateiverwaltung zeigen
         let wu = Rc::downgrade(ui);
-        let name = *name;
+        ui.info.folder_open.connect_clicked(move |_| {
+            let Some(u) = wu.upgrade() else { return };
+            let Some(f) = cur(&u).and_then(|d| d.file.borrow().clone()) else {
+                return;
+            };
+            gtk::FileLauncher::new(Some(&gio::File::for_path(&f))).open_containing_folder(
+                Some(&u.window),
+                gio::Cancellable::NONE,
+                |_| {},
+            );
+        });
+    }
+    // rechts: Eigenschaften oder Informationen (immer nur eines)
+    for (name, t, other) in [
+        ("props", ui.props_toggle.clone(), ui.info_toggle.clone()),
+        ("info", ui.info_toggle.clone(), ui.props_toggle.clone()),
+    ] {
+        let wu = Rc::downgrade(ui);
         t.connect_toggled(move |b| {
             let Some(u) = wu.upgrade() else { return };
             if b.is_active() {
-                for (_, other) in u.dock_toggles.iter() {
-                    if other != b && other.is_active() {
-                        other.set_active(false);
-                    }
+                if other.is_active() {
+                    other.set_active(false);
+                }
+                if u.narrow.get() {
+                    u.side_toggle.set_active(false);
                 }
                 u.dock_stack.set_visible_child_name(name);
-                let was_hidden = !u.dock.is_visible();
-                u.dock.set_visible(cur(&u).is_some());
-                if was_hidden {
-                    u.lib_paned.set_position(u.lib_width.get());
+                if name == "info" {
+                    refresh_info(&u);
                 }
-            } else if !u.dock_toggles.iter().any(|(_, o)| o.is_active()) {
-                u.dock.set_visible(false);
+            }
+            let was_hidden = !u.dock.is_visible();
+            u.dock.set_visible(right_open(&u) && cur(&u).is_some());
+            if u.dock.is_visible() && was_hidden {
+                apply_props_width(&u);
+            }
+        });
+    }
+    {
+        let wu = Rc::downgrade(ui);
+        ui.side_toggle.connect_toggled(move |b| {
+            let Some(u) = wu.upgrade() else { return };
+            if b.is_active() {
+                if u.narrow.get() {
+                    u.props_toggle.set_active(false);
+                    u.info_toggle.set_active(false);
+                }
+                // über F8 geöffnet: zuletzt gezeigten Inhalt wählen
+                if !u.layers_toggle.is_active() && !u.lib.toggle.is_active() {
+                    if u.side_last.get() == "library" {
+                        u.lib.toggle.set_active(true);
+                    } else {
+                        u.layers_toggle.set_active(true);
+                    }
+                }
+            } else {
+                u.layers_toggle.set_active(false);
+                u.lib.toggle.set_active(false);
+            }
+            let was_hidden = !u.side_dock.is_visible();
+            u.side_dock.set_visible(b.is_active() && cur(&u).is_some());
+            if u.side_dock.is_visible() && was_hidden {
+                u.side_paned.set_position(u.side_width.get());
+                layout_library(&u, false);
             }
             sync_artboard_mode(&u);
         });
     }
-    // Anfangszustand: Eigenschaften offen (über den Kopfleistenknopf)
-    if let Some((_, t)) = ui.dock_toggles.iter().find(|(_, t)| t.is_active()) {
-        let name = ui
-            .dock_toggles
-            .iter()
-            .find(|(_, o)| o == t)
-            .map(|(n, _)| *n)
-            .unwrap_or("props");
-        ui.dock_stack.set_visible_child_name(name);
-        ui.lib_paned.set_position(ui.lib_width.get());
+    for (name, t, other) in [
+        ("layers", ui.layers_toggle.clone(), ui.lib.toggle.clone()),
+        ("library", ui.lib.toggle.clone(), ui.layers_toggle.clone()),
+    ] {
+        let wu = Rc::downgrade(ui);
+        t.connect_toggled(move |b| {
+            let Some(u) = wu.upgrade() else { return };
+            if b.is_active() {
+                // immer nur einer der beiden Inhalte
+                if other.is_active() {
+                    other.set_active(false);
+                }
+                u.side_last.set(name);
+                u.side_stack.set_visible_child_name(name);
+                // z. B. „Zur Bibliothek hinzufügen“: Leiste dafür öffnen
+                if !u.side_toggle.is_active() {
+                    u.side_toggle.set_active(true);
+                }
+                if name == "library" {
+                    layout_library(&u, false);
+                }
+            } else if !u.layers_toggle.is_active() && !u.lib.toggle.is_active() && u.side_toggle.is_active() {
+                u.side_toggle.set_active(false);
+            }
+            sync_artboard_mode(&u);
+        });
+    }
+    ui.dock_stack.set_visible_child_name("props");
+    ui.side_stack.set_visible_child_name("layers");
+    ui.side_paned.set_position(ui.side_width.get());
+
+    // Schmale Fenster: Seitenleisten schweben über der Zeichenfläche statt sie zu verkleinern
+    if let Ok(cond) = adw::BreakpointCondition::parse("max-width: 1100sp") {
+        let bp = adw::Breakpoint::new(cond);
+        let wu = Rc::downgrade(ui);
+        bp.connect_apply(move |_| {
+            if let Some(u) = wu.upgrade() {
+                set_narrow(&u, true);
+            }
+        });
+        let wu = Rc::downgrade(ui);
+        bp.connect_unapply(move |_| {
+            if let Some(u) = wu.upgrade() {
+                set_narrow(&u, false);
+            }
+        });
+        ui.window.add_breakpoint(bp);
+    }
+    // Klick neben eine schwebende Seitenleiste schließt sie (der Klick wirkt sonst nicht)
+    {
+        let wu = Rc::downgrade(ui);
+        let click = gtk::GestureClick::new();
+        click.set_button(0);
+        click.set_propagation_phase(gtk::PropagationPhase::Capture);
+        click.connect_pressed(move |g, _, x, y| {
+            let Some(u) = wu.upgrade() else { return };
+            if !u.narrow.get() {
+                return;
+            }
+            let p = gtk::graphene::Point::new(x as f32, y as f32);
+            let inside = |w: &gtk::Box| {
+                w.is_visible()
+                    && w.compute_bounds(&u.canvas_overlay)
+                        .map(|r| r.contains_point(&p))
+                        .unwrap_or(false)
+            };
+            let mut closed = false;
+            if u.side_dock.is_visible() && !inside(&u.side_dock) {
+                u.side_toggle.set_active(false);
+                closed = true;
+            }
+            if u.dock.is_visible() && !inside(&u.dock) {
+                u.props_toggle.set_active(false);
+                u.info_toggle.set_active(false);
+                closed = true;
+            }
+            if closed {
+                g.set_state(gtk::EventSequenceState::Claimed);
+            }
+        });
+        ui.canvas_overlay.add_controller(click);
+    }
+}
+
+/// Zwischen nebeneinanderliegenden (breit) und schwebenden (schmal) Seitenleisten wechseln.
+fn set_narrow(ui: &Rc<Ui>, on: bool) {
+    if ui.narrow.replace(on) == on {
+        return;
+    }
+    if on {
+        ui.side_paned.set_start_child(None::<&gtk::Widget>);
+        ui.props_paned.set_end_child(None::<&gtk::Widget>);
+        for (w, align, width) in [
+            (&ui.side_dock, gtk::Align::Start, ui.side_width.get()),
+            (&ui.dock, gtk::Align::End, ui.props_width.get()),
+        ] {
+            w.set_halign(align);
+            w.set_valign(gtk::Align::Fill);
+            w.set_size_request(width.min(360), -1);
+            w.add_css_class("mondrian-overlay-sidebar");
+            ui.canvas_overlay.add_overlay(w);
+        }
+        // nur eine Seitenleiste zugleich
+        if ui.side_toggle.is_active() && right_open(ui) {
+            ui.side_toggle.set_active(false);
+        }
+    } else {
+        for w in [&ui.side_dock, &ui.dock] {
+            ui.canvas_overlay.remove_overlay(w);
+            w.set_size_request(-1, -1);
+            w.set_halign(gtk::Align::Fill);
+            w.remove_css_class("mondrian-overlay-sidebar");
+        }
+        ui.side_paned.set_start_child(Some(&ui.side_dock));
+        ui.props_paned.set_end_child(Some(&ui.dock));
+        ui.side_paned.set_position(ui.side_width.get());
+        if ui.dock.is_visible() {
+            apply_props_width(ui);
+        }
+    }
+    layout_library(ui, false);
+    update_swatches(ui);
+}
+
+/// Ist die rechte Leiste (Eigenschaften oder Informationen) offen?
+fn right_open(ui: &Ui) -> bool {
+    ui.props_toggle.is_active() || ui.info_toggle.is_active()
+}
+
+/// Linke Leiste mit der Bibliothek zeigen.
+fn show_library(ui: &Ui) {
+    ui.lib.toggle.set_active(true);
+}
+
+/// Eigenschaften auf ihre gespeicherte Breite bringen, sobald die Fläche bekannt ist.
+fn apply_props_width(ui: &Ui) {
+    let want = ui.props_width.get();
+    let _ = ui.props_paned.add_tick_callback(move |p, _| {
+        let total = p.width();
+        if total <= 0 {
+            return glib::ControlFlow::Continue;
+        }
+        p.set_position((total - want).max(200));
+        glib::ControlFlow::Break
+    });
+}
+
+/// Aktuelle Breite der Eigenschaften (sonst die gespeicherte).
+fn props_panel_width(ui: &Ui) -> i32 {
+    if ui.narrow.get() {
+        return ui.props_width.get().min(360);
+    }
+    let w = ui.props_paned.width() - ui.props_paned.position();
+    if ui.dock.is_visible() && ui.props_paned.width() > 0 && (150..=900).contains(&w) {
+        w
+    } else {
+        ui.props_width.get()
+    }
+}
+
+/// Aktuelle Breite der linken Leiste (sonst die gespeicherte).
+fn side_panel_width(ui: &Ui) -> i32 {
+    if ui.narrow.get() {
+        return ui.side_width.get().min(360);
+    }
+    if ui.side_dock.is_visible() && ui.side_paned.position() >= 150 {
+        ui.side_paned.position()
+    } else {
+        ui.side_width.get()
     }
 }
 
@@ -13210,9 +13951,7 @@ fn setup_library(ui: &Rc<Ui>) {
             u2.lib_current.set(n - 1);
             save_settings(&u2);
             rebuild_library(&u2);
-            if !u2.lib.toggle.is_active() {
-                u2.lib.toggle.set_active(true);
-            }
+            show_library(&u2);
             u2.toast(&trf("„{}“ importiert", &[&(name)]));
         });
     });
@@ -13229,16 +13968,37 @@ fn setup_library(ui: &Rc<Ui>) {
     }
     {
         let wu = Rc::downgrade(ui);
-        ui.lib_paned.connect_position_notify(move |p| {
+        ui.props_paned.connect_position_notify(move |p| {
             let Some(u) = wu.upgrade() else { return };
-            if !u.dock.is_visible() || p.position() < 150 {
+            let w = p.width() - p.position();
+            if u.narrow.get() || !u.dock.is_visible() || p.width() <= 0 || !(150..=900).contains(&w) {
+                return;
+            }
+            update_swatches(&u);
+            let w = w.clamp(200, 700);
+            if w != u.props_width.get() {
+                u.props_width.set(w);
+                if !u.save_pending.replace(true) {
+                    let u2 = u.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
+                        u2.save_pending.set(false);
+                        save_settings(&u2);
+                    });
+                }
+            }
+        });
+    }
+    {
+        let wu = Rc::downgrade(ui);
+        ui.side_paned.connect_position_notify(move |p| {
+            let Some(u) = wu.upgrade() else { return };
+            if u.narrow.get() || !u.side_dock.is_visible() || p.position() < 150 {
                 return;
             }
             layout_library(&u, false);
-            update_swatches(&u);
             let w = p.position().clamp(200, 700);
-            if w != u.lib_width.get() {
-                u.lib_width.set(w);
+            if w != u.side_width.get() {
+                u.side_width.set(w);
                 if !u.save_pending.replace(true) {
                     let u2 = u.clone();
                     glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
@@ -13437,7 +14197,7 @@ fn setup_library(ui: &Rc<Ui>) {
         let dlg = adw::AlertDialog::new(
             Some(tr("Als Grafik in die Bibliothek")),
             Some(tr(
-                "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren.",
+                "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren",
             )),
         );
         dlg.set_extra_child(Some(&form));
@@ -13456,6 +14216,7 @@ fn setup_library(ui: &Rc<Ui>) {
             let added = with_library_add(&u2, move |l| l.add_graphic(&name, objs));
             lib_added(&u2, added, tr("Grafik"));
         });
+        label_icon_buttons(dlg.upcast_ref());
         dlg.present(Some(&u.window));
     });
     indexed("lib-color-name", |u, i| {
@@ -13542,9 +14303,7 @@ fn setup_library(ui: &Rc<Ui>) {
         u.lib_current.set(n - 1);
         save_settings(u);
         rebuild_library(u);
-        if !u.lib.toggle.is_active() {
-            u.lib.toggle.set_active(true);
-        }
+        show_library(&u);
     });
     add_action(ui, "lib-rename", |u| {
         if lib_locked(u) {
@@ -13589,6 +14348,7 @@ fn setup_library(ui: &Rc<Ui>) {
             save_settings(&u2);
             rebuild_library(&u2);
         });
+        label_icon_buttons(dlg.upcast_ref());
         dlg.present(Some(&u.window));
     });
     add_action(ui, "lib-delete", |u| {
@@ -13604,10 +14364,7 @@ fn setup_library(ui: &Rc<Ui>) {
             .unwrap_or_default();
         let dlg = adw::AlertDialog::new(
             Some(tr("Bibliothek löschen?")),
-            Some(&trf(
-                "„{}“ mit allen Farben und Stilen wird gelöscht.",
-                &[&(name)],
-            )),
+            Some(&trf("„{}“ mit allen Farben und Stilen wird gelöscht", &[&(name)])),
         );
         dlg.add_response("cancel", tr("_Abbrechen"));
         dlg.add_response("delete", tr("_Löschen"));
@@ -13633,6 +14390,7 @@ fn setup_library(ui: &Rc<Ui>) {
             save_settings(&u2);
             rebuild_library(&u2);
         });
+        label_icon_buttons(dlg.upcast_ref());
         dlg.present(Some(&u.window));
     });
 

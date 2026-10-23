@@ -756,9 +756,9 @@ impl Shape {
                     }
                 }
             }
-            Shape::Text { xf, size, .. } => {
+            Shape::Text { xf, size, fmt, .. } => {
                 // Skalierung in die Schriftgröße übernehmen, damit die Matrix nur Lage,
-                // Drehung und Spiegelung enthält.
+                // Drehung und Spiegelung enthält; der Abstand zum Rahmen wächst mit.
                 let mut x = m.then_before(xf);
                 let s = x.mean_scale();
                 if s > 1e-9 && (s - 1.0).abs() > 1e-12 {
@@ -767,11 +767,16 @@ impl Shape {
                     x.c /= s;
                     x.d /= s;
                     *size = (*size * s).max(0.5);
+                    fmt.box_inset *= s;
                 }
                 *xf = x;
             }
             Shape::TextPath {
-                path, size, offset, ..
+                path,
+                size,
+                offset,
+                fmt,
+                ..
             } => {
                 for sp in path.iter_mut() {
                     for n in sp.nodes.iter_mut() {
@@ -781,6 +786,7 @@ impl Shape {
                 let s = m.mean_scale();
                 *size = (*size * s).max(0.5);
                 *offset *= s;
+                fmt.box_inset *= s;
             }
             Shape::Image { xf, clip, .. } => {
                 *xf = m.then_before(xf);
@@ -3389,6 +3395,32 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_frame_padding_scales_with_text() {
+        let mut fmt = TextFormat::default();
+        fmt.box_inset = 10.0;
+        let mut t = Shape::Text {
+            xf: Affine::IDENTITY,
+            text: "Hallo".into(),
+            family: "Sans".into(),
+            size: 20.0,
+            bold: false,
+            italic: false,
+            fmt,
+        };
+        t.transform(&Affine::scale(2.0, 2.0));
+        match &t {
+            Shape::Text { size, fmt, .. } => {
+                assert!((*size - 40.0).abs() < 1e-9);
+                assert!((fmt.box_inset - 20.0).abs() < 1e-9);
+            }
+            _ => panic!(),
+        }
+        // Verschieben ändert nichts
+        t.transform(&Affine::translate(5.0, 5.0));
+        assert!((t.text_fields().unwrap().2 - 40.0).abs() < 1e-9);
+    }
 
     #[test]
     fn rich_runs() {

@@ -200,7 +200,7 @@ impl<'a> Parser<'a> {
 
     fn element(&mut self) -> Result<Element, String> {
         if self.depth >= MAX_DEPTH {
-            return Err(tr("Die Datei ist zu tief verschachtelt.").into());
+            return Err(tr("Die Datei ist zu tief verschachtelt").into());
         }
         self.depth += 1;
         let r = self.element_inner();

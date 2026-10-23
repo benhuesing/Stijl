@@ -6,56 +6,57 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Stijl\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
 #: ai.rs:853
-msgid "Die Datei ist sehr groß; es wurde nur ein Teil gelesen."
+msgid "Die Datei ist sehr groß; es wurde nur ein Teil gelesen"
 msgstr ""
 
 #: ai.rs:944
-msgid "Deckkraftmasken wurden nicht übernommen."
+msgid "Deckkraftmasken wurden nicht übernommen"
 msgstr ""
 
 #: ai.rs:1252 ai.rs:1261
-msgid "Muster- und Netzfüllungen wurden vereinfacht."
+msgid "Muster- und Netzfüllungen wurden vereinfacht"
 msgstr ""
 
 #: ai.rs:1770
-msgid "CMYK-JPEG-Bilder wurden übersprungen."
+msgid "CMYK-JPEG-Bilder wurden übersprungen"
 msgstr ""
 
 #: ai.rs:1775
-msgid "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen."
+msgid "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen"
 msgstr ""
 
 #: ai.rs:1786
-msgid "Transparenz von JPEG-Bildern wurde nicht übernommen."
+msgid "Transparenz von JPEG-Bildern wurde nicht übernommen"
 msgstr ""
 
 #: ai.rs:2091
-msgid "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen."
+msgid "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen"
 msgstr ""
 
 #: ai.rs:2099
-msgid "Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen."
+msgid "Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen"
 msgstr ""
 
 #: ai.rs:2232
-msgid "Die Datei enthält keine Seiten."
+msgid "Die Datei enthält keine Seiten"
 msgstr ""
 
 #: ai.rs:2355
-msgid "Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden."
+msgid "Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden"
 msgstr ""
 
 #: editor.rs:1411
-msgid "Die Ebene „{}“ ist ausgeblendet."
+msgid "Die Ebene „{}“ ist ausgeblendet"
 msgstr ""
 
 #: editor.rs:1415
-msgid "Die Ebene „{}“ ist gesperrt."
+msgid "Die Ebene „{}“ ist gesperrt"
 msgstr ""
 
 #: editor.rs:2249 library.rs:92 model.rs:343
@@ -67,31 +68,31 @@ msgid "Hilfslinie"
 msgstr ""
 
 #: editor.rs:3796 editor.rs:3920 editor.rs:3972
-msgid "Gesperrte Objekte lassen sich nicht verändern."
+msgid "Gesperrte Objekte lassen sich nicht verändern"
 msgstr ""
 
 #: editor.rs:3849
-msgid "Gesperrte Objekte lassen sich nicht löschen."
+msgid "Gesperrte Objekte lassen sich nicht löschen"
 msgstr ""
 
 #: editor.rs:4148
-msgid "Dafür mindestens zwei Objekte auswählen."
+msgid "Dafür mindestens zwei Objekte auswählen"
 msgstr ""
 
 #: editor.rs:4162
-msgid "Das Ergebnis wäre leer."
+msgid "Das Ergebnis wäre leer"
 msgstr ""
 
 #: editor.rs:4578
-msgid "Die Ebene „{}“ ist gesperrt oder ausgeblendet."
+msgid "Die Ebene „{}“ ist gesperrt oder ausgeblendet"
 msgstr ""
 
 #: editor.rs:4620
-msgid "Klicke auf einen Pfad oder eine Form, um Text daran auszurichten."
+msgid "Klicke auf einen Pfad oder eine Form, um Text daran auszurichten"
 msgstr ""
 
 #: editor.rs:4629
-msgid "Text lässt sich nicht an einem Bild ausrichten."
+msgid "Text lässt sich nicht an einem Bild ausrichten"
 msgstr ""
 
 #: editor.rs:4638 editor.rs:4989 model.rs:344
@@ -103,7 +104,7 @@ msgid "Ebene {}"
 msgstr ""
 
 #: editor.rs:4765
-msgid "Die letzte Ebene kann nicht gelöscht werden."
+msgid "Die letzte Ebene kann nicht gelöscht werden"
 msgstr ""
 
 #: editor.rs:4983 window.rs:3470 window.rs:10466
@@ -163,7 +164,7 @@ msgid "{} Objekte"
 msgstr ""
 
 #: editor.rs:5100
-msgid "Im Bild wurden keine Flächen gefunden."
+msgid "Im Bild wurden keine Flächen gefunden"
 msgstr ""
 
 #: editor.rs:5167
@@ -171,7 +172,7 @@ msgid "Nachgezeichnet"
 msgstr ""
 
 #: editor.rs:5395
-msgid "Hier ist keine geschlossene Fläche."
+msgid "Hier ist keine geschlossene Fläche"
 msgstr ""
 
 #: editor.rs:6571
@@ -203,11 +204,11 @@ msgid "Pfad"
 msgstr ""
 
 #: editor.rs:7034
-msgid "Die aktuelle Ebene ist gesperrt."
+msgid "Die aktuelle Ebene ist gesperrt"
 msgstr ""
 
 #: editor.rs:8042
-msgid "Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern."
+msgid "Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern"
 msgstr ""
 
 #: export.rs:23
@@ -235,7 +236,7 @@ msgid "Farbprofil: {}"
 msgstr ""
 
 #: export.rs:302
-msgid "Das Farbprofil ist kein lesbares CMYK-Druckprofil."
+msgid "Das Farbprofil ist kein lesbares CMYK-Druckprofil"
 msgstr ""
 
 #: fsutil.rs:31
@@ -243,19 +244,19 @@ msgid "kein Dateiname"
 msgstr ""
 
 #: keys.rs:542
-msgid "Diese Taste ist fest."
+msgid "Diese Taste ist fest"
 msgstr ""
 
 #: keys.rs:548
-msgid "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe."
+msgid "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe"
 msgstr ""
 
 #: keys.rs:553
-msgid "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt."
+msgid "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt"
 msgstr ""
 
 #: keys.rs:557
-msgid "Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig."
+msgid "Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig"
 msgstr ""
 
 #: keys.rs:572
@@ -587,11 +588,11 @@ msgid "Diese Datei enthält keine PDF-Daten. Die Illustrator-Datei muss mit der 
 msgstr ""
 
 #: pdf.rs:986
-msgid "Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen."
+msgid "Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen"
 msgstr ""
 
 #: pdf.rs:1001
-msgid "Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog)."
+msgid "Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog)"
 msgstr ""
 
 #: pdfx.rs:326
@@ -599,23 +600,23 @@ msgid "eingebettete Bilder im Inhalt werden nicht unterstützt"
 msgstr ""
 
 #: pdfx.rs:622
-msgid "Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht."
+msgid "Für PDF/X wird ein Farbprofil der Druckbedingung gebraucht"
 msgstr ""
 
 #: pdfx.rs:684
-msgid "Ein Bild ließ sich nicht nach CMYK umrechnen."
+msgid "Ein Bild ließ sich nicht nach CMYK umrechnen"
 msgstr ""
 
 #: pdfx.rs:703
-msgid "Ein Inhalt der Seite ließ sich nicht lesen."
+msgid "Ein Inhalt der Seite ließ sich nicht lesen"
 msgstr ""
 
 #: pdfx.rs:739
-msgid "Die PDF-Datei hat keinen Katalog."
+msgid "Die PDF-Datei hat keinen Katalog"
 msgstr ""
 
 #: pdfx.rs:787
-msgid "Die PDF-Datei hat einen ungültigen Katalog."
+msgid "Die PDF-Datei hat einen ungültigen Katalog"
 msgstr ""
 
 #: render.rs:4216
@@ -687,7 +688,7 @@ msgid "Teile der CSS-Formatierung"
 msgstr ""
 
 #: svg.rs:2664
-msgid "Die Datei ist kein SVG-Dokument."
+msgid "Die Datei ist kein SVG-Dokument"
 msgstr ""
 
 #: svg.rs:2727 window.rs:4779 window.rs:8625
@@ -1143,7 +1144,7 @@ msgid "Nichts ausgewählt"
 msgstr ""
 
 #: window.rs:3478
-msgid "Klicke ein Objekt an, um es zu bearbeiten."
+msgid "Klicke ein Objekt an, um es zu bearbeiten"
 msgstr ""
 
 #: window.rs:3492
@@ -1783,7 +1784,7 @@ msgid "Solange diese Leiste offen ist, lassen sich Zeichenflächen am Namen vers
 msgstr ""
 
 #: window.rs:5202
-msgid "Das ist keine Illustrator- oder PDF-Datei."
+msgid "Das ist keine Illustrator- oder PDF-Datei"
 msgstr ""
 
 #: window.rs:5221
@@ -1862,7 +1863,7 @@ msgid "Hier ist keine Farbe – auf die Seite klicken"
 msgstr ""
 
 #: window.rs:6661
-msgid "Das Bild lässt sich nicht lesen."
+msgid "Das Bild lässt sich nicht lesen"
 msgstr ""
 
 #: window.rs:8546
@@ -1890,7 +1891,7 @@ msgid "Änderungen an „{}“ speichern?"
 msgstr ""
 
 #: window.rs:8939
-msgid "Wenn du nicht speicherst, gehen die Änderungen verloren."
+msgid "Wenn du nicht speicherst, gehen die Änderungen verloren"
 msgstr ""
 
 #: window.rs:8942 window.rs:9319
@@ -2081,7 +2082,7 @@ msgid "Format suchen, z. B. „A5“ oder „Story“"
 msgstr ""
 
 #: window.rs:9892
-msgid "Kein passendes Format – „Eigenes Format …“ legt jede Größe an."
+msgid "Kein passendes Format – „Eigenes Format …“ legt jede Größe an"
 msgstr ""
 
 #: window.rs:9941
@@ -2201,7 +2202,7 @@ msgid "ICC-Farbprofile"
 msgstr ""
 
 #: window.rs:10305
-msgid "Das ist kein CMYK-Druckprofil (ICC)."
+msgid "Das ist kein CMYK-Druckprofil (ICC)"
 msgstr ""
 
 #: window.rs:10312
@@ -2293,7 +2294,7 @@ msgid "Jetzt die neue Tastenkombination drücken …"
 msgstr ""
 
 #: window.rs:10712
-msgid "Esc bricht ab, ⌫ entfernt das Kürzel."
+msgid "Esc bricht ab, ⌫ entfernt das Kürzel"
 msgstr ""
 
 #: window.rs:10762
@@ -2485,7 +2486,7 @@ msgid "Bild konnte nicht gelesen werden: {}"
 msgstr ""
 
 #: window.rs:11370
-msgid "Dieses Bildformat wird nicht unterstützt."
+msgid "Dieses Bildformat wird nicht unterstützt"
 msgstr ""
 
 #: window.rs:11381
@@ -2673,7 +2674,7 @@ msgid "ohne Namen"
 msgstr ""
 
 #: window.rs:12260
-msgid "Der Name ist freiwillig und erscheint unter dem Feld."
+msgid "Der Name ist freiwillig und erscheint unter dem Feld"
 msgstr ""
 
 #: window.rs:12264
@@ -2809,7 +2810,7 @@ msgid "Als Grafik in die Bibliothek"
 msgstr ""
 
 #: window.rs:13121
-msgid "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren."
+msgid "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren"
 msgstr ""
 
 #: window.rs:13137
@@ -2857,7 +2858,7 @@ msgid "Bibliothek löschen?"
 msgstr ""
 
 #: window.rs:13287
-msgid "„{}“ mit allen Farben und Stilen wird gelöscht."
+msgid "„{}“ mit allen Farben und Stilen wird gelöscht"
 msgstr ""
 
 #: window.rs:13290
@@ -3051,6 +3052,13 @@ msgstr ""
 msgid "Shortcuts"
 msgstr ""
 
+#: window.rs (Sprache)
+msgid "Sprache"
+msgstr ""
+
+msgid "Die Sprache wechselt beim nächsten Start von Stijl"
+msgstr ""
+
 msgid "Stijl {} ist verfügbar"
 msgstr ""
 
@@ -3084,5 +3092,125 @@ msgstr ""
 msgid "Bild „{}“ (keine Bilddatei)"
 msgstr ""
 
-msgid "Die Datei ist zu tief verschachtelt."
+msgid "Die Datei ist zu tief verschachtelt"
+msgstr ""
+
+msgid "{} (Kopie)"
+msgstr ""
+
+msgid "Zeichenfläche mit Inhalt duplizieren"
+msgstr ""
+
+msgid "{} – die Auswahl liegt auf dieser Ebene; das Kästchen auf eine andere Ebene ziehen, um sie zu verschieben"
+msgstr ""
+
+msgid "Ebenen und Bibliothek"
+msgstr ""
+
+msgid "Ebenen und Bibliothek ein-/ausblenden"
+msgstr ""
+
+msgid "Tastenkürzel"
+msgstr ""
+
+msgid "_Neu"
+msgstr ""
+
+msgid "_Öffnen…"
+msgstr ""
+
+msgid "Speichern _unter…"
+msgstr ""
+
+msgid "_Exportieren…"
+msgstr ""
+
+msgid "_Auswahl exportieren…"
+msgstr ""
+
+msgid "_Bild einfügen…"
+msgstr ""
+
+msgid "E_instellungen"
+msgstr ""
+
+msgid "_Tastenkürzel"
+msgstr ""
+
+msgid "_Hilfe"
+msgstr ""
+
+msgid "_Fehler melden…"
+msgstr ""
+
+msgid "_Über Stijl"
+msgstr ""
+
+msgid "Beenden"
+msgstr ""
+
+msgid "Informationen zum Dokument"
+msgstr ""
+
+msgid "Ordner"
+msgstr ""
+
+msgid "Objekte"
+msgstr ""
+
+msgid "Dateigröße"
+msgstr ""
+
+msgid "Datei erstellt"
+msgstr ""
+
+msgid "Datei geändert"
+msgstr ""
+
+msgid "Effekte"
+msgstr ""
+
+msgid "Zeichen"
+msgstr ""
+
+msgid "Absatz"
+msgstr ""
+
+msgid "Linienenden"
+msgstr ""
+
+msgid "Vertikal"
+msgstr ""
+
+msgid "Drehung"
+msgstr ""
+
+msgid "Versatz X"
+msgstr ""
+
+msgid "Versatz Y"
+msgstr ""
+
+msgid "Winkel"
+msgstr ""
+
+msgid "Objekte aneinander ausrichten"
+msgstr ""
+
+msgid "Textstil der Auswahl zur Bibliothek hinzufügen"
+msgstr ""
+
+msgid "Übergang …"
+msgstr ""
+
+msgid "_Erstellen"
+msgstr ""
+
+msgid "Willkommen bei Stijl"
+msgstr ""
+
+msgid "Leg ein neues Dokument an oder mach dort weiter, wo du aufgehört hast."
+msgstr ""
+
+msgid "Anzahl der Ecken neuer Vielecke und Sterne (und der ausgewählten)"
 msgstr ""
