@@ -110,9 +110,9 @@ if command -v gtk4-update-icon-cache >/dev/null; then
     gtk4-update-icon-cache -q -t -f "$DIST/share/icons/Adwaita" || true
 fi
 
-# Translations of GTK and libadwaita (file dialog, shortcuts …): German and British
-# English – Stijl’s own texts are built into the program
-for lang in de en_GB; do
+# Translations of GTK and libadwaita (file dialog, shortcuts …) for Stijl’s languages –
+# Stijl’s own texts are built into the program
+for lang in en_GB de es fr; do
     for mo in gtk40 gtk40-properties libadwaita glib20; do
         src="$PREFIX/share/locale/$lang/LC_MESSAGES/$mo.mo"
         if [[ -f "$src" ]]; then

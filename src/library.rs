@@ -52,6 +52,9 @@ pub struct Library {
     pub color_names: Vec<String>,
     /// Verläufe der Farben (gleiche Reihenfolge; fehlende = einfarbig)
     pub gradients: Vec<Option<Gradient>>,
+    /// Feste Kennungen der Farben (gleiche Reihenfolge): Objekte, die eine Farbe aus der
+    /// Bibliothek bekommen, merken sich die Kennung (globale Farben)
+    pub color_ids: Vec<String>,
     pub styles: Vec<LibStyle>,
     /// Grafiken (Objektgruppen)
     pub graphics: Vec<LibGraphic>,
@@ -72,6 +75,9 @@ pub fn builtin() -> Library {
     ] {
         if let Some(c) = Color::parse(hex) {
             lib.colors.push(c);
+            // feste Kennungen, damit Verknüpfungen auch nach einem Neustart passen
+            lib.color_ids
+                .push(format!("stijl-{}", hex.trim_start_matches('#')));
         }
     }
     let dark = Color::parse("#241f31").unwrap_or(Color::BLACK);
@@ -91,11 +97,11 @@ pub fn builtin() -> Library {
         name: name.into(),
     };
     lib.styles
-        .push(text(tr("Überschrift"), "Sans", 48.0, true, false, dark));
+        .push(text(tr("Heading"), "Sans", 48.0, true, false, dark));
     lib.styles
         .push(text(tr("Text"), "Sans", 16.0, false, false, dark));
     lib.styles.push(text(
-        tr("Zitat"),
+        tr("Quote"),
         "Serif",
         22.0,
         false,
@@ -107,6 +113,32 @@ pub fn builtin() -> Library {
 
 const COLORS_LAYER: &str = "Farben";
 const STYLES_LAYER: &str = "Stile";
+
+/// Kennung, die sich aus `key` ergibt (FNV-1a) – bei jedem Start dieselbe.
+fn stable_id(key: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("l{h:016x}")
+}
+
+/// Neue, (praktisch) eindeutige Kennung für eine Farbe.
+fn new_color_id() -> String {
+    use std::hash::{Hash, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+        .hash(&mut h);
+    COUNT.fetch_add(1, Ordering::Relaxed).hash(&mut h);
+    std::process::id().hash(&mut h);
+    format!("c{:016x}", h.finish())
+}
 
 fn same_color(a: Color, b: Color) -> bool {
     (a.r - b.r).abs() < 1e-3
@@ -157,7 +189,7 @@ impl Library {
             return false;
         }
         let name = if name.trim().is_empty() {
-            trf("Grafik {}", &[&(self.graphics.len() + 1)])
+            trf("Graphic {}", &[&(self.graphics.len() + 1)])
         } else {
             name.trim().to_string()
         };
@@ -188,7 +220,42 @@ impl Library {
         self.color_names.push(String::new());
         self.gradients.resize(n, None);
         self.gradients.push(g);
+        self.ensure_ids();
         true
+    }
+
+    /// Fehlende Kennungen der Farben ergänzen (ältere Bibliotheken hatten keine).
+    pub fn ensure_ids(&mut self) {
+        while self.color_ids.len() < self.colors.len() {
+            self.color_ids.push(new_color_id());
+        }
+        self.color_ids.truncate(self.colors.len());
+    }
+
+    /// Kennung der Farbe `i` (nur einfarbige Farben lassen sich verknüpfen).
+    pub fn color_link(&self, i: usize) -> Option<String> {
+        if self.gradient(i).is_some() {
+            return None;
+        }
+        self.color_ids.get(i).cloned()
+    }
+
+    /// Aktuelle Farbe zur Kennung `link`.
+    pub fn linked_color(&self, link: &str) -> Option<Color> {
+        let i = self.color_ids.iter().position(|id| id == link)?;
+        self.colors.get(i).copied()
+    }
+
+    /// Farbe `i` ändern (nur einfarbige). Liefert Kennung und alte Farbe, wenn sich etwas
+    /// geändert hat – damit lassen sich die verknüpften Objekte nachziehen.
+    pub fn set_color(&mut self, i: usize, c: Color) -> Option<(String, Color)> {
+        self.ensure_ids();
+        let old = *self.colors.get(i)?;
+        if self.gradient(i).is_some() || same_color(old, c) {
+            return None;
+        }
+        self.colors[i] = c;
+        Some((self.color_ids[i].clone(), old))
     }
 
     /// Verlauf der Farbe `i` (None = einfarbig).
@@ -224,6 +291,8 @@ impl Library {
         if i >= self.colors.len() {
             return false;
         }
+        self.ensure_ids();
+        self.color_ids.remove(i);
         self.colors.remove(i);
         if i < self.color_names.len() {
             self.color_names.remove(i);
@@ -250,6 +319,8 @@ impl Library {
             let id = doc.alloc_id();
             doc.layers[0].objects.push(Object {
                 group: 0,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: self.color_name(i).to_string(),
                 id,
@@ -264,6 +335,11 @@ impl Library {
                     fill: Some(*c),
                     stroke: None,
                     gradient: self.gradient(i).cloned(),
+                    // die Kennung der Farbe steht als ihre eigene Verknüpfung in der Datei
+                    fill_link: self
+                        .color_ids
+                        .get(i)
+                        .map(|id| crate::model::ColorLink::new(id, *c)),
                     ..Style::default()
                 },
                 angle: 0.0,
@@ -312,6 +388,8 @@ impl Library {
             let id = doc.alloc_id();
             layer.objects.push(Object {
                 group: 0,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: s.name.clone(),
                 id,
@@ -351,6 +429,16 @@ impl Library {
                         lib.colors.push(c);
                         lib.color_names.push(o.name.clone());
                         lib.gradients.push(o.style.gradient.clone());
+                        // ältere Bibliotheken ohne Kennung: feste Kennung aus Name, Stelle und
+                        // Farbe, damit Verknüpfungen auch ohne erneutes Speichern halten
+                        let key = format!("{name}|{}|{}", lib.color_ids.len(), c.to_hex());
+                        lib.color_ids.push(
+                            o.style
+                                .fill_link
+                                .as_ref()
+                                .map(|l| l.id.clone())
+                                .unwrap_or_else(|| stable_id(&key)),
+                        );
                     }
                 }
             } else if let Some(n) = layer.name.strip_prefix(GRAPHIC_PREFIX) {
@@ -393,7 +481,7 @@ pub fn file_name(name: &str) -> String {
         })
         .collect();
     let clean = clean.trim();
-    format!("{}.svg", if clean.is_empty() { tr("Bibliothek") } else { clean })
+    format!("{}.svg", if clean.is_empty() { tr("Library") } else { clean })
 }
 
 #[cfg(test)]
@@ -409,6 +497,8 @@ mod tests {
         let logo = |x: f64, g: u64| Object {
             id: 1,
             group: g,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             shape: Shape::Rect {
@@ -440,7 +530,7 @@ mod tests {
             width: 4.0,
             opacity: 0.7,
             fx: crate::model::Effects {
-                tex: Some((crate::model::Texture::Frost, 1.0)),
+                glass: Some(1.0),
                 ..Default::default()
             },
             join: crate::model::LineJoin::Round,

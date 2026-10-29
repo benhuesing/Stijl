@@ -4,6 +4,7 @@
 //! Dokumentmodell: Ebenen, Objekte, Formen und Stile.
 
 use crate::i18n::{tr, trf};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::geom::{cubic_bbox, Affine, Pt, Rect};
@@ -61,7 +62,8 @@ impl Color {
         let s = s.trim();
         let lower = s.to_ascii_lowercase();
         if let Some(hex) = lower.strip_prefix('#') {
-            let v = |i: usize, n: usize| u8::from_str_radix(&hex[i..i + n], 16).ok();
+            // nur ASCII lässt sich stückweise lesen (sonst läge ein Schnitt mitten in einem Zeichen)
+            let v = |i: usize, n: usize| hex.get(i..i + n).and_then(|h| u8::from_str_radix(h, 16).ok());
             return match hex.len() {
                 3 | 4 => {
                     let r = v(0, 1)? as f64 * 17.0;
@@ -339,14 +341,14 @@ pub enum Shape {
 impl Shape {
     pub fn kind_name(&self) -> &'static str {
         match self {
-            Shape::Rect { .. } => tr("Rechteck"),
+            Shape::Rect { .. } => tr("Rectangle"),
             Shape::Ellipse { .. } => tr("Ellipse"),
-            Shape::Line { .. } => tr("Linie"),
-            Shape::Path { .. } => tr("Pfad"),
+            Shape::Line { .. } => tr("Line"),
+            Shape::Path { .. } => tr("Path"),
             Shape::Text { .. } => tr("Text"),
-            Shape::TextPath { .. } => tr("Text auf Pfad"),
-            Shape::TextArea { .. } => tr("Textfeld"),
-            Shape::Image { .. } => tr("Bild"),
+            Shape::TextPath { .. } => tr("Text on Path"),
+            Shape::TextArea { .. } => tr("Text Box"),
+            Shape::Image { .. } => tr("Image"),
         }
     }
 
@@ -1079,7 +1081,7 @@ pub fn fillet_radii(sp: &SubPath, items: &[(usize, f64)]) -> (SubPath, Vec<usize
         return (out, items.iter().map(|x| x.0).collect());
     }
     let mut sorted: Vec<(usize, f64)> = items.iter().copied().filter(|&(i, r)| i < n && r > 0.0).collect();
-    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    sorted.sort_by_key(|a| a.0);
     sorted.dedup_by(|a, b| a.0 == b.0);
     // Ersatzknoten je Index berechnen (auf dem Original), dann von hinten einsetzen.
     let mut replacements: Vec<(usize, [Node; 2])> = Vec::new();
@@ -1169,6 +1171,10 @@ pub struct Style {
     pub dash: Dash,
     /// Effekte (Milchglas, Kunsteffekt, 3D-Effekt, Spiegelung)
     pub fx: Effects,
+    /// Globale Farben: Kennung der Bibliotheksfarbe, aus der Füllung bzw. Kontur stammen.
+    /// Ändert man die Farbe in der Bibliothek, ändern sich alle so verknüpften Objekte mit.
+    pub fill_link: Option<ColorLink>,
+    pub stroke_link: Option<ColorLink>,
 }
 
 /// Wofür eine Farbe gilt.
@@ -1221,7 +1227,10 @@ impl Style {
             }
             g
         });
+        // nur die Deckkraft: eine Verknüpfung mit der Bibliothek bleibt
+        let links = (self.fill_link.clone(), self.stroke_link.clone());
         self.set_paint(t, Some(Color { a, ..c }), g);
+        (self.fill_link, self.stroke_link) = links;
     }
 
     /// Deckkraft des ganzen Objekts in die Farben übernehmen (die Seitenleiste zeigt nur
@@ -1254,6 +1263,12 @@ impl Style {
 
     /// Farbe (und Verlauf) setzen; `None` schaltet Füllung, Kontur bzw. Schatten ab.
     pub fn set_paint(&mut self, t: PaintTarget, c: Option<Color>, g: Option<Gradient>) {
+        // eine von Hand gewählte Farbe ist nicht mehr mit der Bibliothek verknüpft
+        match t {
+            PaintTarget::Fill => self.fill_link = None,
+            PaintTarget::Stroke => self.stroke_link = None,
+            PaintTarget::Shadow => {}
+        }
         match t {
             PaintTarget::Fill => self.fill = c,
             PaintTarget::Stroke => self.stroke = c,
@@ -1346,9 +1361,9 @@ impl LineJoin {
     }
     pub fn label(self) -> &'static str {
         match self {
-            LineJoin::Miter => tr("Spitze Ecken"),
-            LineJoin::Round => tr("Runde Ecken"),
-            LineJoin::Bevel => tr("Abgeschrägte Ecken"),
+            LineJoin::Miter => tr("Mitred corners"),
+            LineJoin::Round => tr("Round corners"),
+            LineJoin::Bevel => tr("Bevelled corners"),
         }
     }
 }
@@ -1376,9 +1391,9 @@ impl LineCap {
     }
     pub fn label(self) -> &'static str {
         match self {
-            LineCap::Butt => tr("Gerade Enden"),
-            LineCap::Round => tr("Runde Enden"),
-            LineCap::Square => tr("Überstehende Enden"),
+            LineCap::Butt => tr("Butt ends"),
+            LineCap::Round => tr("Round ends"),
+            LineCap::Square => tr("Square ends"),
         }
     }
 }
@@ -1429,6 +1444,8 @@ impl Default for Style {
             stroke_align: StrokeAlign::Center,
             dash: Dash::Solid,
             fx: Effects::default(),
+            fill_link: None,
+            stroke_link: None,
         }
     }
 }
@@ -1466,11 +1483,11 @@ impl Dash {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Dash::Solid => tr("Durchgezogen"),
-            Dash::Dashed => tr("Gestrichelt"),
-            Dash::Dotted => tr("Gepunktet"),
-            Dash::DashDot => tr("Strich-Punkt"),
-            Dash::LongDash => tr("Lange Striche"),
+            Dash::Solid => tr("Solid"),
+            Dash::Dashed => tr("Dashed"),
+            Dash::Dotted => tr("Dotted"),
+            Dash::DashDot => tr("Dash-dot"),
+            Dash::LongDash => tr("Long dashes"),
         }
     }
     /// Strich- und Lückenlängen bei Konturstärke `w` (leer: durchgezogen).
@@ -1527,11 +1544,11 @@ impl Marker {
     ];
     pub fn label(self) -> &'static str {
         match self {
-            Marker::None => tr("Keine"),
-            Marker::Arrow => tr("Pfeil"),
-            Marker::OpenArrow => tr("Offener Pfeil"),
-            Marker::Dot => tr("Punkt"),
-            Marker::Bar => tr("Querstrich"),
+            Marker::None => tr("None"),
+            Marker::Arrow => tr("Arrow"),
+            Marker::OpenArrow => tr("Open arrow"),
+            Marker::Dot => tr("Dot"),
+            Marker::Bar => tr("Bar"),
         }
     }
     pub fn name(self) -> &'static str {
@@ -1695,11 +1712,87 @@ pub struct Object {
     /// Drehwinkel in Grad (gegen den Uhrzeigersinn), wird bei Drehungen mitgeführt.
     pub angle: f64,
     /// Gruppe (0 = keine); alle Objekte mit derselben Nummer werden gemeinsam ausgewählt.
+    /// Das ist immer die äußerste Gruppe.
     pub group: u64,
+    /// Gruppen innerhalb von `group`, von außen nach innen (leer = direkt in `group`).
+    /// Gruppieren legt eine Ebene außen herum, Aufheben nimmt die äußerste weg.
+    pub sub: Vec<u64>,
+    /// Schnittmaske: das Objekt wird nicht gezeichnet; seine Form begrenzt alle anderen
+    /// Objekte seiner innersten Gruppe.
+    pub mask: bool,
     /// Gesperrt: auswählbar, aber nicht verschieb-, skalier- oder löschbar.
     pub locked: bool,
     /// Optionaler Name (in SVG als inkscape:label)
     pub name: String,
+}
+
+impl Object {
+    /// Alle Gruppen des Objekts von außen nach innen (leer = in keiner Gruppe).
+    pub fn chain(&self) -> Vec<u64> {
+        if self.group == 0 {
+            Vec::new()
+        } else {
+            std::iter::once(self.group)
+                .chain(self.sub.iter().copied())
+                .collect()
+        }
+    }
+
+    /// Innerste Gruppe (0 = keine).
+    pub fn inner_group(&self) -> u64 {
+        self.sub.last().copied().unwrap_or(self.group)
+    }
+
+    /// Fläche einer Schnittmaske: die Form gefüllt, ohne Kontur und Effekte.
+    pub fn clip_area(&self) -> Object {
+        let mut o = self.clone();
+        o.style = Style {
+            fill: Some(Color::BLACK),
+            stroke: None,
+            ..Style::default()
+        };
+        o.mask = false;
+        o
+    }
+}
+
+/// Neue Gruppennummern für eine Kopie (auf allen Ebenen; dieselbe alte Nummer bekommt in
+/// einem Durchgang dieselbe neue). `next` ist die zuletzt vergebene Nummer.
+pub fn regroup_ids(o: &mut Object, map: &mut Vec<(u64, u64)>, next: &mut u64) {
+    let mut renew = |g: u64| -> u64 {
+        if g == 0 {
+            return 0;
+        }
+        match map.iter().find(|(old, _)| *old == g) {
+            Some((_, n)) => *n,
+            None => {
+                *next += 1;
+                map.push((g, *next));
+                *next
+            }
+        }
+    };
+    o.group = renew(o.group);
+    for g in o.sub.iter_mut() {
+        *g = renew(*g);
+    }
+}
+
+/// Schnittmasken je Gruppe: innerste Gruppe der Maske → Maske (als Fläche).
+pub fn masks_of<'a>(objs: impl Iterator<Item = &'a Object>) -> HashMap<u64, Object> {
+    let mut m = HashMap::new();
+    for o in objs.filter(|o| o.mask && o.group != 0) {
+        m.entry(o.inner_group()).or_insert_with(|| o.clip_area());
+    }
+    m
+}
+
+/// Die Masken, die ein Objekt begrenzen (von außen nach innen).
+pub fn clips_of<'a>(o: &Object, masks: &'a HashMap<u64, Object>) -> Vec<&'a Object> {
+    if o.mask || masks.is_empty() {
+        return Vec::new();
+    }
+    o.chain().iter().filter_map(|g| masks.get(g)).collect()
 }
 
 /// Winkel auf den Bereich (−180°, 180°] bringen.
@@ -1928,11 +2021,11 @@ impl ListStyle {
     }
     pub fn label(self) -> &'static str {
         match self {
-            ListStyle::None => tr("Keine"),
-            ListStyle::Dot => tr("• Punkte"),
-            ListStyle::Square => tr("▪ Quadrate"),
-            ListStyle::Dash => tr("– Striche"),
-            ListStyle::Number => tr("1. Nummeriert"),
+            ListStyle::None => tr("None"),
+            ListStyle::Dot => tr("• Bullets"),
+            ListStyle::Square => tr("▪ Squares"),
+            ListStyle::Dash => tr("– Dashes"),
+            ListStyle::Number => tr("1. Numbered"),
         }
     }
     /// Aufzählungszeichen für Absatz `i` (ab 0).
@@ -2377,23 +2470,51 @@ pub enum Art {
     Grain,
     Pixel,
     Watercolor,
+    /// Wachsmalstifte: Papierstruktur scheint in schrägen Strichen durch
+    Crayon,
+    /// Ölfarbe: Pinselstriche mit leichtem Relief
+    Oil,
+    /// Raster: Punkte, deren Größe der Helligkeit folgt (Größe und Winkel einstellbar)
+    Halftone,
+    /// Risografie: leicht versetzte Farbschichten und Körnung
+    Risograph,
 }
 
 impl Art {
-    pub const ALL: [Art; 3] = [Art::Grain, Art::Pixel, Art::Watercolor];
+    pub const ALL: [Art; 7] = [
+        Art::Grain,
+        Art::Pixel,
+        Art::Watercolor,
+        Art::Crayon,
+        Art::Oil,
+        Art::Halftone,
+        Art::Risograph,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Art::Grain => "grain",
             Art::Pixel => "pixel",
             Art::Watercolor => "watercolor",
+            Art::Crayon => "crayon",
+            Art::Oil => "oil",
+            Art::Halftone => "halftone",
+            Art::Risograph => "riso",
         }
     }
     pub fn label(self) -> &'static str {
         match self {
-            Art::Grain => tr("Körnung"),
-            Art::Pixel => tr("Pixel"),
-            Art::Watercolor => tr("Wasserfarben"),
+            Art::Grain => tr("Grain"),
+            Art::Pixel => tr("Pixels"),
+            Art::Watercolor => tr("Watercolour"),
+            Art::Crayon => tr("Crayons"),
+            Art::Oil => tr("Oil paint"),
+            Art::Halftone => tr("Halftone"),
+            Art::Risograph => tr("Risograph"),
         }
+    }
+    /// Hat der Effekt eine Größe und einen Winkel (wie ein Muster)?
+    pub fn has_pattern(self) -> bool {
+        self == Art::Halftone
     }
     pub fn from_name(s: &str) -> Option<Art> {
         Art::ALL.into_iter().find(|a| a.name() == s.trim())
@@ -2420,8 +2541,8 @@ impl ImgFilter {
     pub fn label(self) -> &'static str {
         match self {
             ImgFilter::Sepia => tr("Sepia"),
-            ImgFilter::Mono => tr("Schwarz-Weiß"),
-            ImgFilter::Invert => tr("Farben invertieren"),
+            ImgFilter::Mono => tr("Black & white"),
+            ImgFilter::Invert => tr("Invert colours"),
         }
     }
     pub fn from_name(s: &str) -> Option<ImgFilter> {
@@ -2459,10 +2580,10 @@ impl Lens {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Lens::Drop => tr("Regentropfen"),
-            Lens::Sphere => tr("Kugel"),
-            Lens::Crystal => tr("Kristall"),
-            Lens::Pyramid => tr("Pyramide"),
+            Lens::Drop => tr("Raindrop"),
+            Lens::Sphere => tr("Sphere"),
+            Lens::Crystal => tr("Crystal"),
+            Lens::Pyramid => tr("Pyramid"),
         }
     }
     pub fn from_name(s: &str) -> Option<Lens> {
@@ -2470,42 +2591,49 @@ impl Lens {
     }
 }
 
-/// Textur: verändert, wie die Oberfläche eines Objekts wirkt.
+/// Material: wie die Oberfläche eines Objekts wirkt und wie sie das Licht eines 3D-Effekts
+/// zurückwirft. Ohne Material ist die Oberfläche matt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Texture {
-    /// Milchglas: Darunterliegendes erscheint weichgezeichnet
-    Frost,
-    /// gebürstetes Metall: feine Striche in einer Richtung mit metallischem Schimmer
-    Brushed,
-    /// Hochglanz: Glanzlicht im oberen Teil und heller Rand
+pub enum Material {
+    /// Hochglanz: lackiert oder Kunststoff, kleines helles Glanzlicht
     Gloss,
+    /// poliertes Metall: spiegelt Himmel und Boden, Glanz in der Farbe des Objekts
+    Metal,
+    /// gebürstetes Metall: feine Striche, Glanz entlang der Bürstrichtung
+    Brushed,
+    /// Samt: dunkel in der Fläche, schimmert an Rändern und Flanken
+    Velvet,
 }
 
-impl Texture {
-    pub const ALL: [Texture; 3] = [Texture::Frost, Texture::Brushed, Texture::Gloss];
+impl Material {
+    pub const ALL: [Material; 4] = [
+        Material::Gloss,
+        Material::Metal,
+        Material::Brushed,
+        Material::Velvet,
+    ];
     pub fn name(self) -> &'static str {
         match self {
-            Texture::Frost => "frost",
-            Texture::Brushed => "brushed",
-            Texture::Gloss => "gloss",
+            Material::Gloss => "gloss",
+            Material::Metal => "metal",
+            Material::Brushed => "brushed",
+            Material::Velvet => "velvet",
         }
     }
     pub fn label(self) -> &'static str {
         match self {
-            Texture::Frost => tr("Milchglas"),
-            Texture::Brushed => tr("Gebürstetes Metall"),
-            Texture::Gloss => tr("Hochglanz"),
+            Material::Gloss => tr("Gloss"),
+            Material::Metal => tr("Metal"),
+            Material::Brushed => tr("Brushed metal"),
+            Material::Velvet => tr("Velvet"),
         }
     }
-    pub fn from_name(s: &str) -> Option<Texture> {
-        Texture::ALL.into_iter().find(|a| a.name() == s.trim())
+    pub fn from_name(s: &str) -> Option<Material> {
+        Material::ALL.into_iter().find(|a| a.name() == s.trim())
     }
-    /// Startstärke: Milchglas hat seit 0.9.19 eine verdoppelte Skala.
-    pub fn default_strength(self) -> f64 {
-        match self {
-            Texture::Frost => FROST_DEFAULT,
-            _ => FX_DEFAULT,
-        }
+    /// Hat das Material eine Richtung (Bürstrichtung)?
+    pub fn has_direction(self) -> bool {
+        self == Material::Brushed
     }
 }
 
@@ -2513,8 +2641,14 @@ impl Texture {
 /// (`Style::blend`) und Schatten (`Style::shadow`) stehen im Stil selbst.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Effects {
-    /// Textur: Milchglas, gebürstetes Metall oder Hochglanz (höchstens eine)
-    pub tex: Option<(Texture, f64)>,
+    /// Glas: Darunterliegendes erscheint weichgezeichnet (Stärke = Unschärfe, 0–1)
+    pub glass: Option<f64>,
+    /// Glas: feine Körnung (0–1). Die Füllung tönt das Glas (siehe `GLASS_FILL`).
+    pub glass_grain: f64,
+    /// Material der Oberfläche (ohne: matt)
+    pub mat: Option<(Material, f64)>,
+    /// Richtung des Materials in Grad (Bürstrichtung)
+    pub mat_angle: f64,
     /// Kunsteffekt auf der Füllung
     pub art: Option<(Art, f64)>,
     /// 3D-Effekt: Form und Stärke von −1 (eingedrückt) über 0 (Ausgangszustand) bis 1
@@ -2528,6 +2662,42 @@ pub struct Effects {
     pub tint: Option<(ImgFilter, f64)>,
     /// Farbtemperatur von Bildern: −1 = kalt, 0 = Original, 1 = warm
     pub temp: f64,
+    /// Extra: Leuchten um die Kontur (bzw. die Form ohne Kontur), Stärke 0–1
+    pub glow: Option<f64>,
+    /// Extra: Schatten nach innen (die Form wirkt eingedrückt), Deckkraft 0–1
+    pub inner: Option<f64>,
+    /// Innenschatten: Abstand und Weichzeichnung (Dokumenteinheiten), Richtung in Grad
+    /// (0° = nach rechts, 90° = nach unten; das Licht kommt von der Gegenseite)
+    pub inner_dist: f64,
+    pub inner_blur: f64,
+    pub inner_angle: f64,
+    /// Spiegelung: Länge (Anteil der Objekthöhe) und Abstand zur Unterkante
+    pub mirror_len: f64,
+    pub mirror_gap: f64,
+    /// Abstand der Punkte (Dokumenteinheiten) und Winkel (Grad) der Rasterpunkte
+    pub art_size: f64,
+    pub art_angle: f64,
+}
+
+/// Abstand der Rasterpunkte, mit dem sie beginnen.
+pub const ART_SIZE: f64 = 8.0;
+/// Winkel der Rasterpunkte, mit dem sie beginnen (wie im Druck).
+pub const ART_ANGLE: f64 = 45.0;
+
+/// Vorgaben für Innenschatten und Spiegelung.
+pub const INNER_DIST: f64 = 4.0;
+pub const INNER_BLUR: f64 = 8.0;
+pub const INNER_ANGLE: f64 = 45.0;
+pub const MIRROR_LEN: f64 = 0.75;
+pub const MIRROR_GAP: f64 = 2.0;
+/// Glas: Körnung, mit der es beginnt, und wie stark die Füllung das Glas tönt (Anteil ihrer
+/// Deckkraft; ohne Füllung ist das Glas farblos).
+pub const GLASS_GRAIN: f64 = 0.2;
+pub const GLASS_FILL: f64 = 0.25;
+
+/// Reichweite des Leuchtens (Dokumenteinheiten) bei Stärke `k`.
+pub fn glow_radius(k: f64) -> f64 {
+    4.0 + 28.0 * k.clamp(0.0, 1.0)
 }
 
 /// Stärke der Beleuchtung beim 3D-Effekt, mit der ein neuer Effekt beginnt.
@@ -2536,45 +2706,61 @@ pub const LIGHT_DEFAULT: f64 = 0.5;
 impl Default for Effects {
     fn default() -> Effects {
         Effects {
-            tex: None,
+            glass: None,
+            glass_grain: GLASS_GRAIN,
+            mat: None,
+            mat_angle: 0.0,
             art: None,
             lens: None,
             light: LIGHT_DEFAULT,
             mirror: None,
             tint: None,
             temp: 0.0,
+            glow: None,
+            inner: None,
+            inner_dist: INNER_DIST,
+            inner_blur: INNER_BLUR,
+            inner_angle: INNER_ANGLE,
+            mirror_len: MIRROR_LEN,
+            mirror_gap: MIRROR_GAP,
+            art_size: ART_SIZE,
+            art_angle: ART_ANGLE,
         }
     }
 }
 
 impl Effects {
-    /// Braucht das Objekt den Hintergrund unter sich (Milchglas, 3D-Effekt)?
+    /// Braucht das Objekt den Hintergrund unter sich (Glas, 3D-Effekt)?
     pub fn uses_backdrop(&self) -> bool {
-        matches!(self.tex, Some((Texture::Frost, _))) || self.lens.is_some()
+        self.glass.is_some() || self.lens.is_some()
     }
 
-    /// Braucht das Objekt die Glas-Zeichnung (Hintergrund, Relief oder Textur über dem Objekt)?
+    /// Braucht das Objekt die Glas-Zeichnung (Hintergrund, Relief oder Material über dem Objekt)?
     pub fn needs_glass(&self) -> bool {
-        self.uses_backdrop() || self.tex.is_some()
+        self.uses_backdrop() || self.mat.is_some()
     }
 
-    /// Milchglas-Stärke, falls Milchglas als Textur gewählt ist.
+    /// Versatz des Innenschattens (Dokumenteinheiten).
+    pub fn inner_offset(&self) -> Pt {
+        let a = self.inner_angle.to_radians();
+        Pt::new(a.cos(), a.sin()) * self.inner_dist
+    }
+
+    /// Unschärfe des Glases, falls Glas angewendet ist.
     pub fn frost(&self) -> Option<f64> {
-        match self.tex {
-            Some((Texture::Frost, k)) => Some(k),
-            _ => None,
-        }
+        self.glass
     }
 
-    /// Kurzform zum Speichern: „frost=0.5 art=grain:0.4 lens=drop:-0.6 mirror=0.3 tint=sepia:1 temp=0.3“
-    /// (Milchglas bleibt als „frost=“ lesbar für ältere Versionen, die anderen Texturen stehen
-    /// als „tex=brushed:0.5“).
+    /// Kurzform zum Speichern: „frost=0.5 tex=gloss:0.4 art=grain:0.4 lens=drop:-0.6 …“
+    /// (Glas steht als „frost=“, das Material als „tex=“ – so lesen ältere Versionen Glas,
+    /// Hochglanz und gebürstetes Metall weiter).
     pub fn to_attr(&self) -> String {
         let mut v = Vec::new();
-        match self.tex {
-            Some((Texture::Frost, f)) => v.push(format!("frost={f}")),
-            Some((t, f)) => v.push(format!("tex={}:{f}", t.name())),
-            None => {}
+        if let Some(f) = self.glass {
+            v.push(format!("frost={f}"));
+        }
+        if let Some((t, f)) = self.mat {
+            v.push(format!("tex={}:{f}", t.name()));
         }
         if let Some((a, k)) = self.art {
             v.push(format!("art={}:{k}", a.name()));
@@ -2594,6 +2780,31 @@ impl Effects {
         if self.temp.abs() > 1e-9 {
             v.push(format!("temp={}", self.temp));
         }
+        if let Some(g) = self.glow {
+            v.push(format!("glow={g}"));
+        }
+        if let Some(g) = self.inner {
+            v.push(format!("inner={g}"));
+        }
+        for (key, val, def) in [
+            ("innerdist", self.inner_dist, INNER_DIST),
+            ("innerblur", self.inner_blur, INNER_BLUR),
+            ("innerangle", self.inner_angle, INNER_ANGLE),
+            ("mirrorlen", self.mirror_len, MIRROR_LEN),
+            ("mirrorgap", self.mirror_gap, MIRROR_GAP),
+            ("glassgrain", self.glass_grain, GLASS_GRAIN),
+            ("matangle", self.mat_angle, 0.0),
+        ] {
+            if (val - def).abs() > 1e-9 {
+                v.push(format!("{key}={val}"));
+            }
+        }
+        if (self.art_size - ART_SIZE).abs() > 1e-9 {
+            v.push(format!("artsize={}", self.art_size));
+        }
+        if (self.art_angle - ART_ANGLE).abs() > 1e-9 {
+            v.push(format!("artangle={}", self.art_angle));
+        }
         v.join(" ")
     }
 
@@ -2608,8 +2819,13 @@ impl Effects {
                 Some((a, b.parse::<f64>().ok()?.clamp(0.0, 1.0)))
             };
             match k {
-                "frost" => e.tex = v.parse::<f64>().ok().map(|x| (Texture::Frost, x.clamp(0.0, 1.0))),
-                "tex" => e.tex = pair().and_then(|(a, k)| Some((Texture::from_name(a)?, k))),
+                "frost" => e.glass = v.parse::<f64>().ok().map(|x| x.clamp(0.0, 1.0)),
+                // Dateien bis 0.9.60: Milchglas war eine Textur; Papier, Holz und Fell
+                // entfallen (matt)
+                "tex" => match pair() {
+                    Some(("frost", k)) => e.glass = Some(k),
+                    p => e.mat = p.and_then(|(a, k)| Some((Material::from_name(a)?, k))),
+                },
                 "art" => e.art = pair().and_then(|(a, k)| Some((Art::from_name(a)?, k))),
                 "lens" => {
                     e.lens = v.split_once(':').and_then(|(a, b)| {
@@ -2631,6 +2847,36 @@ impl Effects {
                     p => e.tint = p.and_then(|(a, k)| Some((ImgFilter::from_name(a)?, k))),
                 },
                 "temp" => e.temp = v.parse::<f64>().ok().map_or(0.0, |x| x.clamp(-1.0, 1.0)),
+                "glow" => e.glow = v.parse::<f64>().ok().map(|x| x.clamp(0.0, 1.0)),
+                "inner" => e.inner = v.parse::<f64>().ok().map(|x| x.clamp(0.0, 1.0)),
+                "innerdist" | "innerblur" | "innerangle" | "mirrorlen" | "mirrorgap" | "glassgrain"
+                | "matangle" => {
+                    if let Some(x) = v.parse::<f64>().ok().filter(|x| x.is_finite()) {
+                        match k {
+                            "innerdist" => e.inner_dist = x.clamp(0.0, 500.0),
+                            "innerblur" => e.inner_blur = x.clamp(0.0, 500.0),
+                            "innerangle" => e.inner_angle = normalize_angle(x),
+                            "mirrorlen" => e.mirror_len = x.clamp(0.05, 3.0),
+                            "glassgrain" => e.glass_grain = x.clamp(0.0, 1.0),
+                            "matangle" => e.mat_angle = normalize_angle(x),
+                            _ => e.mirror_gap = x.clamp(-1000.0, 1000.0),
+                        }
+                    }
+                }
+                "artsize" => {
+                    e.art_size = v
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|x| x.is_finite())
+                        .map_or(ART_SIZE, |x| x.clamp(1.0, 500.0))
+                }
+                "artangle" => {
+                    e.art_angle = v
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|x| x.is_finite())
+                        .map_or(ART_ANGLE, normalize_angle)
+                }
                 _ => {}
             }
         }
@@ -2693,22 +2939,22 @@ impl Blend {
     /// Bezeichnung wie in gängigen Grafikprogrammen.
     pub fn label(self) -> &'static str {
         match self {
-            Blend::Normal => tr("Überdecken"),
-            Blend::Multiply => tr("Abdunkeln"),
-            Blend::Screen => tr("Aufhellen"),
-            Blend::Overlay => tr("Ineinanderkopieren"),
-            Blend::Darken => tr("Abdunkeln (dunklere Farbe)"),
-            Blend::Lighten => tr("Aufhellen (hellere Farbe)"),
-            Blend::ColorDodge => tr("Farbig abwedeln"),
-            Blend::ColorBurn => tr("Farbig nachbelichten"),
-            Blend::HardLight => tr("Hartes Licht"),
-            Blend::SoftLight => tr("Weiches Licht"),
-            Blend::Difference => tr("Differenz"),
-            Blend::Exclusion => tr("Ausschluss"),
-            Blend::Hue => tr("Farbton"),
-            Blend::Saturation => tr("Sättigung"),
-            Blend::Color => tr("Farbe"),
-            Blend::Luminosity => tr("Luminanz"),
+            Blend::Normal => tr("Cover"),
+            Blend::Multiply => tr("Darken"),
+            Blend::Screen => tr("Lighten"),
+            Blend::Overlay => tr("Overlay"),
+            Blend::Darken => tr("Darken (darker colour)"),
+            Blend::Lighten => tr("Lighten (lighter colour)"),
+            Blend::ColorDodge => tr("Colour dodge"),
+            Blend::ColorBurn => tr("Colour burn"),
+            Blend::HardLight => tr("Hard light"),
+            Blend::SoftLight => tr("Soft light"),
+            Blend::Difference => tr("Difference"),
+            Blend::Exclusion => tr("Exclusion"),
+            Blend::Hue => tr("Hue"),
+            Blend::Saturation => tr("Saturation"),
+            Blend::Color => tr("Colour"),
+            Blend::Luminosity => tr("Luminosity"),
         }
     }
     /// Name in CSS/SVG (`mix-blend-mode`).
@@ -2761,9 +3007,9 @@ impl GradientKind {
     }
     pub fn label(self) -> &'static str {
         match self {
-            GradientKind::Smooth => tr("Weich"),
-            GradientKind::Grain => tr("Gekörnt"),
-            GradientKind::Pixel => tr("Grobe Pixel"),
+            GradientKind::Smooth => tr("Soft"),
+            GradientKind::Grain => tr("Grainy"),
+            GradientKind::Pixel => tr("Coarse pixels"),
         }
     }
     pub fn from_name(s: &str) -> Option<GradientKind> {
@@ -2808,10 +3054,67 @@ pub enum GradShape {
     Dots,
     /// Muster: Streifen
     Stripes,
+    /// Muster: Zebrastreifen (wellig, mit Gabelungen)
+    Zebra,
+    /// Muster: Kuhflecken
+    Cow,
+    /// Muster: Gitter aus dünnen Linien
+    Grid,
+    /// Muster: Vichy-Karo (Streifen kreuzen sich, die Kreuzungen sind dunkler)
+    Gingham,
+    /// Muster: Zickzack-Streifen
+    Chevron,
+    /// Muster: Fischgrät
+    Herringbone,
+    /// Muster: Bienenwaben
+    Honeycomb,
+    /// Muster: Wellenlinien
+    Waves,
+    /// Muster: Schuppen (japanische Wellen, Seigaiha)
+    Scales,
+    /// Muster: Mauerwerk
+    Bricks,
+    /// Muster: Leopard (offene Ringe und Flecken)
+    Leopard,
+    /// Muster: Terrazzo (verstreute Splitter)
+    Terrazzo,
+}
+
+/// Eine Fläche einer Musterkachel: Umrisse (gerade/ungerade gefüllt, so entstehen Ringe),
+/// Farbe (`ink` = zweite Farbe, sonst die Grundfarbe) und Deckkraft.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PatternShape {
+    pub contours: Vec<Vec<Pt>>,
+    pub ink: bool,
+    pub alpha: f64,
+}
+
+/// Kachel eines Musters: Breite, Höhe und Flächen in Zeichenreihenfolge.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PatternTile {
+    pub w: f64,
+    pub h: f64,
+    pub shapes: Vec<PatternShape>,
 }
 
 impl GradShape {
-    pub const PATTERNS: [GradShape; 3] = [GradShape::Checker, GradShape::Dots, GradShape::Stripes];
+    pub const PATTERNS: [GradShape; 15] = [
+        GradShape::Checker,
+        GradShape::Gingham,
+        GradShape::Grid,
+        GradShape::Dots,
+        GradShape::Stripes,
+        GradShape::Waves,
+        GradShape::Chevron,
+        GradShape::Herringbone,
+        GradShape::Bricks,
+        GradShape::Honeycomb,
+        GradShape::Scales,
+        GradShape::Terrazzo,
+        GradShape::Zebra,
+        GradShape::Leopard,
+        GradShape::Cow,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             GradShape::Linear => "linear",
@@ -2819,31 +3122,429 @@ impl GradShape {
             GradShape::Checker => "checker",
             GradShape::Dots => "dots",
             GradShape::Stripes => "stripes",
+            GradShape::Zebra => "zebra",
+            GradShape::Cow => "cow",
+            GradShape::Grid => "grid",
+            GradShape::Gingham => "gingham",
+            GradShape::Chevron => "chevron",
+            GradShape::Herringbone => "herringbone",
+            GradShape::Honeycomb => "honeycomb",
+            GradShape::Waves => "waves",
+            GradShape::Scales => "scales",
+            GradShape::Bricks => "bricks",
+            GradShape::Leopard => "leopard",
+            GradShape::Terrazzo => "terrazzo",
         }
     }
     pub fn label(self) -> &'static str {
         match self {
             GradShape::Linear => tr("Linear"),
-            GradShape::Radial => tr("Kreisförmig"),
-            GradShape::Checker => tr("Schachbrett"),
-            GradShape::Dots => tr("Punkte"),
-            GradShape::Stripes => tr("Streifen"),
+            GradShape::Radial => tr("Radial"),
+            GradShape::Checker => tr("Chequerboard"),
+            GradShape::Dots => tr("Dots"),
+            GradShape::Stripes => tr("Stripes"),
+            GradShape::Zebra => tr("Zebra"),
+            GradShape::Cow => tr("Cow print"),
+            GradShape::Grid => tr("Grid"),
+            GradShape::Gingham => tr("Gingham"),
+            GradShape::Chevron => tr("Chevron"),
+            GradShape::Herringbone => tr("Herringbone"),
+            GradShape::Honeycomb => tr("Honeycomb"),
+            GradShape::Waves => tr("Waves"),
+            GradShape::Scales => tr("Scales"),
+            GradShape::Bricks => tr("Bricks"),
+            GradShape::Leopard => tr("Leopard"),
+            GradShape::Terrazzo => tr("Terrazzo"),
         }
     }
     pub fn from_name(s: &str) -> Option<GradShape> {
-        [
-            GradShape::Linear,
-            GradShape::Radial,
-            GradShape::Checker,
-            GradShape::Dots,
-            GradShape::Stripes,
-        ]
-        .into_iter()
-        .find(|g| g.name() == s.trim())
+        [GradShape::Linear, GradShape::Radial]
+            .into_iter()
+            .chain(GradShape::PATTERNS)
+            .find(|g| g.name() == s.trim())
     }
     pub fn is_pattern(self) -> bool {
         GradShape::PATTERNS.contains(&self)
     }
+
+    /// Kachel der neueren Muster (alle außer Schachbrett, Punkte und Streifen). Flächen,
+    /// die über den Rand ragen, stehen auch auf der Gegenseite, so dass die Kacheln nahtlos
+    /// aneinanderpassen (außerhalb wird abgeschnitten). Für die übrigen Muster `None`.
+    pub fn pattern_tile(self, cell: f64) -> Option<PatternTile> {
+        use std::f64::consts::TAU;
+        let k = cell.max(0.5);
+        let ink = |pts: Vec<Pt>| PatternShape {
+            contours: vec![pts],
+            ink: true,
+            alpha: 1.0,
+        };
+        let rect = |x: f64, y: f64, w: f64, h: f64| {
+            vec![
+                Pt::new(x, y),
+                Pt::new(x + w, y),
+                Pt::new(x + w, y + h),
+                Pt::new(x, y + h),
+            ]
+        };
+        let circle = |cx: f64, cy: f64, r: f64, n: usize| -> Vec<Pt> {
+            (0..n)
+                .map(|j| {
+                    let a = j as f64 / n as f64 * TAU;
+                    Pt::new(cx + r * a.cos(), cy + r * a.sin())
+                })
+                .collect()
+        };
+        // einfacher Zufall mit festem Startwert (gleiches Muster bei jedem Zeichnen)
+        let mut seed: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let mut shapes: Vec<PatternShape> = Vec::new();
+        // eigene Abdeckung über den Rand (sonst wird unten gespiegelt ergänzt)
+        let mut wrapped = false;
+        let (w, h) = match self {
+            GradShape::Grid => {
+                let lw = (k * 0.08).max(0.05);
+                shapes.push(ink(rect(0.0, 0.0, k, lw)));
+                shapes.push(ink(rect(0.0, 0.0, lw, k)));
+                (k, k)
+            }
+            GradShape::Gingham => {
+                // Kreuzung voll, einzelne Streifen schräg schraffiert – echte zwei Farben,
+                // wie gewebtes Vichy-Karo
+                shapes.push(ink(rect(0.0, 0.0, k, k)));
+                let p = k / 4.0;
+                let lw = p * 0.45;
+                let l = 3.0 * k;
+                for (x0, y0) in [(k, 0.0), (0.0, k)] {
+                    let mut c = -2.0 * k;
+                    while c < 2.0 * k {
+                        let band = vec![
+                            Pt::new(c - l, -l),
+                            Pt::new(c + l, l),
+                            Pt::new(c + lw + l, l),
+                            Pt::new(c + lw - l, -l),
+                        ];
+                        let piece = clip_to_rect(&band, x0, y0, x0 + k, y0 + k);
+                        if piece.len() >= 3 {
+                            shapes.push(ink(piece));
+                        }
+                        c += p;
+                    }
+                }
+                (2.0 * k, 2.0 * k)
+            }
+            GradShape::Chevron => {
+                let th = k * 0.5;
+                shapes.push(ink(vec![
+                    Pt::new(0.0, 0.0),
+                    Pt::new(k, th),
+                    Pt::new(2.0 * k, 0.0),
+                    Pt::new(2.0 * k, th),
+                    Pt::new(k, 2.0 * th),
+                    Pt::new(0.0, th),
+                ]));
+                (2.0 * k, k)
+            }
+            GradShape::Herringbone => {
+                // zwei Spalten schräger Bretter, gegeneinander versetzt
+                let th = k * 0.45;
+                for y in [-k, 0.0, k, 2.0 * k] {
+                    shapes.push(ink(vec![
+                        Pt::new(0.0, y),
+                        Pt::new(k, y - k),
+                        Pt::new(k, y - k + th),
+                        Pt::new(0.0, y + th),
+                    ]));
+                    let y2 = y + k * 0.5;
+                    shapes.push(ink(vec![
+                        Pt::new(k, y2 - k),
+                        Pt::new(2.0 * k, y2),
+                        Pt::new(2.0 * k, y2 + th),
+                        Pt::new(k, y2 - k + th),
+                    ]));
+                }
+                wrapped = true;
+                (2.0 * k, k)
+            }
+            GradShape::Honeycomb => {
+                // spitze Waben mit Radius k, Linien als Ringe
+                let r = k;
+                let (w, h) = (3f64.sqrt() * r, 3.0 * r);
+                let lw = k * 0.12;
+                let hex = |cx: f64, cy: f64, rr: f64| -> Vec<Pt> {
+                    (0..6)
+                        .map(|j| {
+                            let a = (j as f64 * 60.0 + 30.0).to_radians();
+                            Pt::new(cx + rr * a.cos(), cy + rr * a.sin())
+                        })
+                        .collect()
+                };
+                let d = lw / 3f64.sqrt();
+                for j in -1..=2 {
+                    for i in -1..=1 {
+                        let cx = i as f64 * w + if j % 2 != 0 { w / 2.0 } else { 0.0 };
+                        let cy = j as f64 * 1.5 * r;
+                        shapes.push(PatternShape {
+                            contours: vec![hex(cx, cy, r + d), hex(cx, cy, r - d)],
+                            ink: true,
+                            alpha: 1.0,
+                        });
+                    }
+                }
+                wrapped = true;
+                (w, h)
+            }
+            GradShape::Waves => {
+                let (w, th, amp) = (2.0 * k, k * 0.3, k * 0.22);
+                let n = 48;
+                let mut pts: Vec<Pt> = (0..=n)
+                    .map(|j| {
+                        let x = j as f64 * w / n as f64;
+                        Pt::new(x, k * 0.3 + amp * (x / w * TAU).sin())
+                    })
+                    .collect();
+                pts.extend((0..=n).rev().map(|j| {
+                    let x = j as f64 * w / n as f64;
+                    Pt::new(x, k * 0.3 + th + amp * (x / w * TAU).sin())
+                }));
+                shapes.push(ink(pts));
+                (w, k)
+            }
+            GradShape::Scales => {
+                // Halbkreise in versetzten Reihen; jede Reihe verdeckt die untere Hälfte der
+                // vorigen (Grundfarbe zuerst, dann die Ringe)
+                let r = k;
+                for j in -2..=3 {
+                    for i in -1..=2 {
+                        let cx = i as f64 * 2.0 * r + if j % 2 != 0 { r } else { 0.0 };
+                        let cy = j as f64 * 0.5 * r;
+                        shapes.push(PatternShape {
+                            contours: vec![circle(cx, cy, r, 48)],
+                            ink: false,
+                            alpha: 1.0,
+                        });
+                        for (a, b) in [(0.84, 1.0), (0.5, 0.66)] {
+                            shapes.push(PatternShape {
+                                contours: vec![circle(cx, cy, r * b, 48), circle(cx, cy, r * a, 48)],
+                                ink: true,
+                                alpha: 1.0,
+                            });
+                        }
+                        shapes.push(ink(circle(cx, cy, r * 0.2, 24)));
+                    }
+                }
+                wrapped = true;
+                (2.0 * r, r)
+            }
+            GradShape::Bricks => {
+                let lw = (k * 0.08).max(0.05);
+                let (w, h) = (2.0 * k, k);
+                shapes.push(ink(rect(0.0, 0.0, w, lw)));
+                shapes.push(ink(rect(0.0, h * 0.5, w, lw)));
+                for x in [0.0, k] {
+                    shapes.push(ink(rect(x, 0.0, lw, h * 0.5)));
+                }
+                for x in [k * 0.5, k * 1.5] {
+                    shapes.push(ink(rect(x, h * 0.5, lw, h * 0.5)));
+                }
+                (w, h)
+            }
+            GradShape::Leopard => {
+                // offene Ringe aus zwei bis drei Bögen, dazwischen kleine Flecken
+                let t = k * 6.0;
+                let rosettes = [
+                    (0.18, 0.2, 0.15),
+                    (0.62, 0.14, 0.13),
+                    (0.4, 0.52, 0.16),
+                    (0.86, 0.5, 0.13),
+                    (0.14, 0.8, 0.14),
+                    (0.66, 0.85, 0.15),
+                ];
+                for (cx, cy, r) in rosettes {
+                    let (cx, cy, r) = (cx * t, cy * t, r * t);
+                    let start = rnd() * TAU;
+                    let pieces = if rnd() < 0.5 { 2 } else { 3 };
+                    for p in 0..pieces {
+                        let a0 = start + p as f64 * TAU / pieces as f64;
+                        let a1 = a0 + TAU / pieces as f64 * (0.72 + 0.18 * rnd());
+                        let wob = rnd() * TAU;
+                        let n = 24;
+                        let rad = |a: f64| r * (1.0 + 0.12 * (3.0 * a + wob).sin());
+                        let thick = |f: f64| r * 0.5 * (f * std::f64::consts::PI).sin().powf(0.4).max(0.2);
+                        let mut pts: Vec<Pt> = (0..=n)
+                            .map(|j| {
+                                let f = j as f64 / n as f64;
+                                let a = a0 + (a1 - a0) * f;
+                                let rr = rad(a) + thick(f) * 0.5;
+                                Pt::new(cx + rr * a.cos(), cy + rr * 0.9 * a.sin())
+                            })
+                            .collect();
+                        pts.extend((0..=n).rev().map(|j| {
+                            let f = j as f64 / n as f64;
+                            let a = a0 + (a1 - a0) * f;
+                            let rr = rad(a) - thick(f) * 0.5;
+                            Pt::new(cx + rr * a.cos(), cy + rr * 0.9 * a.sin())
+                        }));
+                        shapes.push(ink(pts));
+                    }
+                }
+                for (sx, sy, r) in [
+                    (0.4, 0.03, 0.04),
+                    (0.92, 0.22, 0.035),
+                    (0.04, 0.5, 0.04),
+                    (0.42, 0.97, 0.035),
+                ] {
+                    shapes.push(ink(circle(sx * t, sy * t, r * t, 16)));
+                }
+                (t, t)
+            }
+            GradShape::Terrazzo => {
+                let t = k * 6.0;
+                for _ in 0..44 {
+                    let (cx, cy) = (rnd() * t, rnd() * t);
+                    let size = k * (0.18 + 0.55 * rnd() * rnd());
+                    let n = 5 + (rnd() * 3.0) as usize;
+                    let rot = rnd() * TAU;
+                    let pts: Vec<Pt> = (0..n)
+                        .map(|j| {
+                            let a = rot + j as f64 / n as f64 * TAU;
+                            let rr = size * (0.55 + 0.45 * rnd());
+                            Pt::new(cx + rr * a.cos(), cy + rr * a.sin())
+                        })
+                        .collect();
+                    shapes.push(ink(pts));
+                }
+                (t, t)
+            }
+            GradShape::Zebra => {
+                // fünf breite, sanft gewellte Streifen je Kachel, die zu Spitzen auslaufen
+                let t = k * 6.0;
+                let rows = 5;
+                let gap = t / rows as f64;
+                let n = 72;
+                for i in 0..rows {
+                    let fi = i as f64;
+                    let base = (fi + 0.2) * gap;
+                    // je Streifen eigene Phasen, damit kein gleichmäßiges Wellenmuster entsteht
+                    let (p1, p2, p3, p4) = (fi * 2.1 + 0.4, fi * 1.3 + 2.0, fi * 2.9 + 1.1, fi * 0.7 + 0.3);
+                    let top = |x: f64| {
+                        let u = x / t * TAU;
+                        base + gap * 0.42 * (u + p1).sin() + gap * 0.12 * (2.0 * u + p2).sin()
+                    };
+                    let thick = |x: f64| {
+                        let u = x / t * TAU;
+                        let w = 0.55 + 0.45 * (u + p3).sin() + 0.12 * (2.0 * u + p4).sin();
+                        gap * 0.6 * w.clamp(0.0, 1.0).powf(0.5).max(0.03)
+                    };
+                    let mut pts: Vec<Pt> = (0..=n)
+                        .map(|j| {
+                            let x = j as f64 * t / n as f64;
+                            Pt::new(x, top(x))
+                        })
+                        .collect();
+                    pts.extend((0..=n).rev().map(|j| {
+                        let x = j as f64 * t / n as f64;
+                        Pt::new(x, top(x) + thick(x))
+                    }));
+                    shapes.push(ink(pts));
+                }
+                (t, t)
+            }
+            GradShape::Cow => {
+                // fünf unregelmäßige Flecken je Kachel
+                let t = k * 6.0;
+                let spots = [
+                    (0.22, 0.25, 0.17, 0.3),
+                    (0.7, 0.18, 0.12, 1.4),
+                    (0.55, 0.62, 0.2, 2.2),
+                    (0.12, 0.78, 0.1, 3.1),
+                    (0.9, 0.85, 0.08, 4.4),
+                ];
+                for (cx, cy, r, ph) in spots {
+                    let n = 48;
+                    let pts: Vec<Pt> = (0..n)
+                        .map(|j| {
+                            let a = j as f64 / n as f64 * TAU;
+                            let rr = r
+                                * t
+                                * (1.0
+                                    + 0.22 * (3.0 * a + ph).sin()
+                                    + 0.14 * (5.0 * a + ph * 1.7).sin()
+                                    + 0.1 * (2.0 * a + ph * 0.6).cos());
+                            Pt::new(cx * t + rr * a.cos(), cy * t + rr * 0.85 * a.sin())
+                        })
+                        .collect();
+                    shapes.push(ink(pts));
+                }
+                (t, t)
+            }
+            _ => return None,
+        };
+        if wrapped {
+            return Some(PatternTile { w, h, shapes });
+        }
+        // über den Rand ragende Flächen auch auf der Gegenseite
+        let mut out = Vec::new();
+        for sh in shapes {
+            let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+            for p in sh.contours.iter().flatten() {
+                x0 = x0.min(p.x);
+                y0 = y0.min(p.y);
+                x1 = x1.max(p.x);
+                y1 = y1.max(p.y);
+            }
+            for dx in [-w, 0.0, w] {
+                for dy in [-h, 0.0, h] {
+                    if x0 + dx < w && x1 + dx > 0.0 && y0 + dy < h && y1 + dy > 0.0 {
+                        out.push(PatternShape {
+                            contours: sh
+                                .contours
+                                .iter()
+                                .map(|c| c.iter().map(|p| Pt::new(p.x + dx, p.y + dy)).collect())
+                                .collect(),
+                            ink: sh.ink,
+                            alpha: sh.alpha,
+                        });
+                    }
+                }
+            }
+        }
+        Some(PatternTile { w, h, shapes: out })
+    }
+}
+
+/// Konvexes Vieleck auf ein Rechteck zuschneiden (Sutherland–Hodgman).
+fn clip_to_rect(poly: &[Pt], x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Pt> {
+    let mut out: Vec<Pt> = poly.to_vec();
+    // (Kante: innen, wenn f(p) >= 0; Schnittpunkt mit der Kante)
+    let edges: [(&dyn Fn(Pt) -> f64, bool); 4] = [
+        (&|p: Pt| p.x - x0, true),
+        (&|p: Pt| x1 - p.x, true),
+        (&|p: Pt| p.y - y0, false),
+        (&|p: Pt| y1 - p.y, false),
+    ];
+    for (f, _) in edges {
+        if out.is_empty() {
+            break;
+        }
+        let input = std::mem::take(&mut out);
+        for i in 0..input.len() {
+            let (a, b) = (input[i], input[(i + 1) % input.len()]);
+            let (fa, fb) = (f(a), f(b));
+            if fa >= 0.0 {
+                out.push(a);
+            }
+            if (fa >= 0.0) != (fb >= 0.0) {
+                let t = fa / (fa - fb);
+                out.push(Pt::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+            }
+        }
+    }
+    out
 }
 
 /// Standardgröße eines Musters.
@@ -3187,6 +3888,240 @@ pub struct Artboard {
     pub y: f64,
     pub w: f64,
     pub h: f64,
+    /// eigener Hintergrund (None = durchsichtig); die erste Zeichenfläche nutzt
+    /// `Document::background`
+    pub background: Option<Color>,
+}
+
+/// Gleiche Farbe (bis auf Rundung beim Speichern als #rrggbb).
+/// Verknüpfung einer Farbe mit einer Bibliotheksfarbe (globale Farben): Kennung und die
+/// Bibliotheksfarbe zur Zeit der letzten Übernahme. Hat das Objekt inzwischen einen anderen
+/// Farbton, gilt die Verknüpfung nicht mehr – so kann keine Änderung auf anderem Weg
+/// (Pipette, Umwandeln, eingefügter Stil …) später überschrieben werden.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColorLink {
+    pub id: String,
+    pub color: Color,
+}
+
+impl ColorLink {
+    pub fn new(id: &str, color: Color) -> ColorLink {
+        ColorLink {
+            id: id.to_string(),
+            color,
+        }
+    }
+
+    /// Gilt die Verknüpfung noch für die Farbe `paint`? (gleicher Farbton; die Deckkraft
+    /// darf das Objekt selbst haben)
+    pub fn holds(&self, paint: Option<Color>) -> bool {
+        paint.is_some_and(|c| same_rgb(c, self.color))
+    }
+
+    /// Der Bibliotheksfarbe `new` folgen: `None`, wenn die Verknüpfung nicht mehr gilt;
+    /// `Some(None)`, wenn sich nichts ändert; sonst die neue Farbe des Objekts. Eine eigene
+    /// Deckkraft des Objekts bleibt erhalten.
+    pub fn follow(&mut self, paint: Option<Color>, new: Color) -> Option<Option<Color>> {
+        let c = paint.filter(|c| same_rgb(*c, self.color))?;
+        let old = std::mem::replace(&mut self.color, new);
+        if same_color(old, new) {
+            return Some(None);
+        }
+        let a = if (c.a - old.a).abs() < 0.003 { new.a } else { c.a };
+        Some(Some(Color { a, ..new }))
+    }
+}
+
+fn same_rgb(a: Color, b: Color) -> bool {
+    (a.r - b.r).abs() < 0.003 && (a.g - b.g).abs() < 0.003 && (a.b - b.b).abs() < 0.003
+}
+
+pub fn same_color(a: Color, b: Color) -> bool {
+    (a.r - b.r).abs() < 0.003
+        && (a.g - b.g).abs() < 0.003
+        && (a.b - b.b).abs() < 0.003
+        && (a.a - b.a).abs() < 0.003
+}
+
+/// Größte Koordinate, die ein Objekt haben darf (Dokumenteinheiten). Größere Werte (oder
+/// NaN/unendlich) kommen nur aus beschädigten oder präparierten Dateien und brächten das
+/// Zeichnen durcheinander.
+pub const MAX_COORD: f64 = 1e7;
+
+fn ok_num(v: f64) -> bool {
+    v.is_finite() && v.abs() <= MAX_COORD
+}
+
+fn ok_pt(p: &Pt) -> bool {
+    ok_num(p.x) && ok_num(p.y)
+}
+
+fn ok_affine(m: &crate::geom::Affine) -> bool {
+    [m.a, m.b, m.c, m.d]
+        .iter()
+        .all(|v| v.is_finite() && v.abs() <= 1e6)
+        && ok_num(m.e)
+        && ok_num(m.f)
+}
+
+fn ok_subpaths(sp: &[SubPath]) -> bool {
+    sp.iter().all(|s| {
+        s.nodes
+            .iter()
+            .all(|n| ok_pt(&n.p) && ok_pt(&n.h_in) && ok_pt(&n.h_out) && ok_num(n.r))
+    })
+}
+
+/// Zahl auf einen Bereich bringen; NaN wird zu `def`.
+fn tame(v: f64, lo: f64, hi: f64, def: f64) -> f64 {
+    if v.is_nan() {
+        def
+    } else {
+        v.clamp(lo, hi)
+    }
+}
+
+fn tame_color(c: &mut Color) {
+    for v in [&mut c.r, &mut c.g, &mut c.b, &mut c.a] {
+        *v = tame(*v, 0.0, 1.0, 1.0);
+    }
+}
+
+fn tame_format(f: &mut TextFormat) {
+    f.line = tame(f.line, 0.1, 100.0, 1.2);
+    f.tracking = tame(f.tracking, -10_000.0, 10_000.0, 0.0);
+    f.para = tame(f.para, 0.0, 100.0, 0.5);
+    f.box_width = tame(f.box_width, 0.0, 1e5, 1.0);
+    f.box_inset = tame(f.box_inset, 0.0, 1e5, 0.0);
+    for c in [&mut f.box_fill, &mut f.box_stroke].into_iter().flatten() {
+        tame_color(c);
+    }
+}
+
+/// Gradient brauchbar machen; `false`, wenn er sich nicht retten lässt.
+fn tame_gradient(g: &mut Gradient) -> bool {
+    if !ok_pt(&g.p0) || !ok_pt(&g.p1) || g.stops.is_empty() {
+        return false;
+    }
+    g.cell = tame(g.cell, 0.5, 1e5, 16.0);
+    for st in &mut g.stops {
+        st.pos = tame(st.pos, 0.0, 1.0, 0.0);
+        tame_color(&mut st.color);
+    }
+    true
+}
+
+/// Lage und Größe eines Objekts sind brauchbar (endlich und nicht riesig)?
+fn shape_is_sane(s: &Shape) -> bool {
+    let size = |v: f64| v.is_finite() && v > 0.0 && v <= 1e5;
+    match s {
+        Shape::Rect { x, y, w, h, r } => [*x, *y, *w, *h, *r].iter().all(|v| ok_num(*v)),
+        Shape::Ellipse { cx, cy, rx, ry } => [*cx, *cy, *rx, *ry].iter().all(|v| ok_num(*v)),
+        Shape::Line { a, b } => ok_pt(a) && ok_pt(b),
+        Shape::Path { subpaths, .. } => ok_subpaths(subpaths),
+        Shape::Text { xf, size: sz, .. } => ok_affine(xf) && size(*sz),
+        Shape::TextPath {
+            path,
+            size: sz,
+            offset,
+            ..
+        } => ok_subpaths(path) && size(*sz) && ok_num(*offset),
+        Shape::TextArea {
+            xf,
+            w,
+            h,
+            size: sz,
+            frame,
+            ..
+        } => {
+            ok_affine(xf)
+                && ok_num(*w)
+                && ok_num(*h)
+                && size(*sz)
+                && frame.path.as_ref().map_or(true, |p| ok_subpaths(p))
+        }
+        Shape::Image { xf, w, h, clip, .. } => {
+            ok_affine(xf) && size(*w) && size(*h) && clip.as_ref().map_or(true, |c| ok_subpaths(c))
+        }
+    }
+}
+
+impl Document {
+    /// Werte aus beschädigten oder präparierten Dateien unschädlich machen: unbrauchbare
+    /// Größen der Seiten ersetzen, Zahlen begrenzen und Objekte mit unbrauchbarer Lage oder
+    /// Größe entfernen. Liefert die Zahl der entfernten Objekte.
+    pub fn sanitize(&mut self) -> usize {
+        let page = |v: f64| {
+            if v.is_finite() && v > 0.0 {
+                v.clamp(1.0, 1e6)
+            } else {
+                1000.0
+            }
+        };
+        self.width = page(self.width);
+        self.height = page(self.height);
+        if let Some(c) = self.background.as_mut() {
+            tame_color(c);
+        }
+        for a in &mut self.artboards {
+            a.x = if ok_num(a.x) { a.x } else { 0.0 };
+            a.y = if ok_num(a.y) { a.y } else { 0.0 };
+            a.w = page(a.w);
+            a.h = page(a.h);
+            if let Some(c) = a.background.as_mut() {
+                tame_color(c);
+            }
+        }
+        self.guides.retain(|g| ok_pt(&g.pos) && g.angle.is_finite());
+        let mut removed = 0;
+        for layer in &mut self.layers {
+            let before = layer.objects.len();
+            layer.objects.retain(|o| shape_is_sane(&o.shape));
+            removed += before - layer.objects.len();
+            for o in &mut layer.objects {
+                if !o.angle.is_finite() {
+                    o.angle = 0.0;
+                }
+                match &mut o.shape {
+                    Shape::Text { fmt, .. } | Shape::TextPath { fmt, .. } => tame_format(fmt),
+                    Shape::TextArea { fmt, frame, rich, .. } => {
+                        tame_format(fmt);
+                        frame.width = tame(frame.width, 0.0, 1e5, 1.0);
+                        frame.inset = tame(frame.inset, 0.0, 1e5, 0.0);
+                        for c in [&mut frame.fill, &mut frame.stroke].into_iter().flatten() {
+                            tame_color(c);
+                        }
+                        for run in &mut rich.runs {
+                            if let Some(sz) = run.style.size.as_mut() {
+                                *sz = tame(*sz, 0.1, 1e5, 12.0);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                let st = &mut o.style;
+                st.width = tame(st.width, 0.0, 1e5, 1.0);
+                st.opacity = tame(st.opacity, 0.0, 1.0, 1.0);
+                st.marker_size = tame(st.marker_size, 0.1, 20.0, 1.0);
+                for c in [&mut st.fill, &mut st.stroke].into_iter().flatten() {
+                    tame_color(c);
+                }
+                if let Some(sh) = st.shadow.as_mut() {
+                    tame_color(&mut sh.color);
+                    sh.opacity = tame(sh.opacity, 0.0, 1.0, 0.35);
+                    sh.blur = tame(sh.blur, 0.0, 1e4, 8.0);
+                    sh.dx = tame(sh.dx, -1e5, 1e5, 0.0);
+                    sh.dy = tame(sh.dy, -1e5, 1e5, 0.0);
+                }
+                for g in [&mut st.gradient, &mut st.stroke_gradient, &mut st.shadow_gradient] {
+                    if g.as_mut().is_some_and(|g| !tame_gradient(g)) {
+                        *g = None;
+                    }
+                }
+            }
+        }
+        removed
+    }
 }
 
 impl Document {
@@ -3204,26 +4139,111 @@ impl Document {
         }
     }
 
-    /// Größte vergebene Gruppennummer.
+    /// Größte vergebene Gruppennummer (auf allen Ebenen).
     pub fn max_group(&self) -> u64 {
         self.layers
             .iter()
             .flat_map(|l| l.objects.iter())
-            .map(|o| o.group)
+            .flat_map(|o| std::iter::once(o.group).chain(o.sub.iter().copied()))
             .max()
             .unwrap_or(0)
+    }
+
+    /// Verknüpfte Farben auf den Stand der Bibliotheken bringen (`lookup`: Kennung →
+    /// aktuelle Farbe; unbekannte Kennungen bleiben, wie sie sind). Liefert die Zahl
+    /// geänderter Farben.
+    pub fn sync_linked_colors(&mut self, lookup: &dyn Fn(&str) -> Option<Color>) -> usize {
+        let mut n = 0;
+        for o in self.layers.iter_mut().flat_map(|l| l.objects.iter_mut()) {
+            let st = &mut o.style;
+            for (paint, lk) in [
+                (&mut st.fill, &mut st.fill_link),
+                (&mut st.stroke, &mut st.stroke_link),
+            ] {
+                let Some(l) = lk.as_mut() else { continue };
+                let Some(new) = lookup(&l.id) else { continue };
+                match l.follow(*paint, new) {
+                    Some(Some(c)) => {
+                        *paint = Some(c);
+                        n += 1;
+                    }
+                    Some(None) => {}
+                    None => *lk = None,
+                }
+            }
+        }
+        n
+    }
+
+    /// Schnittmasken des Dokuments (innerste Gruppe → Maske als Fläche).
+    pub fn masks(&self) -> HashMap<u64, Object> {
+        masks_of(self.layers.iter().flat_map(|l| l.objects.iter()))
+    }
+
+    /// Gruppen aufräumen: Gruppen mit nur einem Objekt entfallen (auf jeder Ebene), eine
+    /// Schnittmaske ohne andere Objekte in ihrer Gruppe wird ein gewöhnliches Objekt.
+    pub fn tidy_groups(&mut self) {
+        let mut count: HashMap<u64, usize> = HashMap::new();
+        for o in self.layers.iter().flat_map(|l| l.objects.iter()) {
+            for g in o.chain() {
+                *count.entry(g).or_default() += 1;
+            }
+        }
+        let n = |g: &u64| count.get(g).copied().unwrap_or(0);
+        for o in self.layers.iter_mut().flat_map(|l| l.objects.iter_mut()) {
+            if o.mask && n(&o.inner_group()) < 2 {
+                o.mask = false;
+            }
+            o.sub.retain(|g| n(g) > 1);
+            if o.group != 0 && n(&o.group) < 2 {
+                o.group = 0;
+                o.sub.clear();
+            }
+        }
+    }
+
+    /// Eine Gruppenebene entfernen (wo sie auch liegt): ihre Objekte und Untergruppen
+    /// gehören danach zur Gruppe darüber.
+    pub fn remove_group_level(&mut self, gid: u64) {
+        if gid == 0 {
+            return;
+        }
+        for o in self.layers.iter_mut().flat_map(|l| l.objects.iter_mut()) {
+            if o.group == gid {
+                o.group = if o.sub.is_empty() { 0 } else { o.sub.remove(0) };
+            } else {
+                o.sub.retain(|g| *g != gid);
+            }
+        }
+        self.tidy_groups();
     }
 
     /// Alle Zeichenflächen: (Name, Rahmen); Index 0 ist die Hauptzeichenfläche.
     pub fn artboard_rects(&self) -> Vec<(String, Rect)> {
         let mut v = vec![(
-            tr("Zeichenfläche 1").to_string(),
+            tr("Artboard 1").to_string(),
             Rect::from_xywh(0.0, 0.0, self.width, self.height),
         )];
         for a in &self.artboards {
             v.push((a.name.clone(), Rect::from_xywh(a.x, a.y, a.w, a.h)));
         }
         v
+    }
+
+    /// Hintergründe der Zeichenflächen (in derselben Reihenfolge wie `artboard_rects`).
+    pub fn artboard_backgrounds(&self) -> Vec<Option<Color>> {
+        std::iter::once(self.background)
+            .chain(self.artboards.iter().map(|a| a.background))
+            .collect()
+    }
+
+    /// Hintergrund einer Zeichenfläche setzen (0 = erste).
+    pub fn set_artboard_background(&mut self, i: usize, bg: Option<Color>) {
+        if i == 0 {
+            self.background = bg;
+        } else if let Some(a) = self.artboards.get_mut(i - 1) {
+            a.background = bg;
+        }
     }
 
     /// Rahmen um alle Zeichenflächen.
@@ -3240,7 +4260,7 @@ impl Document {
         let names: Vec<String> = self.artboard_rects().into_iter().map(|(n, _)| n).collect();
         let mut k = names.len() + 1;
         loop {
-            let n = trf("Zeichenfläche {}", &[&(k)]);
+            let n = trf("Artboard {}", &[&(k)]);
             if !names.contains(&n) {
                 return n;
             }
@@ -3256,6 +4276,7 @@ impl Document {
             return self.clone();
         };
         let mut d = self.clone();
+        d.background = self.artboard_backgrounds().get(i).copied().flatten();
         d.artboards.clear();
         d.width = r.width();
         d.height = r.height();
@@ -3288,7 +4309,7 @@ impl Document {
         d.layers.push(Layer {
             color: 0,
             id,
-            name: tr("Ebene 1").into(),
+            name: tr("Layer 1").into(),
             visible: true,
             locked: false,
             objects: Vec::new(),
@@ -3397,6 +4418,89 @@ mod tests {
     use super::*;
 
     #[test]
+    fn new_patterns_tile_seamlessly() {
+        for shape in GradShape::PATTERNS {
+            assert!(shape.is_pattern());
+            assert_eq!(GradShape::from_name(shape.name()), Some(shape));
+            let Some(t) = shape.pattern_tile(16.0) else {
+                assert!(matches!(
+                    shape,
+                    GradShape::Checker | GradShape::Dots | GradShape::Stripes
+                ));
+                continue;
+            };
+            assert!(t.w >= 16.0 && t.h >= 16.0 && !t.shapes.is_empty(), "{shape:?}");
+            // jede Fläche berührt die Kachel
+            for sh in &t.shapes {
+                let pts: Vec<&Pt> = sh.contours.iter().flatten().collect();
+                assert!(pts.len() >= 3);
+                assert!(pts
+                    .iter()
+                    .any(|q| q.x > -2.0 * t.w && q.x < 3.0 * t.w && q.y > -2.0 * t.h && q.y < 3.0 * t.h));
+            }
+        }
+        // Zebrastreifen: linker und rechter Rand passen zusammen
+        let t = GradShape::Zebra.pattern_tile(10.0).unwrap();
+        let p = &t.shapes[0].contours[0];
+        let n = p.len() / 2;
+        assert!((p[0].y - p[n - 1].y).abs() < 1e-9 && (p[n - 1].x - t.w).abs() < 1e-9);
+        // Vichy-Karo: nur zwei Farben (alles voll deckend), Schraffur nur in den Streifen
+        let g = GradShape::Gingham.pattern_tile(10.0).unwrap();
+        assert!(g.shapes.iter().all(|s| s.alpha == 1.0 && s.ink));
+        assert!(g.shapes.len() > 8);
+        for sh in &g.shapes[1..] {
+            for p in &sh.contours[0] {
+                // nie im leeren Feld rechts unten
+                assert!(!(p.x > 10.0 + 1e-9 && p.y > 10.0 + 1e-9), "{p:?}");
+            }
+        }
+        assert!(GradShape::Checker.pattern_tile(10.0).is_none());
+    }
+
+    #[test]
+    fn new_effects_round_trip() {
+        let e = Effects {
+            mat: Some((Material::Brushed, 0.6)),
+            mat_angle: 30.0,
+            art: Some((Art::Halftone, 0.3)),
+            glow: Some(0.7),
+            inner: Some(0.4),
+            inner_dist: 7.0,
+            inner_angle: -30.0,
+            mirror_len: 0.4,
+            mirror_gap: 10.0,
+            art_size: 12.0,
+            art_angle: 15.0,
+            ..Effects::default()
+        };
+        let back = Effects::from_attr(&e.to_attr());
+        assert_eq!(back, e);
+        assert!(!back.uses_backdrop() && back.needs_glass());
+        let g = Effects {
+            glass: Some(0.8),
+            glass_grain: 0.0,
+            ..Effects::default()
+        };
+        assert_eq!(Effects::from_attr(&g.to_attr()), g);
+        // ältere Dateien: Milchglas als Textur wird Glas, Papier entfällt (matt)
+        assert_eq!(Effects::from_attr("tex=frost:0.4").glass, Some(0.4));
+        assert_eq!(Effects::from_attr("frost=0.7").glass, Some(0.7));
+        assert_eq!(Effects::from_attr("tex=paper:0.5"), Effects::default());
+        assert_eq!(Effects::from_attr("tex=wood:0.5 tex=fur:0.3"), Effects::default());
+        assert_eq!(
+            Effects::from_attr("tex=brushed:0.5").mat,
+            Some((Material::Brushed, 0.5))
+        );
+        assert_eq!(
+            Effects::from_attr("art=riso:0.5").art,
+            Some((Art::Risograph, 0.5))
+        );
+        assert_eq!(Effects::from_attr("art=crayon:0.5").art, Some((Art::Crayon, 0.5)));
+        // Vorgaben werden nicht gespeichert
+        assert_eq!(Effects::default().to_attr(), "");
+    }
+
+    #[test]
     fn text_frame_padding_scales_with_text() {
         let mut fmt = TextFormat::default();
         fmt.box_inset = 10.0;
@@ -3488,6 +4592,10 @@ mod tests {
     fn colors() {
         assert_eq!(Color::parse("#fff"), Some(Color::WHITE));
         assert_eq!(Color::parse("#3584e4").unwrap().to_hex(), "#3584e4");
+        // nicht-ASCII nach dem #: kein Absturz
+        for s in ["#\u{fffd}a", "#a\u{fffd}", "#\u{e9}\u{e9}\u{e9}", "#ab\u{1f600}c"] {
+            assert_eq!(Color::parse(s), None, "{s}");
+        }
         let c = Color::parse("rgba(255, 0, 0, 0.5)").unwrap();
         assert!((c.r - 1.0).abs() < 1e-9 && (c.a - 0.5).abs() < 1e-9);
         assert_eq!(Color::parse("navy").unwrap().to_hex(), "#000080");
@@ -3574,6 +4682,8 @@ mod tests {
             let id = d.alloc_id();
             d.layers[0].objects.push(Object {
                 group: 0,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: String::new(),
                 id,

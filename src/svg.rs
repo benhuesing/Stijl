@@ -173,6 +173,9 @@ width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\"{u}>\n",
             ));
         }
     }
+    // Schnittmasken je Gruppe und schon geschriebene clipPath
+    let masks = doc.masks();
+    let mut clip_done: Vec<u64> = Vec::new();
     for layer in &doc.layers {
         o.push_str(&format!(
             "  <g id=\"layer{}\" inkscape:groupmode=\"layer\" mondrian:color=\"{}\" inkscape:label=\"{}\"{}{}>\n",
@@ -190,24 +193,45 @@ width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\"{u}>\n",
                 ""
             }
         ));
-        // Gruppen: aufeinanderfolgende Objekte derselben Gruppe in ein <g>
-        let mut open = 0u64;
+        // Gruppen: aufeinanderfolgende Objekte derselben Gruppen in verschachtelte <g>;
+        // eine Gruppe mit Schnittmaske bekommt ihren clipPath (für andere Programme)
+        let mut stack: Vec<u64> = Vec::new();
+        let ind = |n: usize| "  ".repeat(n + 2);
         for obj in &layer.objects {
-            if obj.group != open {
-                if open != 0 {
-                    o.push_str("    </g>\n");
-                }
-                if obj.group != 0 {
-                    o.push_str(&format!("    <g mondrian:group=\"{}\">\n", obj.group));
-                }
-                open = obj.group;
+            let chain = obj.chain();
+            let common = stack.iter().zip(&chain).take_while(|(a, b)| a == b).count();
+            while stack.len() > common {
+                stack.pop();
+                o.push_str(&format!("{}</g>\n", ind(stack.len())));
             }
-            o.push_str(if open != 0 { "      " } else { "    " });
+            for g in &chain[common..] {
+                let clip = match masks.get(g) {
+                    Some(m) => {
+                        let cid = format!("mask{g}");
+                        if !clip_done.contains(g) {
+                            clip_done.push(*g);
+                            let mut shape = m.clone();
+                            shape.id = u64::MAX - *g;
+                            o.push_str(&format!(
+                                "{}<clipPath id=\"{cid}\">{}</clipPath>\n",
+                                ind(stack.len()),
+                                object_to_svg(&shape)
+                            ));
+                        }
+                        format!(" clip-path=\"url(#{cid})\"")
+                    }
+                    None => String::new(),
+                };
+                o.push_str(&format!("{}<g mondrian:group=\"{g}\"{clip}>\n", ind(stack.len())));
+                stack.push(*g);
+            }
+            o.push_str(&ind(stack.len()));
             o.push_str(&object_to_svg(obj));
             o.push('\n');
         }
-        if open != 0 {
-            o.push_str("    </g>\n");
+        while !stack.is_empty() {
+            stack.pop();
+            o.push_str(&format!("{}</g>\n", ind(stack.len())));
         }
         o.push_str("  </g>\n");
     }
@@ -224,8 +248,18 @@ width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\"{u}>\n",
         ));
     }
     for a in &doc.artboards {
+        // eigener Hintergrund jeder weiteren Zeichenfläche („none“ = durchsichtig)
+        let bg = match a.background {
+            Some(c) if c.a < 0.999 => format!(
+                " background=\"{}\" background-opacity=\"{}\"",
+                c.to_hex(),
+                num(c.a)
+            ),
+            Some(c) => format!(" background=\"{}\"", c.to_hex()),
+            None => " background=\"none\"".to_string(),
+        };
         o.push_str(&format!(
-            "  <mondrian:artboard x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" name=\"{}\"/>\n",
+            "  <mondrian:artboard x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" name=\"{}\"{bg}/>\n",
             num(a.x),
             num(a.y),
             num(a.w),
@@ -581,8 +615,9 @@ fn gradient_def(id: &str, g: &Gradient, bbox: Option<crate::geom::Rect>) -> Stri
             }
             None => (Pt::new(0.0, 0.0), 0.0),
         };
-        let (tile, motif) = match g.shape {
+        let (tw, th, motif) = match g.shape {
             GradShape::Checker => (
+                2.0 * k,
                 2.0 * k,
                 format!(
                     "<rect width=\"{k}\" height=\"{k}\" {f}/><rect x=\"{k}\" y=\"{k}\" width=\"{k}\" height=\"{k}\" {f}/>",
@@ -592,6 +627,7 @@ fn gradient_def(id: &str, g: &Gradient, bbox: Option<crate::geom::Rect>) -> Stri
             ),
             GradShape::Dots => (
                 2.0 * k,
+                2.0 * k,
                 format!(
                     "<circle cx=\"{a}\" cy=\"{a}\" r=\"{r}\" {f}/><circle cx=\"{b}\" cy=\"{b}\" r=\"{r}\" {f}/>",
                     a = num(k * 0.5),
@@ -600,7 +636,8 @@ fn gradient_def(id: &str, g: &Gradient, bbox: Option<crate::geom::Rect>) -> Stri
                     f = fillc(c2)
                 ),
             ),
-            _ => (
+            GradShape::Stripes => (
+                k,
                 k,
                 format!(
                     "<rect width=\"{}\" height=\"{}\" {}/>",
@@ -609,14 +646,43 @@ fn gradient_def(id: &str, g: &Gradient, bbox: Option<crate::geom::Rect>) -> Stri
                     fillc(c2)
                 ),
             ),
+            // übrige Muster: Flächen als Pfade (Ringe gerade/ungerade gefüllt)
+            other => match other.pattern_tile(k) {
+                Some(t) => {
+                    let mut out = String::new();
+                    for sh in &t.shapes {
+                        let mut d = String::new();
+                        for c in &sh.contours {
+                            for (i, p) in c.iter().enumerate() {
+                                d.push_str(if i == 0 { "M" } else { "L" });
+                                d.push_str(&format!("{} {} ", num(p.x), num(p.y)));
+                            }
+                            d.push_str("Z ");
+                        }
+                        let base = if sh.ink { c2 } else { c1 };
+                        let col = Color {
+                            a: base.a * sh.alpha,
+                            ..base
+                        };
+                        out.push_str(&format!(
+                            "<path d=\"{}\" fill-rule=\"evenodd\" {}/>",
+                            d.trim_end(),
+                            fillc(col)
+                        ));
+                    }
+                    (t.w, t.h, out)
+                }
+                None => (k, k, String::new()),
+            },
         };
         return format!(
-            "<defs><pattern id=\"{id}\" patternUnits=\"userSpaceOnUse\" width=\"{t}\" height=\"{t}\" patternTransform=\"translate({} {}) rotate({})\"><rect width=\"{t}\" height=\"{t}\" {}/>{motif}</pattern></defs>",
+            "<defs><pattern id=\"{id}\" patternUnits=\"userSpaceOnUse\" width=\"{w}\" height=\"{h}\" patternTransform=\"translate({} {}) rotate({})\"><rect width=\"{w}\" height=\"{h}\" {}/>{motif}</pattern></defs>",
             num(a.x),
             num(a.y),
             num(deg),
             fillc(c1),
-            t = num(tile)
+            w = num(tw),
+            h = num(th)
         );
     }
     let own: Vec<String> = g
@@ -777,6 +843,10 @@ pub fn object_to_svg(obj: &Object) -> String {
     if obj.style.fx != crate::model::Effects::default() {
         marker_attr.push_str(&format!(" mondrian:fx=\"{}\"", obj.style.fx.to_attr()));
     }
+    // Schnittmaske: unsichtbar (andere Programme nutzen den clipPath der Gruppe)
+    if obj.mask {
+        marker_attr.push_str(" mondrian:mask=\"true\" display=\"none\"");
+    }
     // Muster und kreisförmige Verläufe: eigene Angabe (vollständig)
     if let Some(g) = obj
         .style
@@ -786,8 +856,21 @@ pub fn object_to_svg(obj: &Object) -> String {
     {
         marker_attr.push_str(&format!(" mondrian:fill-gradient=\"{}\"", g.to_attr()));
     }
+    // globale Farben: Kennung der Bibliotheksfarbe (nur solange die Farbe noch passt)
+    for (key, paint, link) in [
+        ("fill-link", obj.style.fill, &obj.style.fill_link),
+        ("stroke-link", obj.style.stroke, &obj.style.stroke_link),
+    ] {
+        if let Some(l) = link.as_ref().filter(|l| l.holds(paint)) {
+            marker_attr.push_str(&format!(" mondrian:{key}=\"{}\"", crate::xml::escape(&l.id)));
+        }
+    }
     if obj.style.dash != crate::model::Dash::Solid && obj.style.stroke.is_some() {
         marker_attr.push_str(&format!(" mondrian:dash=\"{}\"", obj.style.dash.name()));
+        // Punkte erzwingen runde Enden; die gewählten Enden für später merken
+        if obj.style.dash.round_caps() && obj.style.cap != LineCap::Round {
+            marker_attr.push_str(&format!(" mondrian:cap=\"{}\"", obj.style.cap.css()));
+        }
     }
     if obj.style.stroke_align != crate::model::StrokeAlign::Center {
         marker_attr.push_str(&format!(
@@ -1200,7 +1283,7 @@ pub fn object_to_svg(obj: &Object) -> String {
                 format!(" style=\"{blend_css}\"")
             };
             format!(
-                "{cdef}<image {id} x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" preserveAspectRatio=\"none\" transform=\"matrix({} {} {} {} {} {})\"{op}{bl}{cattr} href=\"{uri}\" xlink:href=\"{uri}\"/>{frame}",
+                "{cdef}<image {id} x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" preserveAspectRatio=\"none\" transform=\"matrix({} {} {} {} {} {})\"{op}{bl}{cattr}{marker_attr} href=\"{uri}\" xlink:href=\"{uri}\"/>{frame}",
                 num(*w),
                 num(*h),
                 num6(xf.a),
@@ -1854,10 +1937,8 @@ fn apply_prop(ctx: &mut Ctx, key: &str, val: &str) {
                 ctx.hidden = true;
             }
         }
-        "visibility" => {
-            if val == "hidden" || val == "collapse" {
-                ctx.hidden = true;
-            }
+        "visibility" if (val == "hidden" || val == "collapse") => {
+            ctx.hidden = true;
         }
         _ => {}
     }
@@ -1912,6 +1993,8 @@ fn style_from_ctx(c: &Ctx) -> Style {
         shadow_gradient: None,
         stroke_align: crate::model::StrokeAlign::Center,
         dash: crate::model::Dash::from_array(&c.dash, c.width),
+        fill_link: None,
+        stroke_link: None,
     }
 }
 
@@ -1955,8 +2038,7 @@ pub fn parse_path(d: &str) -> Vec<SubPath> {
         }
     };
 
-    loop {
-        let Some(c) = lex.peek() else { break };
+    while let Some(c) = lex.peek() {
         if c.is_ascii_alphabetic() {
             cmd = c;
             lex.i += 1;
@@ -2020,7 +2102,7 @@ pub fn parse_path(d: &str) -> Vec<SubPath> {
                 last_quad = None;
             }
             b'C' | b'S' => {
-                let c1 = if cmd.to_ascii_uppercase() == b'C' {
+                let c1 = if cmd.eq_ignore_ascii_case(&b'C') {
                     Pt::new(num!(), num!()) + base
                 } else {
                     match last_ctrl {
@@ -2045,7 +2127,7 @@ pub fn parse_path(d: &str) -> Vec<SubPath> {
                 last_quad = None;
             }
             b'Q' | b'T' => {
-                let q = if cmd.to_ascii_uppercase() == b'Q' {
+                let q = if cmd.eq_ignore_ascii_case(&b'Q') {
                     Pt::new(num!(), num!()) + base
                 } else {
                     match last_quad {
@@ -2462,7 +2544,7 @@ fn collect(
     ids: &PathIds,
     doc: &mut Document,
     out: &mut Vec<Object>,
-    group: u64,
+    chain: &[u64],
     groups: &mut Groups,
 ) {
     for child in el.elements() {
@@ -2475,17 +2557,18 @@ fn collect(
             continue;
         }
         let c = derive_ctx(ctx, child);
-        if c.hidden {
+        // Schnittmasken sind ausgeblendet gespeichert, gehören aber dazu
+        let mask = own(child, "mask") == Some("true");
+        if c.hidden && !mask {
             continue;
         }
         if matches!(name, "g" | "a" | "switch" | "svg") {
-            // verschachtelte Gruppen werden zu einer (flachen) Gruppe
-            let g = if name == "g" && group == 0 {
-                new_group(groups, own(child, "group"))
-            } else {
-                group
-            };
-            collect(child, &c, ids, doc, out, g, groups);
+            // jede Gruppe ist eine Ebene der Gruppenkette
+            let mut ch = chain.to_vec();
+            if name == "g" {
+                ch.push(new_group(groups, own(child, "group")));
+            }
+            collect(child, &c, ids, doc, out, &ch, groups);
         } else if let Some(shape) = read_shape(child, &c, ids) {
             let id = doc.alloc_id();
             let mut style = style_from_ctx(&c);
@@ -2495,6 +2578,9 @@ fn collect(
             style.shadow_gradient = own(child, "shadow-gradient").and_then(Gradient::from_attr);
             if let Some(d) = own(child, "dash").and_then(crate::model::Dash::from_name) {
                 style.dash = d;
+            }
+            if let Some(cap) = own(child, "cap").and_then(LineCap::from_css) {
+                style.cap = cap;
             }
             style.stroke_align = own(child, "stroke-align")
                 .and_then(crate::model::StrokeAlign::from_name)
@@ -2506,13 +2592,20 @@ fn collect(
             if let Some(g) = own(child, "fill-gradient").and_then(Gradient::from_attr) {
                 style.gradient = Some(g);
             }
+            // globale Farben: die Verknüpfung gilt für die gespeicherte Farbe
+            let link = |key: &str, paint: Option<Color>| {
+                let id = own(child, key).filter(|id| !id.is_empty() && id.len() <= 64)?;
+                Some(crate::model::ColorLink::new(id, paint?))
+            };
+            style.fill_link = link("fill-link", style.fill).filter(|_| style.gradient.is_none());
+            style.stroke_link = link("stroke-link", style.stroke).filter(|_| style.stroke_gradient.is_none());
             style.fx = own(child, "fx")
                 .map(crate::model::Effects::from_attr)
                 .unwrap_or_default();
             // ältere Dateien: Texturen als Mischmodus
-            use crate::model::{Art, Lens, Texture, FROST_DEFAULT, FX_DEFAULT};
+            use crate::model::{Art, Lens, FROST_DEFAULT, FX_DEFAULT};
             match own(child, "blend") {
-                Some("frost") => style.fx.tex = Some((Texture::Frost, FROST_DEFAULT)),
+                Some("frost") => style.fx.glass = Some(FROST_DEFAULT),
                 Some("liquid") => style.fx.lens = Some((Lens::Drop, FX_DEFAULT)),
                 Some("grain") => style.fx.art = Some((Art::Grain, FX_DEFAULT)),
                 Some("pixel") => style.fx.art = Some((Art::Pixel, FX_DEFAULT)),
@@ -2544,8 +2637,12 @@ fn collect(
                 // Rahmenlinie: Breite steht in Dokumenteinheiten (ohne die Bildmatrix)
                 style.width = c.width;
             }
+            let group = chain.first().copied().unwrap_or(0);
+            let sub = chain.get(1..).map(|s| s.to_vec()).unwrap_or_default();
             out.push(Object {
                 group,
+                sub,
+                mask,
                 locked: own(child, "locked") == Some("true")
                     || child.attr_local("insensitive") == Some("true"),
                 name: child.attr_local("label").unwrap_or("").to_string(),
@@ -2570,7 +2667,13 @@ pub fn read(text: &str) -> Result<Document, String> {
 pub fn read_with(text: &str, base: Option<&std::path::Path>) -> Result<(Document, Vec<String>), String> {
     BASE_DIR.with(|b| *b.borrow_mut() = base.map(|p| p.to_path_buf()));
     NOTES.with(|n| n.borrow_mut().clear());
-    let r = read_inner(text);
+    let r = read_inner(text).map(|mut d| {
+        // Werte aus beschädigten oder präparierten Dateien unschädlich machen
+        if d.sanitize() > 0 {
+            note(tr("objects with invalid sizes or coordinates (left out)").into());
+        }
+        d
+    });
     BASE_DIR.with(|b| *b.borrow_mut() = None);
     CSS.with(|c| c.borrow_mut().clear());
     let notes = NOTES.with(|n| std::mem::take(&mut *n.borrow_mut()));
@@ -2589,15 +2692,15 @@ fn scan_unsupported(root: &Element) {
         }
         stack.extend(e.elements());
     }
-    fn walk(el: &Element, gdepth: usize, patterns: &[String]) {
+    fn walk(el: &Element, patterns: &[String]) {
         for c in el.elements() {
             let name = c.local();
             match name {
                 "defs" | "metadata" | "style" | "title" | "desc" | "namedview" | "clipPath" | "mask"
                 | "symbol" | "marker" | "pattern" | "linearGradient" | "radialGradient" | "filter"
                 | "script" => continue,
-                "use" => note(tr("wiederverwendete Elemente (<use>)").into()),
-                "foreignObject" => note(tr("eingebettete HTML-Inhalte").into()),
+                "use" => note(tr("reused elements (<use>)").into()),
+                "foreignObject" => note(tr("embedded HTML content").into()),
                 _ => {}
             }
             let style = c.attr("style").unwrap_or("");
@@ -2609,16 +2712,16 @@ fn scan_unsupported(root: &Element) {
                     })
             };
             if has("clip-path") {
-                note(tr("Schnittpfade (clip-path)").into());
+                note(tr("clipping paths (clip-path)").into());
             }
             if has("mask") {
-                note(tr("Masken").into());
+                note(tr("masks").into());
             }
             if has("filter") {
-                note(tr("Filter (z. B. Weichzeichner oder Schatten anderer Programme)").into());
+                note(tr("filters (e.g. blur or shadows from other programs)").into());
             }
             if has("marker-start") || has("marker-mid") || has("marker-end") {
-                note(tr("Linienenden anderer Programme (Marker)").into());
+                note(tr("line ends from other programs (markers)").into());
             }
             let paint = format!(
                 "{} {} {style}",
@@ -2626,21 +2729,15 @@ fn scan_unsupported(root: &Element) {
                 c.attr("stroke").unwrap_or("")
             );
             if patterns.iter().any(|p| paint.contains(p.as_str())) {
-                note(tr("Muster anderer Programme").into());
+                note(tr("patterns from other programs").into());
             }
             match name {
-                "g" => {
-                    if gdepth >= 2 {
-                        note(tr("verschachtelte Gruppen (werden zu einer Gruppe zusammengefasst)").into());
-                    }
-                    walk(c, gdepth + 1, patterns);
-                }
-                "a" | "switch" | "svg" => walk(c, gdepth, patterns),
+                "g" | "a" | "switch" | "svg" => walk(c, patterns),
                 _ => {}
             }
         }
     }
-    walk(root, 0, &patterns);
+    walk(root, &patterns);
 }
 
 fn read_inner(text: &str) -> Result<Document, String> {
@@ -2654,7 +2751,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
         .any(|(k, _)| matches!(k.as_str(), "xmlns:mondrian" | "xmlns:silhouettes" | "xmlns:linea"));
     if !own {
         if !css_ok {
-            note(tr("Teile der CSS-Formatierung").into());
+            note(tr("parts of the CSS styling").into());
         }
         scan_unsupported(&root);
     }
@@ -2664,7 +2761,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
     gather_gradients(&root, &mut grads);
     GRADS.with(|g| *g.borrow_mut() = grads);
     if root.local() != "svg" {
-        return Err(tr("Die Datei ist kein SVG-Dokument").into());
+        return Err(tr("The file is not an SVG document").into());
     }
     let vb: Vec<f64> = root.attr("viewBox").map(parse_numbers).unwrap_or_default();
     let vb = (vb.len() == 4 && vb[2] > 0.0 && vb[3] > 0.0).then(|| (vb[0], vb[1], vb[2], vb[3]));
@@ -2726,12 +2823,22 @@ fn read_inner(text: &str) -> Result<Document, String> {
             .filter(|e| e.local() == "artboard")
             .filter_map(|e| {
                 let num = |k: &str| e.attr(k).and_then(|v| v.parse::<f64>().ok());
+                // ohne Angabe (Dateien bis 0.9.59): wie die erste Zeichenfläche, siehe unten
+                let background = match e.attr("background") {
+                    Some("none") => None,
+                    Some(v) => Color::parse(v).map(|c| Color {
+                        a: num("background-opacity").unwrap_or(1.0).clamp(0.0, 1.0),
+                        ..c
+                    }),
+                    None => Some(INHERIT_BG),
+                };
                 Some(crate::model::Artboard {
-                    name: e.attr("name").unwrap_or(tr("Zeichenfläche")).to_string(),
+                    name: e.attr("name").unwrap_or(tr("Artboard")).to_string(),
                     x: num("x")?,
                     y: num("y")?,
                     w: num("width")?.max(1.0),
                     h: num("height")?.max(1.0),
+                    background,
                 })
             })
             .collect(),
@@ -2777,13 +2884,13 @@ fn read_inner(text: &str) -> Result<Document, String> {
                 .attr_local("label")
                 .or(child.attr("id"))
                 .map(str::to_string)
-                .unwrap_or_else(|| format!("Ebene {counter}"));
+                .unwrap_or_else(|| trf("Layer {}", &[&counter]));
             let color = child
                 .attr_local("color")
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(counter - 1);
             let mut objects = Vec::new();
-            collect(child, &c, &ids, &mut doc, &mut objects, 0, &mut groups);
+            collect(child, &c, &ids, &mut doc, &mut objects, &[], &mut groups);
             let id = doc.alloc_id();
             doc.layers.push(Layer {
                 id,
@@ -2803,7 +2910,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
                     doc.layers.push(Layer {
                         id,
                         color: counter - 1,
-                        name: format!("Ebene {counter}"),
+                        name: trf("Layer {}", &[&counter]),
                         visible: true,
                         locked: false,
                         objects: Vec::new(),
@@ -2819,7 +2926,7 @@ fn read_inner(text: &str) -> Result<Document, String> {
                 children: vec![XNode::Elem(child.clone())],
             };
             let mut objects = Vec::new();
-            collect(&wrapper, &base, &ids, &mut doc, &mut objects, 0, &mut groups);
+            collect(&wrapper, &base, &ids, &mut doc, &mut objects, &[], &mut groups);
             doc.layers[li].objects.extend(objects);
         }
     }
@@ -2828,22 +2935,14 @@ fn read_inner(text: &str) -> Result<Document, String> {
         doc.layers.push(Layer {
             id,
             color: 0,
-            name: tr("Ebene 1").into(),
+            name: tr("Layer 1").into(),
             visible: true,
             locked: false,
             objects: Vec::new(),
         });
     }
-    // Gruppen mit nur einem Objekt auflösen
-    let mut count: HashMap<u64, usize> = HashMap::new();
-    for o in doc.layers.iter().flat_map(|l| l.objects.iter()) {
-        *count.entry(o.group).or_default() += 1;
-    }
-    for o in doc.layers.iter_mut().flat_map(|l| l.objects.iter_mut()) {
-        if count.get(&o.group).copied().unwrap_or(0) < 2 {
-            o.group = 0;
-        }
-    }
+    // Gruppen mit nur einem Objekt auflösen (auf jeder Ebene)
+    doc.tidy_groups();
     doc.fix_ids();
     // Hilfslinien ihren Ebenen zuordnen
     let layer_ids: Vec<u64> = doc.layers.iter().map(|l| l.id).collect();
@@ -2855,8 +2954,23 @@ fn read_inner(text: &str) -> Result<Document, String> {
         };
     }
     GRADS.with(|g| g.borrow_mut().clear());
+    // Zeichenflächen ohne eigenen Hintergrund (ältere Dateien) übernehmen den der ersten
+    let main_bg = doc.background;
+    for a in doc.artboards.iter_mut() {
+        if a.background == Some(INHERIT_BG) {
+            a.background = main_bg;
+        }
+    }
     Ok(doc)
 }
+
+/// Platzhalter beim Lesen: Zeichenfläche ohne eigene Hintergrundangabe.
+const INHERIT_BG: Color = Color {
+    r: -1.0,
+    g: -1.0,
+    b: -1.0,
+    a: -1.0,
+};
 
 /// Pfade mit ID (für textPath): ID → (d, transform)
 type PathIds = HashMap<String, (String, Option<String>)>;
@@ -2903,11 +3017,11 @@ fn read_image(el: &Element, ctx: &Ctx) -> Option<Shape> {
         match usable.then(|| std::fs::read(&path).ok()).flatten() {
             Some(d) if looks_like_image(&d) => d,
             Some(_) => {
-                note(trf("Bild „{}“ (keine Bilddatei)", &[&(href)]));
+                note(trf("Image “{}” (not an image file)", &[&(href)]));
                 return None;
             }
             None => {
-                note(trf("Bild „{}“ (Datei nicht gefunden)", &[&(href)]));
+                note(trf("Image “{}” (file not found)", &[&(href)]));
                 return None;
             }
         }
@@ -3046,6 +3160,8 @@ mod tests {
         let id = d.alloc_id();
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             angle: 0.0,
@@ -3062,6 +3178,8 @@ mod tests {
         let id = d.alloc_id();
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             angle: 0.0,
@@ -3088,6 +3206,8 @@ mod tests {
         rotated.transform(&Affine::scale(-1.0, 1.0));
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             angle: 0.0,
@@ -3105,6 +3225,8 @@ mod tests {
             locked: true,
             objects: vec![Object {
                 group: 0,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: String::new(),
                 angle: 0.0,
@@ -3130,6 +3252,465 @@ mod tests {
             }],
         });
         d
+    }
+
+    /// Ein Dokument mit (fast) allem, was Stijl kann: nach Speichern und Öffnen muss alles
+    /// genau so wiederkommen.
+    #[test]
+    fn every_feature_round_trips() {
+        use crate::geom::Affine;
+        use crate::model::{
+            Align, Art, Artboard, Blend, Dash, Effects, GradShape, Gradient, Guide, ImgFilter, Lens, LineCap,
+            LineJoin, ListStyle, Marker, MarkerEnds, Material, Shadow, Stop, StrokeAlign, TextFormat,
+            TextFrame, VAlign,
+        };
+        // Farben, die sich als #rrggbb genau speichern lassen
+        let c = |r: u8, g: u8, b: u8| Color::rgb(r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
+        let (red, blue, green, ink) = (c(204, 0, 51), c(0, 102, 204), c(51, 153, 0), c(17, 17, 17));
+        let mut d = Document::new(400.0, 300.0, Some(c(250, 250, 245)));
+        d.unit = "mm".into();
+        d.artboards.push(Artboard {
+            name: "Zweite".into(),
+            x: 450.0,
+            y: 0.0,
+            w: 200.0,
+            h: 100.0,
+            background: Some(c(255, 204, 0)),
+        });
+        d.artboards.push(Artboard {
+            name: "Durchsichtig".into(),
+            x: 700.0,
+            y: 0.0,
+            w: 100.0,
+            h: 100.0,
+            background: None,
+        });
+        d.guides.push(Guide {
+            pos: Pt::new(50.0, 20.0),
+            angle: 30.0,
+            layer: 0,
+        });
+        let grad = |shape: GradShape| {
+            let mut g = Gradient::new(red, blue);
+            g.shape = shape;
+            g.p0 = Pt::new(10.0, 20.0);
+            g.p1 = Pt::new(90.0, 60.0);
+            if shape.is_pattern() {
+                g.cell = 12.0;
+            } else {
+                g.stops.insert(
+                    1,
+                    Stop {
+                        pos: 0.5,
+                        color: green,
+                    },
+                );
+            }
+            g
+        };
+        let base = Style {
+            fill: Some(red),
+            stroke: Some(ink),
+            width: 2.0,
+            opacity: 1.0,
+            ..Style::default()
+        };
+        let mut styles: Vec<Style> = vec![
+            Style {
+                width: 3.0,
+                join: LineJoin::Round,
+                cap: LineCap::Square,
+                dash: Dash::DashDot,
+                stroke_align: StrokeAlign::Inside,
+                blend: Blend::Multiply,
+                ..base.clone()
+            },
+            Style {
+                gradient: Some(grad(GradShape::Linear)),
+                stroke_gradient: Some(grad(GradShape::Linear)),
+                blend: Blend::Screen,
+                ..base.clone()
+            },
+            Style {
+                gradient: Some(grad(GradShape::Radial)),
+                stroke: None,
+                ..base.clone()
+            },
+            Style {
+                shadow: Some(Shadow {
+                    color: blue,
+                    opacity: 0.5,
+                    blur: 6.0,
+                    dx: 3.0,
+                    dy: -4.0,
+                }),
+                shadow_gradient: Some(grad(GradShape::Linear)),
+                ..base.clone()
+            },
+            Style {
+                fx: Effects {
+                    glass: Some(0.75),
+                    glass_grain: 0.5,
+                    mat: Some((Material::Brushed, 0.25)),
+                    mat_angle: 30.0,
+                    lens: Some((Lens::Sphere, -0.5)),
+                    light: 0.75,
+                    mirror: Some(0.5),
+                    mirror_len: 0.5,
+                    mirror_gap: 6.0,
+                    glow: Some(0.25),
+                    inner: Some(0.5),
+                    inner_dist: 7.0,
+                    inner_blur: 3.0,
+                    inner_angle: -30.0,
+                    art: Some((Art::Halftone, 0.25)),
+                    art_size: 12.0,
+                    art_angle: 15.0,
+                    ..Effects::default()
+                },
+                shadow: Some(Shadow::default()),
+                ..base.clone()
+            },
+        ];
+        for m in Material::ALL {
+            styles.push(Style {
+                fx: Effects {
+                    mat: Some((m, 0.5)),
+                    ..Effects::default()
+                },
+                ..base.clone()
+            });
+        }
+        for a in Art::ALL {
+            styles.push(Style {
+                fx: Effects {
+                    art: Some((a, 0.5)),
+                    ..Effects::default()
+                },
+                ..base.clone()
+            });
+        }
+        for l in Lens::ALL {
+            styles.push(Style {
+                fx: Effects {
+                    lens: Some((l, 0.5)),
+                    ..Effects::default()
+                },
+                ..base.clone()
+            });
+        }
+        for p in GradShape::PATTERNS {
+            styles.push(Style {
+                gradient: Some(grad(p)),
+                ..base.clone()
+            });
+        }
+        let mut shapes: Vec<(Shape, Style)> = Vec::new();
+        for (i, st) in styles.into_iter().enumerate() {
+            let (x, y) = ((i % 8) as f64 * 50.0, (i / 8) as f64 * 50.0);
+            shapes.push((
+                Shape::Rect {
+                    x,
+                    y,
+                    w: 40.0,
+                    h: 30.0,
+                    r: if i % 2 == 0 { 0.0 } else { 6.0 },
+                },
+                st,
+            ));
+        }
+        shapes.push((
+            Shape::Ellipse {
+                cx: 60.0,
+                cy: 250.0,
+                rx: 30.0,
+                ry: 20.0,
+            },
+            base.clone(),
+        ));
+        for (i, (mk, ends)) in [
+            (Marker::Arrow, MarkerEnds::Both),
+            (Marker::OpenArrow, MarkerEnds::Start),
+            (Marker::Dot, MarkerEnds::End),
+            (Marker::Bar, MarkerEnds::Both),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            shapes.push((
+                Shape::Line {
+                    a: Pt::new(120.0, 220.0 + i as f64 * 10.0),
+                    b: Pt::new(220.0, 230.0 + i as f64 * 10.0),
+                },
+                Style {
+                    fill: None,
+                    marker: mk,
+                    marker_ends: ends,
+                    marker_size: 1.5,
+                    ..base.clone()
+                },
+            ));
+        }
+        let fmt = TextFormat {
+            align: Align::Center,
+            line: 1.5,
+            tracking: 50.0,
+            underline: true,
+            strike: true,
+            small_caps: true,
+            no_ligatures: true,
+            weight: 500,
+            box_fill: Some(c(255, 255, 204)),
+            box_stroke: Some(ink),
+            box_width: 1.0,
+            box_inset: 4.0,
+            ..TextFormat::default()
+        };
+        shapes.push((
+            Shape::Text {
+                xf: Affine::translate(250.0, 240.0),
+                text: "Hallo & <Welt>".into(),
+                family: "Sans".into(),
+                size: 18.0,
+                bold: false,
+                italic: true,
+                fmt: fmt.clone(),
+            },
+            Style {
+                stroke: None,
+                ..base.clone()
+            },
+        ));
+        shapes.push((
+            Shape::TextArea {
+                xf: Affine::translate(300.0, 150.0),
+                w: 90.0,
+                h: 60.0,
+                text: "Erster Absatz\nZweiter Absatz".into(),
+                family: "Serif".into(),
+                size: 12.0,
+                bold: true,
+                italic: false,
+                fmt: TextFormat {
+                    align: Align::Justify,
+                    valign: VAlign::Bottom,
+                    list: ListStyle::Number,
+                    columns: 2,
+                    para: 0.5,
+                    ..TextFormat::default()
+                },
+                frame: TextFrame {
+                    path: None,
+                    fill: Some(c(238, 238, 238)),
+                    stroke: Some(blue),
+                    width: 2.0,
+                    inset: 5.0,
+                },
+                rich: Default::default(),
+            },
+            Style {
+                stroke: None,
+                ..base.clone()
+            },
+        ));
+        for (shape, style) in shapes {
+            let id = d.alloc_id();
+            d.layers[0].objects.push(Object {
+                id,
+                shape,
+                style,
+                angle: 0.0,
+                group: if id % 5 == 0 { 7 } else { 0 },
+                sub: Vec::new(),
+                mask: false,
+                locked: id % 7 == 0,
+                name: if id % 3 == 0 {
+                    format!("Objekt {id}")
+                } else {
+                    String::new()
+                },
+            });
+        }
+        // ein Bild mit Filter und Temperatur
+        let png = {
+            let mut v = Vec::new();
+            v.extend_from_slice(b"\x89PNG\r\n\x1a\n");
+            v.extend_from_slice(&[0; 32]);
+            v
+        };
+        let id = d.alloc_id();
+        d.layers[0].objects.push(Object {
+            id,
+            shape: Shape::Image {
+                xf: Affine::translate(10.0, 10.0),
+                w: 20.0,
+                h: 10.0,
+                data: Rc::new(png),
+                clip: None,
+            },
+            style: Style {
+                fx: Effects {
+                    tint: Some((ImgFilter::Sepia, 1.0)),
+                    temp: 0.25,
+                    ..Effects::default()
+                },
+                ..Style::default()
+            },
+            angle: 0.0,
+            group: 0,
+            sub: Vec::new(),
+            mask: false,
+            locked: false,
+            name: String::new(),
+        });
+        let id = d.alloc_id();
+        d.layers[0].objects.push(Object {
+            id,
+            shape: Shape::Image {
+                xf: Affine::translate(40.0, 10.0),
+                w: 20.0,
+                h: 10.0,
+                data: Rc::new(b"\x89PNG\r\n\x1a\nzweites".to_vec()),
+                clip: Some(vec![crate::model::SubPath {
+                    nodes: [(42.0, 11.0), (58.0, 11.0), (58.0, 19.0), (42.0, 19.0)]
+                        .iter()
+                        .map(|(x, y)| crate::model::Node::corner(Pt::new(*x, *y)))
+                        .collect(),
+                    closed: true,
+                }]),
+            },
+            style: Style {
+                fill: None,
+                stroke: Some(ink),
+                width: 2.0,
+                shadow: Some(Shadow::default()),
+                fx: Effects {
+                    art: Some((Art::Oil, 0.5)),
+                    glow: Some(0.5),
+                    mirror: Some(0.25),
+                    ..Effects::default()
+                },
+                ..Style::default()
+            },
+            angle: 0.0,
+            group: 0,
+            sub: Vec::new(),
+            mask: false,
+            locked: false,
+            name: String::new(),
+        });
+        let lid = d.alloc_id();
+        d.layers.push(crate::model::Layer {
+            id: lid,
+            name: "Versteckt".into(),
+            visible: false,
+            locked: true,
+            color: 3,
+            objects: Vec::new(),
+        });
+
+        let back = read(&write(&d, true)).unwrap();
+        // nochmals speichern ändert nichts mehr (nichts „wandert“ von Speichern zu Speichern)
+        let once = write(&back, true);
+        assert_eq!(write(&read(&once).unwrap(), true), once);
+        assert_eq!(back.unit, d.unit);
+        assert_eq!(back.background, d.background);
+        assert_eq!(back.artboards, d.artboards);
+        assert_eq!(back.guides, d.guides);
+        assert_eq!(back.layers.len(), d.layers.len());
+        for (a, b) in back.layers.iter().zip(&d.layers) {
+            assert_eq!((&a.name, a.visible, a.locked), (&b.name, b.visible, b.locked));
+            assert_eq!(a.objects.len(), b.objects.len(), "Objekte in {}", b.name);
+            for (oa, ob) in a.objects.iter().zip(&b.objects) {
+                let what = format!("{:?}", ob.shape).chars().take(60).collect::<String>();
+                // nicht sichtbare Werte werden nicht gespeichert: die Farbe unter einem Verlauf
+                // und die Linienstärke ohne Kontur
+                // Bilder haben keine Füllung, ohne Rahmen auch keine Kontur
+                let norm = |st: &Style| {
+                    let mut st = st.clone();
+                    if let Shape::Image { clip, .. } = &ob.shape {
+                        st.fill = None;
+                        if clip.is_none() {
+                            st.stroke = None;
+                        }
+                    }
+                    if st.gradient.is_some() {
+                        st.fill = st.fill.map(|_| Color::BLACK);
+                    }
+                    if st.stroke.is_none() {
+                        st.width = 0.0;
+                    }
+                    st
+                };
+                assert_eq!(norm(&oa.style), norm(&ob.style), "Stil von {what}");
+                assert_eq!(oa.shape, ob.shape, "Form");
+                assert_eq!((oa.locked, &oa.name), (ob.locked, &ob.name), "{what}");
+                assert_eq!(oa.group != 0, ob.group != 0, "Gruppe von {what}");
+            }
+        }
+    }
+
+    /// Präparierte SVG-Dateien: tiefe Verschachtelung, Entitäten, riesige oder ungültige
+    /// Zahlen, Selbstbezüge und Verweise nach außen dürfen weder hängen noch abstürzen.
+    #[test]
+    fn hostile_svgs_are_harmless() {
+        let head = r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">"#;
+        // sehr tief verschachtelt: Fehler statt Stapelüberlauf
+        let deep = format!(
+            "{head}{}<rect width=\"1\" height=\"1\"/>{}</svg>",
+            "<g>".repeat(200_000),
+            "</g>".repeat(200_000)
+        );
+        assert!(read(&deep).is_err());
+        // Entitäten werden nicht vervielfacht („Billion Laughs“)
+        let laughs = r#"<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;"><!ENTITY d "&c;&c;&c;&c;&c;&c;&c;&c;&c;&c;">]><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><text>&d;&d;&d;&d;</text></svg>"#;
+        if let Ok(d) = read(laughs) {
+            for o in d.layers.iter().flat_map(|l| &l.objects) {
+                if let Shape::Text { text, .. } = &o.shape {
+                    assert!(text.len() < 1000, "{}", text.len());
+                }
+            }
+        }
+        // riesige und ungültige Zahlen: Seite brauchbar, kaputte Objekte entfernt
+        let nums = r#"<svg xmlns="http://www.w3.org/2000/svg" width="1e308" height="NaN" viewBox="0 0 1e-300 1e308"><rect width="1e308" height="10" stroke="black" stroke-width="1e308"/><path d="M0 0 L1e308 -1e308 C 1e308 1e308 -1e308 1e308 0 0 Z" transform="scale(1e308)"/><text font-size="1e308">Hallo</text><circle r="-5"/><polygon points="nan,nan inf,inf"/><rect width="5" height="5" stroke="red" stroke-width="1e300" opacity="NaN"/></svg>"#;
+        let (d, notes) = read_with(nums, None).unwrap();
+        assert!(d.width.is_finite() && d.width >= 1.0 && d.width <= 1e6);
+        assert!(d.height.is_finite() && d.height >= 1.0 && d.height <= 1e6);
+        assert!(notes.iter().any(|n| n.contains("invalid")), "{notes:?}");
+        for o in d.layers.iter().flat_map(|l| &l.objects) {
+            assert!(o.style.width.is_finite() && o.style.width <= 1e5);
+            assert!(o.style.opacity.is_finite());
+            if let Some(b) = o.shape.geom_bbox() {
+                assert!(b.x1.abs() <= crate::model::MAX_COORD && b.y1.abs() <= crate::model::MAX_COORD);
+            }
+        }
+        // Selbstbezüge und Verweise nach außen (kein Netz, keine Gerätedateien)
+        let refs = format!(
+            "{head}<g id=\"a\"><use href=\"#a\"/></g><image href=\"http://127.0.0.1:9/x.png\" width=\"9\" height=\"9\"/><image href=\"/dev/urandom\" width=\"9\" height=\"9\"/><style>@import url(http://127.0.0.1:9/x.css);</style></svg>"
+        );
+        let (d, _) = read_with(&refs, None).unwrap();
+        assert!(d
+            .layers
+            .iter()
+            .all(|l| l.objects.iter().all(|o| !matches!(o.shape, Shape::Image { .. }))));
+        // sehr viele Objekte und sehr lange Pfade bleiben lesbar
+        let many: String = (0..20_000)
+            .map(|i| {
+                format!(
+                    "<rect x=\"{}\" y=\"{}\" width=\"1\" height=\"1\"/>",
+                    i % 200,
+                    i / 200
+                )
+            })
+            .collect();
+        assert_eq!(
+            read(&format!("{head}{many}</svg>")).unwrap().layers[0]
+                .objects
+                .len(),
+            20_000
+        );
+        let long: String = (0..100_000).map(|i| format!(" L{} {}", i % 97, i % 89)).collect();
+        assert!(read(&format!("{head}<path d=\"M0 0{long}\"/></svg>")).is_ok());
     }
 
     #[test]
@@ -3233,6 +3814,8 @@ mod tests {
         shape.transform(&Affine::rotate_about(10.0, Pt::new(0.0, 0.0)));
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             angle: 0.0,
@@ -3312,6 +3895,8 @@ mod tests {
         let id = d.alloc_id();
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             angle: 0.0,
@@ -3345,6 +3930,8 @@ mod tests {
             style: Style::default(),
             angle: 0.0,
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
         });
@@ -3389,6 +3976,8 @@ mod tests {
         let id = d.alloc_id();
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             angle: 0.0,
@@ -3409,6 +3998,8 @@ mod tests {
         let png = vec![0x89, b'P', b'N', b'G', 1, 2, 3, 250];
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             angle: 0.0,
@@ -3545,6 +4136,8 @@ mod tests {
         let id = d.alloc_id();
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             id,
@@ -3582,6 +4175,8 @@ mod tests {
         };
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             id,
@@ -3592,6 +4187,8 @@ mod tests {
         let id = d.alloc_id();
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             id,
@@ -3655,10 +4252,11 @@ mod tests {
         assert!(text.contains("column-count:3"), "{text}");
         assert_eq!(o[2].style.blend, Blend::Screen);
         // Effekte als eigenes Attribut, Muster und kreisförmige Verläufe
-        use crate::model::{Art, Effects, GradShape, Lens, Texture};
+        use crate::model::{Art, Effects, GradShape, Lens, Material};
         let mut r2 = r.clone();
         r2.layers[0].objects[0].style.fx = Effects {
-            tex: Some((Texture::Frost, 0.7)),
+            glass: Some(0.7),
+            glass_grain: 0.5,
             lens: Some((Lens::Drop, -0.3)),
             ..Effects::default()
         };
@@ -3666,7 +4264,7 @@ mod tests {
         r2.layers[0].objects[2].style.fx.mirror = Some(0.4);
         r2.layers[0].objects[2].style.fx.tint = Some((crate::model::ImgFilter::Sepia, 1.0));
         r2.layers[0].objects[2].style.fx.temp = -0.35;
-        r2.layers[0].objects[1].style.fx.tex = Some((Texture::Brushed, 0.4));
+        r2.layers[0].objects[1].style.fx.mat = Some((Material::Brushed, 0.4));
         r2.layers[0].objects[1].style.fx.lens = Some((Lens::Pyramid, 0.8));
         r2.layers[0].objects[1].style.fx.light = 0.2;
         if let Some(g) = r2.layers[0].objects[0].style.gradient.as_mut() {
@@ -3679,8 +4277,8 @@ mod tests {
         assert_eq!(r3.layers[0].objects[0].style.fx, r2.layers[0].objects[0].style.fx);
         assert_eq!(r3.layers[0].objects[1].style.fx.art, Some((Art::Watercolor, 0.6)));
         assert_eq!(
-            r3.layers[0].objects[1].style.fx.tex,
-            Some((Texture::Brushed, 0.4))
+            r3.layers[0].objects[1].style.fx.mat,
+            Some((Material::Brushed, 0.4))
         );
         assert_eq!(r3.layers[0].objects[1].style.fx.lens, Some((Lens::Pyramid, 0.8)));
         assert!((r3.layers[0].objects[1].style.fx.light - 0.2).abs() < 1e-9);
@@ -3701,7 +4299,7 @@ mod tests {
         assert_eq!(old.lens, Some((Lens::Drop, 0.6)));
         let old = crate::model::Effects::from_attr("lens=concave:0.3 frost=0.5");
         assert_eq!(old.lens, Some((Lens::Drop, -0.3)));
-        assert_eq!(old.tex, Some((Texture::Frost, 0.5)));
+        assert_eq!(old.glass, Some(0.5));
         // alte Dateien: Warm und Kalt werden zur Temperatur
         let old = crate::model::Effects::from_attr("tint=warm:0.4");
         assert!(old.tint.is_none() && (old.temp - 0.4).abs() < 1e-9);
@@ -3752,6 +4350,8 @@ mod tests {
         let id = d.alloc_id();
         d.layers[0].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             id,
@@ -3782,10 +4382,7 @@ mod tests {
         let d = read(text).unwrap();
         assert_eq!(d.unit, "mm");
         let o = &d.layers[0].objects[0];
-        assert_eq!(
-            o.style.fx.tex,
-            Some((crate::model::Texture::Frost, crate::model::FROST_DEFAULT))
-        );
+        assert_eq!(o.style.fx.glass, Some(crate::model::FROST_DEFAULT));
     }
 
     #[test]
@@ -3797,10 +4394,27 @@ mod tests {
             y: 0.0,
             w: 150.0,
             h: 90.0,
+            background: Some(Color {
+                a: 0.5,
+                ..Color::rgb(0.2, 0.4, 0.6)
+            }),
         });
         let t = write(&d, true);
         let r = read(&t).unwrap();
-        assert_eq!(r.artboards, d.artboards);
+        assert!((r.artboards[0].background.unwrap().a - 0.5).abs() < 1e-6);
+        let mut cmp = r.artboards.clone();
+        cmp[0].background = d.artboards[0].background;
+        assert_eq!(cmp, d.artboards);
+        assert_eq!(
+            r.artboard_doc(1).background.map(|c| c.to_hex()),
+            Some("#336699".into())
+        );
+        // ältere Dateien ohne Angabe: wie die erste Zeichenfläche
+        let old = t
+            .replace(" background=\"#336699\" background-opacity=\"0.5\"", "")
+            .replace("<svg ", "<svg ");
+        let o = read(&old).unwrap();
+        assert_eq!(o.artboards[0].background, o.background);
         let rects = r.artboard_rects();
         assert_eq!(rects.len(), 2);
         let one = r.artboard_doc(1);
@@ -3848,7 +4462,7 @@ mod tests {
         </svg>"##;
         let (_, notes) = read_with(t, None).unwrap();
         let all = notes.join(" | ");
-        for word in ["Schnittpfade", "Muster", "<use>", "verschachtelte", "fehlt.png"] {
+        for word in ["clipping paths", "patterns", "<use>", "fehlt.png"] {
             assert!(all.contains(word), "{word} fehlt in: {all}");
         }
         // eigene Dateien: nie Hinweise
@@ -3865,6 +4479,8 @@ mod tests {
             style: Style::default(),
             angle: 0.0,
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
         });
@@ -3898,7 +4514,7 @@ mod tests {
         }
         // ohne Ordner nicht gefunden → Hinweis
         let (_, notes) = read_with(t, None).unwrap();
-        assert!(notes.iter().any(|n| n.contains("nicht gefunden")));
+        assert!(notes.iter().any(|n| n.contains("not found")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3978,6 +4594,8 @@ mod tests {
                 },
                 angle: 0.0,
                 group: 0,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: String::new(),
             });
@@ -4019,6 +4637,8 @@ mod tests {
             style: Style::default(),
             angle: 0.0,
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
         });

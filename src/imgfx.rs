@@ -6,7 +6,7 @@
 //! Die Puffer haben das Format von Cairo (ARGB32, vormultipliziert; als `u32` in der
 //! Byte-Reihenfolge des Rechners gelesen). Die Deckkraft bleibt bei allen Filtern unverändert.
 
-use crate::model::{ImgFilter, Lens};
+use crate::model::{ImgFilter, Lens, Material};
 
 pub struct Buf<'a> {
     pub data: &'a mut [u8],
@@ -236,51 +236,350 @@ fn blur_plane(p: &mut [f32], w: usize, h: usize, r: usize) {
     }
 }
 
-/// Wasserfarben: weichgezeichnete, leicht abgestufte Farben, dunklere Farbränder an
-/// Kanten und Papierstruktur. Die Deckkraft bleibt unverändert.
+// ───────────── Wachsmalstifte, Ölfarbe, Riffelglas ─────────────
+//
+// Die Muster hängen von Koordinaten in „Einheiten“ ab (Dokumenteinheiten bei Formen,
+// Pixeln bei Bildern), damit sie beim Verschieben und Zoomen auf dem Objekt bleiben.
+
+/// Wachsmalstift an der Stelle (x, y): (Papieranteil 0–1, Helligkeitsfaktor). Das Wachs
+/// bleibt an den Höhen der Papierstruktur hängen; dazwischen scheint das Papier durch, in
+/// schrägen Strichen wie beim Malen.
+pub fn crayon_px(x: f32, y: f32, k: f32) -> (f32, f32) {
+    let k = k.clamp(0.0, 1.0);
+    // Striche schräg (etwa 30°): entlang lang, quer kurz
+    let (c, s) = (0.866_f32, 0.5_f32);
+    let u = x * c + y * s;
+    let v = -x * s + y * c;
+    let streak = value_noise(u, v * 7.0, 28.0, 21) * 0.6 + value_noise(u, v * 5.0, 9.0, 22) * 0.4;
+    let tooth = value_noise(x, y, 1.4, 23) * 0.55 + value_noise(x, y, 3.2, 24) * 0.45;
+    let t = tooth * 0.6 + streak * 0.4;
+    // je stärker, desto mehr Papier
+    let thr = 0.78 - 0.33 * k;
+    let paper = ((t - thr) / 0.12).clamp(0.0, 1.0) * (0.35 + 0.6 * k);
+    let shade = 1.0 - (streak - 0.5) * 0.22 * k;
+    (paper, shade)
+}
+
+/// Ölfarbe an der Stelle (x, y): Helligkeitsfaktor durch kurze Pinselstriche (je Tupfer
+/// eine Richtung, Borstenrillen mit leichtem Relief, von oben links beleuchtet) und leichte
+/// Farbschwankungen; `size` = Breite eines Strichs.
+pub fn oil_px(x: f32, y: f32, k: f32, size: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    let size = size.max(1.0);
+    // Tupfer: nächster von zufällig versetzten Mittelpunkten eines Rasters
+    let cell = size * 2.4;
+    let (ci, cj) = ((x / cell).floor() as i64, (y / cell).floor() as i64);
+    let mut best = (f32::MAX, 0.0f32, 0.0f32, 0i64, 0i64);
+    for dj in -1..=1 {
+        for di in -1..=1 {
+            let (i, j) = (ci + di, cj + dj);
+            let cx = (i as f32 + 0.15 + 0.7 * hash2(i, j, 35)) * cell;
+            let cy = (j as f32 + 0.15 + 0.7 * hash2(i, j, 36)) * cell;
+            let d = (x - cx).powi(2) + (y - cy).powi(2);
+            if d < best.0 {
+                best = (d, cx, cy, i, j);
+            }
+        }
+    }
+    let (_, cx, cy, i, j) = best;
+    // Richtung des Tupfers: meist ähnlich (wie mit einer Hand gemalt), etwas gestreut
+    let a = 0.6 + (hash2(i, j, 37) - 0.5) * 1.6;
+    let (c, s) = (a.cos(), a.sin());
+    let height = |px: f32, py: f32| {
+        let u = (px - cx) * c + (py - cy) * s;
+        let v = -(px - cx) * s + (py - cy) * c;
+        // Borstenrillen quer zum Strich, entlang des Strichs langsam veränderlich
+        value_noise(u, v * 7.0, size * 1.4, 32) * 0.7 + value_noise(u, v * 2.0, size * 0.6, 33) * 0.3
+    };
+    let e = size * 0.08;
+    let light = ((height(x, y) - height(x + e, y + e)) * 5.0).clamp(-1.0, 1.0);
+    let tone = (hash2(i, j, 34) - 0.5) * 0.14;
+    1.0 + k * (light * 0.3 + tone)
+}
+
+/// Rasterpunkt an der Stelle (x, y): Deckung 0–1. Punkte im Abstand `cell`, um `angle`
+/// (Bogenmaß) gedreht; `fill` (0–1) bestimmt die Punktgröße (1 = Punkte berühren sich
+/// fast), `aa` ist die Breite eines Pixels in denselben Einheiten (Kantenglättung).
+pub fn halftone_cov(x: f32, y: f32, cell: f32, angle: f32, fill: f32, aa: f32) -> f32 {
+    let cell = cell.max(0.5);
+    let (c, s) = (angle.cos(), angle.sin());
+    let u = (x * c + y * s) / cell;
+    let v = (-x * s + y * c) / cell;
+    let du = (u - u.round()) * cell;
+    let dv = (v - v.round()) * cell;
+    let d = (du * du + dv * dv).sqrt();
+    // Fläche eines Kreises mit r = 0,5·cell·√(4/π·fill) deckt `fill` der Zelle
+    let r = cell * 0.5 * (fill.clamp(0.0, 1.0) * 1.273).sqrt();
+    ((r - d) / aa.max(1e-3) + 0.5).clamp(0.0, 1.0)
+}
+
+/// Körnung der Risografie an der Stelle (x, y): wie viel Farbe fehlt (0 … etwa 0,4·k).
+pub fn riso_grain(x: f32, y: f32, k: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    let fine = hash2((x * 1.7).floor() as i64, (y * 1.7).floor() as i64, 61);
+    let blot = value_noise(x, y, 6.0, 62);
+    ((fine * 0.6 + blot * 0.4 - 0.35) * 0.9 * k).clamp(0.0, 0.45)
+}
+
+/// Rasterpunkte auf einem Bild: Vierfarbraster wie im Druck (Cyan, Magenta, Gelb und
+/// Schwarz unter verschiedenen Winkeln), so bleiben Farben und Kontraste erhalten.
+/// `cell` = Punktabstand in Pixeln, `angle` = Winkel des Schwarzrasters in Grad.
+pub fn halftone(b: &mut Buf, k: f64, cell: f64, angle: f64) {
+    let k = k.clamp(0.0, 1.0) as f32;
+    let cell = cell.max(1.5) as f32;
+    let base = (angle as f32).to_radians();
+    // übliche Rasterwinkel relativ zum Schwarz (45°): C 15°, M 75°, Y 0°
+    let off = |deg: f32| base + (deg - 45.0).to_radians();
+    let (ac, am, ay, ak) = (off(15.0), off(75.0), off(0.0), base);
+    map_colors(b, |x, y, c| {
+        let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+        let (cc, mm, yy) = (1.0 - c[0], 1.0 - c[1], 1.0 - c[2]);
+        let kk = cc.min(mm).min(yy) * 0.8;
+        let s = |v: f32| ((v - kk) / (1.0 - kk).max(1e-3)).clamp(0.0, 1.0);
+        let cov = |v: f32, a: f32| halftone_cov(px, py, cell, a, v, 1.0);
+        let (ic, im, iy) = (cov(s(cc), ac), cov(s(mm), am), cov(s(yy), ay));
+        let ik = cov(kk, ak);
+        let out = [
+            (1.0 - ic) * (1.0 - ik),
+            (1.0 - im) * (1.0 - ik),
+            (1.0 - iy) * (1.0 - ik),
+        ];
+        mix(c, out, (0.4 + 0.6 * k).min(1.0))
+    });
+}
+
+/// Risografie auf einem Bild: Farbkanäle leicht gegeneinander verschoben, wenige Tonstufen
+/// und Körnung.
+pub fn riso(b: &mut Buf, k: f64) {
+    let (w, h) = (b.w, b.h);
+    if w < 3 || h < 3 {
+        return;
+    }
+    let kf = k.clamp(0.0, 1.0) as f32;
+    let scale = (w.min(h) as f32 / 400.0).max(1.0);
+    let shift = ((1.0 + 3.0 * kf) * scale).round() as isize;
+    let src: Vec<(u32, [f32; 3])> = (0..w * h).map(|i| split(b.px(i % w, i / w))).collect();
+    let at = |x: isize, y: isize| {
+        src[(y.clamp(0, h as isize - 1) as usize) * w + x.clamp(0, w as isize - 1) as usize]
+    };
+    let levels = 9.0 - 4.0 * kf;
+    for y in 0..h {
+        for x in 0..w {
+            let (a, c) = src[y * w + x];
+            if a == 0 {
+                continue;
+            }
+            let (xi, yi) = (x as isize, y as isize);
+            let r = at(xi - shift, yi).1[0];
+            let bl = at(xi + shift, yi + shift / 2).1[2];
+            let g = c[1];
+            let grain = riso_grain(x as f32 / scale, y as f32 / scale, kf);
+            let mut out = [r, g, bl];
+            for v in out.iter_mut() {
+                let p = (*v * levels).round() / levels;
+                *v = (p + (1.0 - p) * grain).clamp(0.0, 1.0);
+            }
+            b.set(x, y, join(a, out));
+        }
+    }
+}
+
+// ───────────── Kunsteffekte auf Bildern ─────────────
+//
+// Damit ein Foto erkennbar bleibt und wie ein gemaltes Bild wirkt, arbeiten die Filter
+// kantenerhaltend: Flächen werden vereinfacht (Kuwahara-Filter), Umrisse bleiben scharf
+// oder werden als Linien betont, und die Farben werden eher kräftiger als blasser.
+
+/// Pixel eines Puffers: (Deckkraft, unvormultipliziertes RGB).
+fn read_all(b: &Buf) -> (Vec<u32>, Vec<[f32; 3]>) {
+    let n = b.w * b.h;
+    let mut alpha = vec![0u32; n];
+    let mut col = vec![[0f32; 3]; n];
+    for y in 0..b.h {
+        for x in 0..b.w {
+            let (a, c) = split(b.px(x, y));
+            alpha[y * b.w + x] = a;
+            col[y * b.w + x] = c;
+        }
+    }
+    (alpha, col)
+}
+
+fn luma(c: [f32; 3]) -> f32 {
+    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+}
+
+/// Sättigung ändern (1 = unverändert).
+fn saturate(c: [f32; 3], f: f32) -> [f32; 3] {
+    let l = luma(c);
+    [
+        (l + (c[0] - l) * f).clamp(0.0, 1.0),
+        (l + (c[1] - l) * f).clamp(0.0, 1.0),
+        (l + (c[2] - l) * f).clamp(0.0, 1.0),
+    ]
+}
+
+/// Kantenstärke 0–1 (Sobel auf leicht geglätteter Helligkeit).
+fn edge_map(col: &[[f32; 3]], w: usize, h: usize, smooth: usize) -> Vec<f32> {
+    let mut l: Vec<f32> = col.iter().map(|c| luma(*c)).collect();
+    blur_plane(&mut l, w, h, smooth);
+    let at = |x: isize, y: isize| {
+        l[(y.clamp(0, h as isize - 1) as usize) * w + x.clamp(0, w as isize - 1) as usize]
+    };
+    let mut e = vec![0f32; w * h];
+    for y in 0..h as isize {
+        for x in 0..w as isize {
+            let gx = at(x + 1, y - 1) + 2.0 * at(x + 1, y) + at(x + 1, y + 1)
+                - at(x - 1, y - 1)
+                - 2.0 * at(x - 1, y)
+                - at(x - 1, y + 1);
+            let gy = at(x - 1, y + 1) + 2.0 * at(x, y + 1) + at(x + 1, y + 1)
+                - at(x - 1, y - 1)
+                - 2.0 * at(x, y - 1)
+                - at(x + 1, y - 1);
+            e[y as usize * w + x as usize] = ((gx * gx + gy * gy).sqrt() * 1.6).clamp(0.0, 1.0);
+        }
+    }
+    e
+}
+
+/// Kuwahara-Filter: je Pixel der Mittelwert des ruhigsten der vier Quadranten (Radius r).
+/// Flächen werden zu Farbfeldern, Kanten bleiben scharf.
+fn kuwahara(col: &[[f32; 3]], w: usize, h: usize, r: usize) -> Vec<[f32; 3]> {
+    let w1 = w + 1;
+    let mut sum = vec![[0f64; 5]; w1 * (h + 1)];
+    for y in 0..h {
+        let mut row = [0f64; 5];
+        for x in 0..w {
+            let c = col[y * w + x];
+            let l = luma(c) as f64;
+            let v = [c[0] as f64, c[1] as f64, c[2] as f64, l, l * l];
+            for i in 0..5 {
+                row[i] += v[i];
+                sum[(y + 1) * w1 + x + 1][i] = sum[y * w1 + x + 1][i] + row[i];
+            }
+        }
+    }
+    let rect = |x0: usize, y0: usize, x1: usize, y1: usize| {
+        let mut o = [0f64; 5];
+        for i in 0..5 {
+            o[i] = sum[y1 * w1 + x1][i] - sum[y0 * w1 + x1][i] - sum[y1 * w1 + x0][i] + sum[y0 * w1 + x0][i];
+        }
+        (o, ((x1 - x0) * (y1 - y0)).max(1) as f64)
+    };
+    let mut out = vec![[0f32; 3]; w * h];
+    let os = Shared::new(&mut out);
+    par_bands(h, band_rows(w), |y0, y1| {
+        for y in y0..y1 {
+            // Sicherheit: die Zeilen y0..y1 gehören nur diesem Band
+            let orow = unsafe { os.range(y * w, w) };
+            for x in 0..w {
+                let (xa, xb) = (x.saturating_sub(r), (x + r + 1).min(w));
+                let (ya, yb) = (y.saturating_sub(r), (y + r + 1).min(h));
+                let mut best = (f64::MAX, col[y * w + x]);
+                for (x0, y0, x1, y1) in [
+                    (xa, ya, x + 1, y + 1),
+                    (x, ya, xb, y + 1),
+                    (xa, y, x + 1, yb),
+                    (x, y, xb, yb),
+                ] {
+                    let (s, cnt) = rect(x0, y0, x1, y1);
+                    let mean = s[3] / cnt;
+                    let var = s[4] / cnt - mean * mean;
+                    if var < best.0 {
+                        best = (
+                            var,
+                            [(s[0] / cnt) as f32, (s[1] / cnt) as f32, (s[2] / cnt) as f32],
+                        );
+                    }
+                }
+                orow[x] = best.1;
+            }
+        }
+    });
+    out
+}
+
+/// Wasserfarben auf einem Bild: Farbflächen (kantenerhaltend vereinfacht), dunklere
+/// Farbränder an den Umrissen, leicht lasierende Farben und Papierstruktur.
 pub fn watercolor(b: &mut Buf, k: f64) {
     let (w, h) = (b.w, b.h);
     if w < 3 || h < 3 {
         return;
     }
     let k = k.clamp(0.0, 1.0) as f32;
-    let n = w * h;
-    let mut planes = [vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]];
-    let mut orig = vec![[0f32; 3]; n];
-    let mut alpha = vec![0u32; n];
+    let scale = (w.min(h) as f32 / 400.0).max(1.0);
+    let (alpha, col) = read_all(b);
+    let r = ((w.min(h) as f32) * (0.003 + 0.007 * k)).round().max(1.0) as usize;
+    let flat = kuwahara(&col, w, h, r);
+    let edges = edge_map(&flat, w, h, 1);
     for y in 0..h {
         for x in 0..w {
-            let p = b.px(x, y);
             let i = y * w + x;
-            let a = p >> 24;
-            alpha[i] = a;
-            let af = a as f32 / 255.0;
-            planes[0][i] = ((p >> 16) & 0xFF) as f32 / 255.0;
-            planes[1][i] = ((p >> 8) & 0xFF) as f32 / 255.0;
-            planes[2][i] = (p & 0xFF) as f32 / 255.0;
-            planes[3][i] = af;
-            let (_, c) = split(p);
-            orig[i] = c;
+            if alpha[i] == 0 {
+                continue;
+            }
+            let paper = value_noise(x as f32, y as f32, 2.5 * scale, 5) - 0.5;
+            let cloud = value_noise(x as f32, y as f32, 40.0 * scale, 9) - 0.5;
+            let mut c = saturate(flat[i], 1.0 + 0.15 * k);
+            // lasierend: helle Stellen etwas heller, Farbränder an den Kanten dunkler
+            let rim = 1.0 - edges[i] * 0.45 * k;
+            for v in c.iter_mut() {
+                *v = (*v + (1.0 - *v) * 0.1 * k) * rim * (1.0 + paper * 0.14 * k + cloud * 0.1 * k);
+            }
+            c = mix(c, col[i], 0.15 * (1.0 - k));
+            b.set(x, y, join(alpha[i], c));
         }
     }
-    let r = ((w.min(h) as f32) * (0.003 + 0.012 * k)).round().max(1.0) as usize;
-    for p in planes.iter_mut() {
-        blur_plane(p, w, h, r);
-        blur_plane(p, w, h, r);
+}
+
+/// Wachsmalstifte auf einem Bild: kräftige, leicht vereinfachte Farben, Umrisse als
+/// gezeichnete Linien, Papier scheint nur in hellen Bereichen durch.
+pub fn crayon(b: &mut Buf, k: f64) {
+    let (w, h) = (b.w, b.h);
+    if w < 3 || h < 3 {
+        return;
     }
-    // unvormultiplizierte weichgezeichnete Farbe
-    let mut soft = vec![[0f32; 3]; n];
-    let mut lum = vec![0f32; n];
-    for i in 0..n {
-        let a = planes[3][i].max(1e-4);
-        soft[i] = [
-            (planes[0][i] / a).clamp(0.0, 1.0),
-            (planes[1][i] / a).clamp(0.0, 1.0),
-            (planes[2][i] / a).clamp(0.0, 1.0),
-        ];
-        lum[i] = 0.299 * soft[i][0] + 0.587 * soft[i][1] + 0.114 * soft[i][2];
+    let kf = k.clamp(0.0, 1.0) as f32;
+    let scale = (w.min(h) as f32 / 400.0).max(1.0);
+    let (alpha, col) = read_all(b);
+    let r = ((w.min(h) as f32) * 0.004).round().max(1.0) as usize;
+    let flat = kuwahara(&col, w, h, r);
+    let edges = edge_map(&col, w, h, (scale * 0.8).round() as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            if alpha[i] == 0 {
+                continue;
+            }
+            let (px, py) = (x as f32 / scale, y as f32 / scale);
+            let (paper, shade) = crayon_px(px, py, kf);
+            let mut c = saturate(flat[i], 1.0 + 0.25 * kf);
+            // Papier nur, wo es hell ist (in dunklen Flächen deckt das Wachs)
+            let light = luma(c).powf(1.5);
+            let line = (edges[i] * 1.4).min(1.0) * (0.55 + 0.45 * value_noise(px, py, 1.3, 25));
+            for v in c.iter_mut() {
+                let mut t = (*v * shade).clamp(0.0, 1.0);
+                t += (0.97 - t).max(0.0) * paper * light;
+                *v = t * (1.0 - line * 0.8 * kf);
+            }
+            b.set(x, y, join(alpha[i], c));
+        }
     }
-    let levels = 16.0 - 9.0 * k;
+}
+
+/// Ölfarbe auf einem Bild: Kuwahara-Filter (Flächen wie Pinselstriche, Kanten bleiben),
+/// etwas kräftigere Farben, leicht betonte Umrisse und ein Relief der Striche.
+pub fn oil(b: &mut Buf, k: f64) {
+    let (w, h) = (b.w, b.h);
+    if w < 3 || h < 3 {
+        return;
+    }
+    let kf = k.clamp(0.0, 1.0) as f32;
+    let (alpha, col) = read_all(b);
+    let r = ((w.min(h) as f32) * (0.004 + 0.012 * kf)).round().max(1.0) as usize;
+    let flat = kuwahara(&col, w, h, r);
+    let edges = edge_map(&flat, w, h, 1);
     let scale = (w.min(h) as f32 / 400.0).max(1.0);
     for y in 0..h {
         for x in 0..w {
@@ -288,22 +587,19 @@ pub fn watercolor(b: &mut Buf, k: f64) {
             if alpha[i] == 0 {
                 continue;
             }
-            let (x0, x1) = (x.saturating_sub(1), (x + 1).min(w - 1));
-            let (y0, y1) = (y.saturating_sub(1), (y + 1).min(h - 1));
-            let gx = lum[y * w + x1] - lum[y * w + x0];
-            let gy = lum[y1 * w + x] - lum[y0 * w + x];
-            let edge = ((gx * gx + gy * gy).sqrt() * 5.0 / scale.sqrt()).clamp(0.0, 1.0);
-            let paper = value_noise(x as f32, y as f32, 2.5 * scale, 5) - 0.5;
-            let cloud = value_noise(x as f32, y as f32, 40.0 * scale, 9) - 0.5;
-            let dark = 1.0 - 0.45 * k * edge;
-            let tex = 1.0 + paper * 0.16 * k + cloud * 0.18 * k;
-            let mut c = soft[i];
-            for ch in c.iter_mut() {
-                let post = (*ch * levels).round() / levels;
-                *ch = (*ch * 0.5 + post * 0.5) * dark * tex;
-            }
-            c = mix(c, orig[i], 0.3 * (1.0 - k));
-            b.set(x, y, join(alpha[i], c));
+            // Relief der Striche auf Fotos zurückhaltender, sonst wirkt es wie ein Stempel
+            let f = 1.0 + (oil_px(x as f32 / scale, y as f32 / scale, kf, 14.0) - 1.0) * 0.45;
+            let c = mix(
+                col[i],
+                saturate(flat[i], 1.0 + 0.2 * kf),
+                (0.4 + 0.6 * kf).min(1.0),
+            );
+            let dark = 1.0 - edges[i] * 0.3 * kf;
+            b.set(
+                x,
+                y,
+                join(alpha[i], [c[0] * f * dark, c[1] * f * dark, c[2] * f * dark]),
+            );
         }
     }
 }
@@ -372,13 +668,9 @@ pub fn inside_distance(alpha: &[f32], w: usize, h: usize) -> Vec<f32> {
     for i in 0..w * h {
         f[i] = if alpha[i] > 0.5 { INF } else { 0.0 };
     }
-    // eindimensionale Abstandstransformation (Felzenszwalb) erst je Spalte, dann je Zeile
-    let n = w.max(h);
-    let mut line = vec![0f64; n];
-    let mut out = vec![0f64; n];
-    let mut v = vec![0usize; n];
-    let mut z = vec![0f64; n + 1];
-    let mut run = |line: &[f64], out: &mut [f64], m: usize| {
+    // eindimensionale Abstandstransformation (Felzenszwalb) erst je Spalte, dann je Zeile;
+    // Spalten bzw. Zeilen sind unabhängig und laufen auf mehreren Kernen
+    fn run(line: &[f64], out: &mut [f64], v: &mut [usize], z: &mut [f64], m: usize) {
         let mut k = 0usize;
         v[0] = 0;
         z[0] = -INF;
@@ -408,20 +700,37 @@ pub fn inside_distance(alpha: &[f32], w: usize, h: usize) -> Vec<f32> {
             let d = q as f64 - v[k] as f64;
             out[q] = d * d + line[v[k]];
         }
-    };
-    for x in 0..w {
-        for y in 0..h {
-            line[y] = f[y * w + x];
-        }
-        run(&line, &mut out, h);
-        for y in 0..h {
-            f[y * w + x] = out[y];
-        }
     }
-    for y in 0..h {
-        line[..w].copy_from_slice(&f[y * w..y * w + w]);
-        run(&line, &mut out, w);
-        f[y * w..y * w + w].copy_from_slice(&out[..w]);
+    let n = w.max(h);
+    let scratch = || (vec![0f64; n], vec![0f64; n], vec![0usize; n], vec![0f64; n + 1]);
+    {
+        let fs = Shared::new(&mut f);
+        par_bands(w, band_rows(h), |x0, x1| {
+            let (mut line, mut out, mut v, mut z) = scratch();
+            for x in x0..x1 {
+                for y in 0..h {
+                    // Sicherheit: jede Spalte gehört genau einem Band
+                    line[y] = unsafe { fs.get(y * w + x) };
+                }
+                run(&line, &mut out, &mut v, &mut z, h);
+                for y in 0..h {
+                    unsafe { fs.set(y * w + x, out[y]) };
+                }
+            }
+        });
+    }
+    {
+        let fs = Shared::new(&mut f);
+        par_bands(h, band_rows(w), |y0, y1| {
+            let (mut line, mut out, mut v, mut z) = scratch();
+            for y in y0..y1 {
+                // Sicherheit: jede Zeile gehört genau einem Band
+                let row = unsafe { fs.range(y * w, w) };
+                line[..w].copy_from_slice(row);
+                run(&line, &mut out, &mut v, &mut z, w);
+                row.copy_from_slice(&out[..w]);
+            }
+        });
     }
     f.iter()
         .zip(alpha)
@@ -559,8 +868,610 @@ pub fn gloss(x: f32, y: f32, bw: f32, bh: f32, d: f32, scale: f32) -> f32 {
     (hl * fade * inset * 0.55 + rim + glow).clamp(0.0, 1.0)
 }
 
+/// Feine Körnung von Glas an der Stelle (x, y) in Dokumenteinheiten: −1…1.
+pub fn frost_grain(x: f32, y: f32) -> f32 {
+    let a = value_noise(x, y, 0.45, 91) - 0.5;
+    let b = value_noise(x, y, 1.3, 92) - 0.5;
+    (a * 1.4 + b * 0.8).clamp(-1.0, 1.0)
+}
+
+/// Neigung der Oberfläche unter einem 3D-Effekt an einem Pixel: Steigung `(gx, gy)`,
+/// Tiefe `amt` (0–1) und Stärke der Beleuchtung `lc` (1 = Standard).
+#[derive(Clone, Copy, Debug)]
+pub struct Tilt {
+    pub gx: f32,
+    pub gy: f32,
+    pub amt: f32,
+    pub lc: f32,
+}
+
+/// Licht und Schatten über einem Pixel: `lit` (weißes bzw. getöntes Licht, 0–1), `shade`
+/// (Schatten, 0–1) und `tint` (wie stark das Licht die Farbe des Objekts annimmt, 0–1).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sheen {
+    pub lit: f32,
+    pub shade: f32,
+    pub tint: f32,
+}
+
+/// Lichtrichtung (von links oben, zum Betrachter geneigt) und die Mitte zwischen Licht und
+/// Blick (für Glanzlichter).
+const LIGHT: (f32, f32, f32) = (-0.42, -0.59, 0.68);
+
+fn surface_normal(gx: f32, gy: f32) -> (f32, f32, f32) {
+    let n = (gx * gx + gy * gy + 1.0).sqrt();
+    (-gx / n, -gy / n, 1.0 / n)
+}
+
+/// Glanzlicht (Blinn) mit Schärfe `power`; eine ebene Fläche hat 0.
+fn specular(n: (f32, f32, f32), power: f32) -> f32 {
+    let (hx, hy, hz) = (LIGHT.0, LIGHT.1, LIGHT.2 + 1.0);
+    let hl = (hx * hx + hy * hy + hz * hz).sqrt();
+    let s = |n: (f32, f32, f32)| ((n.0 * hx + n.1 * hy + n.2 * hz) / hl).max(0.0).powf(power);
+    let flat = s((0.0, 0.0, 1.0));
+    ((s(n) - flat) / (1.0 - flat)).max(0.0)
+}
+
+fn screen(a: f32, b: f32) -> f32 {
+    1.0 - (1.0 - a.clamp(0.0, 1.0)) * (1.0 - b.clamp(0.0, 1.0))
+}
+
+/// Licht und Schatten eines Materials an einem Pixel.
+///
+/// `(x, y)`: Lage im Rahmen des Objekts (Breite `bw`, Höhe `bh`), `d`: Abstand zum Rand,
+/// alles in Pixeln; `scale`: Pixel je Dokumenteinheit; `angle`: Richtung des Materials
+/// (Bogenmaß). Mit `tilt` liegt ein 3D-Effekt darunter: Das Material bestimmt dann, wie das
+/// Relief das Licht zurückwirft. Ohne Material (`mat = None`) ist die Oberfläche matt –
+/// nur weiches Licht und Schatten der Neigung, kein Glanz.
+#[allow(clippy::too_many_arguments)]
+pub fn material_px(
+    mat: Option<(Material, f32)>,
+    angle: f32,
+    x: f32,
+    y: f32,
+    bw: f32,
+    bh: f32,
+    d: f32,
+    scale: f32,
+    tilt: Option<Tilt>,
+) -> Sheen {
+    let (bw, bh, scale) = (bw.max(1.0), bh.max(1.0), scale.max(1e-3));
+    // matte Grundbeleuchtung des Reliefs
+    let (mut dl, mut ds, n, depth) = match tilt {
+        Some(t) => {
+            let delta = light_delta(t.gx, t.gy);
+            (
+                (delta * 2.0 * t.amt * t.lc).clamp(0.0, 0.7),
+                (-delta * 1.1 * t.amt * t.lc).clamp(0.0, 0.5),
+                surface_normal(t.gx, t.gy),
+                (2.0 * t.amt).min(1.0) * t.lc.min(1.5),
+            )
+        }
+        None => (0.0, 0.0, (0.0, 0.0, 1.0), 0.0),
+    };
+    let Some((m, k)) = mat else {
+        return Sheen {
+            lit: dl,
+            shade: ds,
+            tint: 0.0,
+        };
+    };
+    let k = k.clamp(0.0, 1.0);
+    let relief = tilt.is_some();
+    // Lage in Richtung des Materials (u entlang, v quer), in Dokumenteinheiten
+    let (c, s) = (angle.cos(), angle.sin());
+    let along = |x: f32, y: f32| ((x * c + y * s) / scale, (-x * s + y * c) / scale);
+    let mut lit = 0.0f32;
+    let mut shade = 0.0f32;
+    let mut tint = 0.0f32;
+    match m {
+        Material::Gloss => {
+            // flacher Glanz oben; auf einem Relief klein und scharf, Schatten tiefer
+            let flat = gloss(x, y, bw, bh, d, scale) * k * if relief { 0.3 } else { 1.0 };
+            lit = flat;
+            if relief {
+                lit = screen(lit, specular(n, 90.0) * 0.95 * k * depth);
+                lit = screen(lit, specular(n, 14.0) * 0.25 * k * depth);
+                ds *= 1.0 + 0.5 * k;
+            }
+        }
+        Material::Metal => {
+            // spiegelt eine Umgebung: heller Himmel oben, scharfer dunkler Horizont,
+            // mittlerer Boden; auf dem Relief folgt sie der Neigung
+            let pos = (y / bh - 0.5) * if relief { 0.35 } else { 0.9 };
+            let e = if relief { 2.0 * n.2 * n.1 + pos } else { pos };
+            let sky = 0.15 + 0.55 * smoothstep(-0.02, -0.5, e);
+            let horizon = smoothstep(-0.04, 0.02, e);
+            let ground_dark = 0.5 * (1.0 - smoothstep(0.0, 0.45, e));
+            let ground_lit = 0.22 * smoothstep(0.15, 0.5, e);
+            lit = k * (sky * (1.0 - horizon) + ground_lit * horizon);
+            shade = k * ground_dark * horizon;
+            if relief {
+                lit = screen(lit, specular(n, 40.0) * 0.9 * k * depth);
+                // Metall streut kaum: wenig mattes Licht
+                dl *= 1.0 - 0.6 * k;
+                ds *= 1.0 - 0.2 * k;
+            }
+            tint = 0.75 * k;
+        }
+        Material::Brushed => {
+            let (u, v) = along(x, y);
+            // Ausdehnung entlang der Striche (für den Schimmer)
+            let ext = (bw * c.abs() + bh * s.abs()).max(1.0);
+            let u0 = [(0.0, 0.0), (bw, 0.0), (0.0, bh), (bw, bh)]
+                .iter()
+                .map(|p| p.0 * c + p.1 * s)
+                .fold(f32::MAX, f32::min);
+            let b = brushed(u * scale - u0, v * scale, ext, scale) * k * 0.5;
+            if b > 0.0 {
+                lit = b;
+            } else {
+                shade = -b * 0.8;
+            }
+            if let Some(t) = tilt {
+                // die feinen Rillen streuen das Licht quer zu den Strichen: das Glanzlicht wird
+                // zu einem langen Streifen quer zur Bürstrichtung (nur die Neigung entlang der
+                // Striche zählt)
+                let along_g = t.gx * c + t.gy * s;
+                let (px, py) = (along_g * c, along_g * s);
+                let pn = surface_normal(px, py);
+                let aniso = specular(pn, 8.0) * 0.9 + specular(pn, 40.0) * 0.6;
+                lit = screen(lit, aniso * k * depth);
+                dl *= 1.0 - 0.4 * k;
+            }
+            tint = 0.5 * k;
+        }
+        Material::Velvet => {
+            let grain = value_noise(x / scale, y / scale, 0.6, 85) - 0.5;
+            let rim = (-d / (5.0 * scale)).exp();
+            let centre = 1.0 - (-d / (8.0 * scale)).exp();
+            lit = k * 0.45 * rim * if relief { 0.4 } else { 1.0 };
+            shade = k * (0.18 * centre + 0.08 * grain.max(0.0));
+            if relief {
+                // Samt schimmert, wo die Fläche vom Blick weg geneigt ist, nicht im Licht
+                let graze = (1.0 - n.2).max(0.0).powf(0.8);
+                lit = screen(lit, graze * 0.75 * k * depth);
+                dl *= 1.0 - 0.7 * k;
+                ds *= 1.0 + 0.2 * k;
+            }
+            tint = 0.65 * k;
+        }
+    }
+    Sheen {
+        lit: screen(dl, lit),
+        shade: screen(ds, shade).min(0.85),
+        tint: tint.clamp(0.0, 1.0),
+    }
+}
+
+// ───────────────────────────── mehrere Kerne ─────────────────────────────
+
+/// Zahl der Rechenkerne, auf die Pixelarbeit verteilt wird (höchstens 8).
+pub fn threads() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .clamp(1, 8)
+    })
+}
+
+/// Zeilen je Band, damit sich das Verteilen lohnt (jedes Band mindestens etwa 32 000 Pixel
+/// bei `w` Pixeln je Zeile).
+pub fn band_rows(w: usize) -> usize {
+    (32_768 / w.max(1)).max(8)
+}
+
+/// Die Zeilen (oder Spalten) `0..n` in Bänder teilen und gleichzeitig bearbeiten:
+/// `f(start, ende)` bekommt je ein Band. Unter `min_band` Zeilen je Band lohnt sich das
+/// Aufteilen nicht; dann läuft alles im aufrufenden Thread.
+pub fn par_bands(n: usize, min_band: usize, f: impl Fn(usize, usize) + Sync) {
+    let parts = threads().min(n / min_band.max(1)).max(1);
+    if parts <= 1 {
+        f(0, n);
+        return;
+    }
+    let band = n.div_ceil(parts);
+    std::thread::scope(|s| {
+        let f = &f;
+        for i in 1..parts {
+            let (a, b) = (i * band, ((i + 1) * band).min(n));
+            if a < b {
+                s.spawn(move || f(a, b));
+            }
+        }
+        f(0, band.min(n));
+    });
+}
+
+/// Schreibzugriff auf getrennte Teile eines Puffers aus mehreren Threads zugleich
+/// (jedes Band schreibt nur seine eigenen Zeilen bzw. Spalten).
+pub struct Shared<'a, T> {
+    ptr: *mut T,
+    len: usize,
+    _life: std::marker::PhantomData<&'a mut [T]>,
+}
+
+// Sicherheit: Zugriffe gehen nur über die unsicheren Methoden, deren Aufrufer zusichern,
+// dass sich die Bereiche verschiedener Threads nicht überschneiden.
+unsafe impl<T: Send> Sync for Shared<'_, T> {}
+unsafe impl<T: Send> Send for Shared<'_, T> {}
+
+impl<'a, T: Copy> Shared<'a, T> {
+    pub fn new(v: &'a mut [T]) -> Self {
+        Shared {
+            ptr: v.as_mut_ptr(),
+            len: v.len(),
+            _life: std::marker::PhantomData,
+        }
+    }
+    /// # Safety
+    /// Kein anderer Thread darf gleichzeitig auf `start..start + n` zugreifen.
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn range(&self, start: usize, n: usize) -> &mut [T] {
+        assert!(start + n <= self.len);
+        std::slice::from_raw_parts_mut(self.ptr.add(start), n)
+    }
+    /// # Safety
+    /// Kein anderer Thread darf gleichzeitig auf `i` schreiben.
+    pub unsafe fn get(&self, i: usize) -> T {
+        assert!(i < self.len);
+        *self.ptr.add(i)
+    }
+    /// # Safety
+    /// Kein anderer Thread darf gleichzeitig auf `i` zugreifen.
+    pub unsafe fn set(&self, i: usize, v: T) {
+        assert!(i < self.len);
+        *self.ptr.add(i) = v;
+    }
+}
+
+/// Dreifacher Kastenweichzeichner (annähernd gaußförmig) auf ARGB-Pixeln (`stride` Bytes je
+/// Zeile), Ränder werden fortgesetzt. Zeilen und Spalten laufen auf mehreren Kernen.
+pub fn box_blur_rgba(data: &mut [u8], w: usize, h: usize, stride: usize, radius: f64) {
+    if w == 0 || h == 0 {
+        return;
+    }
+    // drei Durchgänge mit etwa radius/√3 ergeben ungefähr die gewünschte Unschärfe
+    let r = ((radius / 3f64.sqrt()).round() as usize).max(1);
+    let div = (2 * r + 1) as u32;
+    let half = div / 2;
+    let mut snap = vec![0u8; h * stride];
+    for _ in 0..3 {
+        // waagerecht: jede Zeile für sich (Pixel als vier Kanäle nebeneinander)
+        {
+            let d = Shared::new(data);
+            par_bands(h, band_rows(w), |y0, y1| {
+                let mut line = vec![0u8; w * 4];
+                for y in y0..y1 {
+                    // Sicherheit: jede Zeile gehört genau einem Band
+                    let row = unsafe { d.range(y * stride, w * 4) };
+                    line.copy_from_slice(row);
+                    let last = w - 1;
+                    let mut sum = [0u32; 4];
+                    for i in 0..=2 * r {
+                        let p = i.saturating_sub(r).min(last) * 4;
+                        for c in 0..4 {
+                            sum[c] += line[p + c] as u32;
+                        }
+                    }
+                    for i in 0..w {
+                        let o = i * 4;
+                        let add = (i + r + 1).min(last) * 4;
+                        let sub = i.saturating_sub(r) * 4;
+                        for c in 0..4 {
+                            row[o + c] = ((sum[c] + half) / div) as u8;
+                            sum[c] = sum[c] + line[add + c] as u32 - line[sub + c] as u32;
+                        }
+                    }
+                }
+            });
+        }
+        // senkrecht: aus einer Kopie lesen, jedes Band schreibt seine Zeilen
+        snap.copy_from_slice(&data[..h * stride]);
+        {
+            let src = &snap;
+            let d = Shared::new(data);
+            par_bands(h, band_rows(w), |y0, y1| {
+                let n = w * 4;
+                let row_at = |y: isize| {
+                    let y = y.clamp(0, h as isize - 1) as usize;
+                    &src[y * stride..y * stride + n]
+                };
+                let mut sum = vec![0u32; n];
+                for k in -(r as isize)..=(r as isize) {
+                    for (s, v) in sum.iter_mut().zip(row_at(y0 as isize + k)) {
+                        *s += *v as u32;
+                    }
+                }
+                for y in y0..y1 {
+                    // Sicherheit: jede Zeile gehört genau einem Band
+                    let row = unsafe { d.range(y * stride, n) };
+                    let (add, sub) = (
+                        row_at(y as isize + r as isize + 1),
+                        row_at(y as isize - r as isize),
+                    );
+                    for i in 0..n {
+                        row[i] = ((sum[i] + half) / div) as u8;
+                        sum[i] = sum[i] + add[i] as u32 - sub[i] as u32;
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// Dreifacher Kastenweichzeichner auf einem Feld von Zahlen (`w` × `h`), Ränder werden
+/// fortgesetzt; auf mehreren Kernen.
+pub fn blur_field(f: &mut [f32], w: usize, h: usize, radius: f64) {
+    if w == 0 || h == 0 {
+        return;
+    }
+    let r = ((radius / 3f64.sqrt()).round() as usize).max(1);
+    let div = (2 * r + 1) as f32;
+    let mut snap = vec![0f32; w * h];
+    for _ in 0..3 {
+        {
+            let d = Shared::new(f);
+            par_bands(h, band_rows(w), |y0, y1| {
+                let mut tmp = vec![0f32; w];
+                for y in y0..y1 {
+                    // Sicherheit: jede Zeile gehört genau einem Band
+                    let row = unsafe { d.range(y * w, w) };
+                    let px = |row: &[f32], i: isize| row[i.clamp(0, w as isize - 1) as usize];
+                    let mut sum = 0f32;
+                    for i in -(r as isize)..=(r as isize) {
+                        sum += px(row, i);
+                    }
+                    for i in 0..w {
+                        tmp[i] = sum / div;
+                        sum += px(row, i as isize + r as isize + 1);
+                        sum -= px(row, i as isize - r as isize);
+                    }
+                    row.copy_from_slice(&tmp);
+                }
+            });
+        }
+        snap.copy_from_slice(&f[..w * h]);
+        {
+            let src = &snap;
+            let d = Shared::new(f);
+            par_bands(h, band_rows(w), |y0, y1| {
+                let at = |y: isize, x: usize| src[(y.clamp(0, h as isize - 1) as usize) * w + x];
+                let mut sum = vec![0f32; w];
+                for (x, s) in sum.iter_mut().enumerate() {
+                    for k in -(r as isize)..=(r as isize) {
+                        *s += at(y0 as isize + k, x);
+                    }
+                }
+                for y in y0..y1 {
+                    // Sicherheit: jede Zeile gehört genau einem Band
+                    let row = unsafe { d.range(y * w, w) };
+                    for x in 0..w {
+                        row[x] = sum[x] / div;
+                        sum[x] += at(y as isize + r as isize + 1, x);
+                        sum[x] -= at(y as isize - r as isize, x);
+                    }
+                }
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn materials_light_the_relief_differently() {
+        use super::{material_px, Tilt};
+        use crate::model::Material;
+        // Flanke, die zum Licht zeigt, und eine ebene Stelle
+        let toward = Some(Tilt {
+            gx: 0.35,
+            gy: 0.45,
+            amt: 0.8,
+            lc: 1.0,
+        });
+        let flat = Some(Tilt {
+            gx: 0.0,
+            gy: 0.0,
+            amt: 0.8,
+            lc: 1.0,
+        });
+        let at = |m: Option<(Material, f32)>, t| material_px(m, 0.0, 50.0, 50.0, 100.0, 100.0, 50.0, 1.0, t);
+        let matte = at(None, toward);
+        let gloss = at(Some((Material::Gloss, 1.0)), toward);
+        // Hochglanz hat dort ein viel helleres Glanzlicht als matt
+        assert!(gloss.lit > matte.lit + 0.2, "{gloss:?} {matte:?}");
+        // matt ohne Neigung: nichts
+        assert_eq!(at(None, flat), super::Sheen::default());
+        // Samt ist in der Fläche dunkel und an steilen Flanken hell
+        let steep = Some(Tilt {
+            gx: 2.0,
+            gy: 0.0,
+            amt: 0.8,
+            lc: 1.0,
+        });
+        let v_flat = at(Some((Material::Velvet, 1.0)), flat);
+        let v_steep = at(Some((Material::Velvet, 1.0)), steep);
+        assert!(v_steep.lit > v_flat.lit + 0.3 && v_flat.shade > 0.1);
+        // Metall nimmt die Farbe des Objekts an
+        assert!(at(Some((Material::Metal, 1.0)), None).tint > 0.5);
+        // Werte bleiben im Bereich
+        for m in Material::ALL {
+            for i in 0..400 {
+                let (x, y) = (i as f32 * 0.37, i as f32 * 0.71);
+                for t in [None, toward, steep] {
+                    let r = material_px(Some((m, 1.0)), 0.6, x, y, 160.0, 120.0, (i % 40) as f32, 2.0, t);
+                    for v in [r.lit, r.shade, r.tint] {
+                        assert!((0.0..=1.0).contains(&v), "{m:?} {r:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parallel_blur_matches_sequential() {
+        // Bezug: der frühere Weichzeichner (Zeile für Zeile, Spalte für Spalte)
+        fn box_line(line: &mut [u8], n: usize, r: usize) {
+            let div = (2 * r + 1) as u32;
+            let mut tmp = vec![0u8; n * 4];
+            for c in 0..4 {
+                let px = |i: isize| -> u32 { line[(i.clamp(0, n as isize - 1) as usize) * 4 + c] as u32 };
+                let mut sum: u32 = 0;
+                for i in -(r as isize)..=(r as isize) {
+                    sum += px(i);
+                }
+                for i in 0..n {
+                    tmp[i * 4 + c] = ((sum + div / 2) / div) as u8;
+                    sum += px(i as isize + r as isize + 1);
+                    sum -= px(i as isize - r as isize);
+                }
+            }
+            line[..n * 4].copy_from_slice(&tmp);
+        }
+        let (w, h, stride) = (413usize, 317usize, 416 * 4);
+        let mut a = vec![0u8; h * stride];
+        let mut x: u32 = 12345;
+        for v in a.iter_mut() {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            *v = (x >> 24) as u8;
+        }
+        let mut b = a.clone();
+        let radius = 9.0;
+        let r = ((radius / 3f64.sqrt()).round() as usize).max(1);
+        for _ in 0..3 {
+            for y in 0..h {
+                box_line(&mut a[y * stride..y * stride + w * 4], w, r);
+            }
+            let mut col = vec![0u8; h * 4];
+            for xx in 0..w {
+                for y in 0..h {
+                    col[y * 4..y * 4 + 4].copy_from_slice(&a[y * stride + xx * 4..y * stride + xx * 4 + 4]);
+                }
+                box_line(&mut col, h, r);
+                for y in 0..h {
+                    a[y * stride + xx * 4..y * stride + xx * 4 + 4].copy_from_slice(&col[y * 4..y * 4 + 4]);
+                }
+            }
+        }
+        super::box_blur_rgba(&mut b, w, h, stride, radius);
+        for y in 0..h {
+            assert_eq!(
+                &a[y * stride..y * stride + w * 4],
+                &b[y * stride..y * stride + w * 4],
+                "Zeile {y}"
+            );
+        }
+        // Zahlenfeld: gleiche Glättung wie nacheinander gerechnet (bis auf Rundung)
+        let mut f: Vec<f32> = (0..w * h).map(|i| ((i * 7919) % 101) as f32).collect();
+        let total: f32 = f.iter().sum();
+        super::blur_field(&mut f, w, h, 6.0);
+        let after: f32 = f.iter().sum();
+        assert!((after - total).abs() / total < 0.02, "{total} {after}");
+        assert!(f.iter().all(|v| (0.0..=100.0).contains(v)));
+    }
+
+    #[test]
+    fn parallel_distance_is_exact() {
+        // Kreis: Abstand zum Rand = Radius minus Abstand zur Mitte (bis auf Pixelraster)
+        let (w, h) = (301usize, 257usize);
+        let (cx, cy, r) = (150.0f32, 128.0f32, 100.0f32);
+        let a: Vec<f32> = (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+                if ((x - cx).powi(2) + (y - cy).powi(2)).sqrt() < r {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let d = super::inside_distance(&a, w, h);
+        for (i, v) in d.iter().enumerate() {
+            let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+            let want = r - ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+            if want > 0.0 {
+                assert!((v - want).abs() < 1.6, "{x} {y}: {v} {want}");
+            } else {
+                assert_eq!(*v, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn crayon_and_oil_stay_in_range() {
+        let mut papers = 0;
+        for i in 0..2000 {
+            let (x, y) = (i as f32 * 0.73, i as f32 * 1.31);
+            let (p, s) = super::crayon_px(x, y, 0.8);
+            assert!((0.0..=1.0).contains(&p) && s > 0.7 && s < 1.3);
+            if p > 0.05 {
+                papers += 1;
+            }
+            let f = super::oil_px(x, y, 1.0, 9.0);
+            assert!(f > 0.5 && f < 1.5, "{f}");
+        }
+        // bei kräftigem Strich scheint stellenweise Papier durch, aber nicht überall
+        assert!(papers > 100 && papers < 1900, "{papers}");
+        // Stärke 0: unverändert
+        assert_eq!(super::crayon_px(3.0, 4.0, 0.0).0, 0.0);
+        assert!((super::oil_px(3.0, 4.0, 0.0, 9.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn halftone_and_grain() {
+        // Punktmitte deckt, Zellecke nicht; größere Füllung deckt mehr
+        assert!(super::halftone_cov(0.0, 0.0, 10.0, 0.0, 0.5, 1.0) > 0.99);
+        assert!(super::halftone_cov(5.0, 5.0, 10.0, 0.0, 0.5, 1.0) < 0.01);
+        let area = |fill: f32| {
+            let mut n = 0.0;
+            for i in 0..100 {
+                for j in 0..100 {
+                    n += super::halftone_cov(i as f32 * 0.1, j as f32 * 0.1, 10.0, 0.7, fill, 0.1);
+                }
+            }
+            n / 10000.0
+        };
+        let (a, b) = (area(0.2), area(0.6));
+        assert!((a - 0.2).abs() < 0.06 && (b - 0.6).abs() < 0.06, "{a} {b}");
+        for i in 0..500 {
+            let v = super::frost_grain(i as f32 * 0.37, i as f32 * 0.91);
+            assert!((-1.0..=1.0).contains(&v));
+            let g = super::riso_grain(i as f32 * 0.37, i as f32 * 0.91, 1.0);
+            assert!((0.0..=0.45).contains(&g));
+        }
+    }
+
+    #[test]
+    fn oil_keeps_alpha_and_flat_colour() {
+        let (w, h) = (24, 24);
+        let mut data = vec![0u8; w * h * 4];
+        for i in 0..w * h {
+            // halbdurchsichtiges Rot, vormultipliziert
+            let v: u32 = (128 << 24) | (128 << 16);
+            data[i * 4..i * 4 + 4].copy_from_slice(&v.to_ne_bytes());
+        }
+        let mut b = super::Buf {
+            data: &mut data,
+            w,
+            h,
+            stride: w * 4,
+        };
+        super::oil(&mut b, 0.5);
+        super::crayon(&mut b, 0.5);
+        super::halftone(&mut b, 0.5, 4.0, 45.0);
+        super::riso(&mut b, 0.5);
+        for i in 0..w * h {
+            let v = u32::from_ne_bytes([data[i * 4], data[i * 4 + 1], data[i * 4 + 2], data[i * 4 + 3]]);
+            assert_eq!(v >> 24, 128);
+            assert!(((v >> 16) & 255) >= (v >> 8) & 255);
+        }
+    }
+
     use super::*;
 
     fn solid(w: usize, h: usize, argb: u32) -> Vec<u8> {

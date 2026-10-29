@@ -1,0 +1,2545 @@
+# Stijl – Spanish translation
+# Copyright © 2026 Bendix Hüsing
+# This file is distributed under the same licence as Stijl (GPL-3.0-or-later).
+msgid ""
+msgstr ""
+"Project-Id-Version: Stijl\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "\n\nThe original files were not changed."
+msgstr "\n\nLos archivos originales no se han modificado."
+
+msgid " (+{} more notes)"
+msgstr " (+{} notas más)"
+
+msgid "**Crash report**\n```\n"
+msgstr "**Informe de fallo**\n```\n"
+
+msgid "**Steps to reproduce**\n1. \n2. \n\n"
+msgstr "**Pasos para reproducirlo**\n1. \n2. \n\n"
+
+msgid "**What happened?**\n\n\n"
+msgstr "**¿Qué ha pasado?**\n\n\n"
+
+msgid "**What should have happened?**\n\n\n"
+msgstr "**¿Qué debería haber pasado?**\n\n\n"
+
+msgid "**What was I doing just before?**\n\n\n"
+msgstr "**¿Qué estaba haciendo justo antes?**\n\n\n"
+
+msgid ", italic"
+msgstr ", cursiva"
+
+msgid "1. Numbered"
+msgstr "1. Numerada"
+
+msgid "3D effect"
+msgstr "Efecto 3D"
+
+msgid "3D effects"
+msgstr "Efectos 3D"
+
+msgid "4K UHD"
+msgstr "4K UHD"
+
+msgid "A blend only works between shapes and paths, not with text or images"
+msgstr "Una fusión solo funciona entre formas y trazados, no con texto ni imágenes"
+
+msgid "A letter, digit or character is needed here"
+msgstr "Aquí hace falta una letra, un número o un carácter"
+
+msgid "A library with this name already exists"
+msgstr "Ya existe una biblioteca con este nombre"
+
+msgid "A vector drawing program, named after the Dutch art movement De Stijl, to which Piet Mondrian belonged.\n\nWritten with the help of AI (Claude by Anthropic)."
+msgstr "Un programa de dibujo vectorial que debe su nombre al movimiento artístico neerlandés De Stijl, al que perteneció Piet Mondrian.\n\nEscrito con ayuda de IA (Claude de Anthropic)."
+
+msgid "A3 portrait"
+msgstr "A3 vertical"
+
+msgid "A4 landscape"
+msgstr "A4 horizontal"
+
+msgid "A4 portrait"
+msgstr "A4 vertical"
+
+msgid "A5 portrait"
+msgstr "A5 vertical"
+
+msgid "A6 portrait"
+msgstr "A6 vertical"
+
+msgid "A_bout Stijl"
+msgstr "Acerca _de Stijl"
+
+msgid "Actual Size"
+msgstr "Tamaño real"
+
+msgid "Add"
+msgstr "Añadir"
+
+msgid "Add Gradient"
+msgstr "Añadir degradado"
+
+msgid "Add _Colour"
+msgstr "Añadir _color"
+
+msgid "Add _Style"
+msgstr "Añadir _estilo"
+
+msgid "Add _Text Style"
+msgstr "Añadir estilo de _texto"
+
+msgid "Add a new layer above the current one"
+msgstr "Añadir una capa nueva encima de la actual"
+
+msgid "Add another artboard to the right"
+msgstr "Añadir otra mesa de trabajo a la derecha"
+
+msgid "Add the current colour to the library"
+msgstr "Añadir el color actual a la biblioteca"
+
+msgid "Add the selected text style to the library"
+msgstr "Añadir el estilo de texto seleccionado a la biblioteca"
+
+msgid "Add to Library"
+msgstr "Añadir a la biblioteca"
+
+msgid "Add to Library as Graphic"
+msgstr "Añadir a la biblioteca como gráfico"
+
+msgid "Add to Library …"
+msgstr "Añadir a la biblioteca …"
+
+msgid "Add {} to the Library"
+msgstr "Añadir {} a la biblioteca"
+
+msgid "Align"
+msgstr "Alinear"
+
+msgid "Align bottom"
+msgstr "Alinear abajo"
+
+msgid "Align left"
+msgstr "Alinear a la izquierda"
+
+msgid "Align objects to each other"
+msgstr "Alinear los objetos entre sí"
+
+msgid "Align right"
+msgstr "Alinear a la derecha"
+
+msgid "Align top"
+msgstr "Alinear arriba"
+
+msgid "Alignment"
+msgstr "Alineación"
+
+msgid "All"
+msgstr "Todos"
+
+msgid "All Off"
+msgstr "Desactivar todo"
+
+msgid "All On"
+msgstr "Activar todo"
+
+msgid "Alt"
+msgstr "Alt"
+
+msgid "An error occurred last time. Would you like to send a problem report? It only contains technical details (version, system, where the error happened) – no drawings."
+msgstr "La última vez se produjo un error. ¿Quiere enviar un informe del problema? Solo contiene datos técnicos (versión, sistema, dónde ocurrió el error), ningún dibujo."
+
+msgid "An image could not be converted to CMYK"
+msgstr "No se pudo convertir una imagen a CMYK"
+
+msgid "Anchor point"
+msgstr "Punto de anclaje"
+
+msgid "Anchor points"
+msgstr "Puntos de anclaje"
+
+msgid "Angle"
+msgstr "Ángulo"
+
+msgid "Angle (°)"
+msgstr "Ángulo (°)"
+
+msgid "Angle of the halftone screen in degrees"
+msgstr "Ángulo de la trama de semitonos en grados"
+
+msgid "Appearance"
+msgstr "Apariencia"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "Arrange"
+msgstr "Organizar"
+
+msgid "Arrow"
+msgstr "Flecha"
+
+msgid "Artboard"
+msgstr "Mesa de trabajo"
+
+msgid "Artboard 1"
+msgstr "Mesa de trabajo 1"
+
+msgid "Artboard {}"
+msgstr "Mesa de trabajo {}"
+
+msgid "Artboards"
+msgstr "Mesas de trabajo"
+
+msgid "Artistic effect"
+msgstr "Efecto artístico"
+
+msgid "Artistic effects"
+msgstr "Efectos artísticos"
+
+msgid "As _Graphic"
+msgstr "Como _gráfico"
+
+msgid "As fill"
+msgstr "Como relleno"
+
+msgid "As stroke"
+msgstr "Como contorno"
+
+msgid "Attribute value missing"
+msgstr "Falta el valor del atributo"
+
+msgid "Attribute value not closed"
+msgstr "Valor de atributo sin cerrar"
+
+msgid "Background"
+msgstr "Fondo"
+
+msgid "Background Colour"
+msgstr "Color de fondo"
+
+msgid "Bar"
+msgstr "Barra"
+
+msgid "Base colour"
+msgstr "Color base"
+
+msgid "Bevelled corners"
+msgstr "Esquinas biseladas"
+
+msgid "Black & white"
+msgstr "Blanco y negro"
+
+msgid "Bleed (mm)"
+msgstr "Sangrado (mm)"
+
+msgid "Blend"
+msgstr "Fusión"
+
+msgid "Blend…"
+msgstr "Fusión…"
+
+msgid "Blur"
+msgstr "Desenfoque"
+
+msgid "Both"
+msgstr "Ambos"
+
+msgid "Bottom of the box"
+msgstr "Parte inferior del cuadro"
+
+msgid "Bricks"
+msgstr "Ladrillos"
+
+msgid "Bring Forward"
+msgstr "Subir"
+
+msgid "Bring to Front"
+msgstr "Traer al frente"
+
+msgid "Brushed metal"
+msgstr "Metal cepillado"
+
+msgid "Business card"
+msgstr "Tarjeta de visita"
+
+msgid "Butt ends"
+msgstr "Extremos planos"
+
+msgid "CDATA not closed"
+msgstr "CDATA sin cerrar"
+
+msgid "CMYK (print)"
+msgstr "CMYK (impresión)"
+
+msgid "CMYK JPEG images were skipped"
+msgstr "Se omitieron imágenes JPEG en CMYK"
+
+msgid "Cancel, Deselect"
+msgstr "Cancelar, deseleccionar"
+
+msgid "Centimetres (cm)"
+msgstr "Centímetros (cm)"
+
+msgid "Centre"
+msgstr "Centro"
+
+msgid "Centre horizontally"
+msgstr "Centrar horizontalmente"
+
+msgid "Centre vertically"
+msgstr "Centrar verticalmente"
+
+msgid "Centred"
+msgstr "Centrado"
+
+msgid "Centres"
+msgstr "Centros"
+
+msgid "Change Key Combination"
+msgstr "Cambiar combinación de teclas"
+
+msgid "Change only the frame (crop)"
+msgstr "Cambiar solo el marco (recortar)"
+
+msgid "Check for New Versions"
+msgstr "Buscar nuevas versiones"
+
+msgid "Check now"
+msgstr "Comprobar ahora"
+
+msgid "Checks GitHub once a day"
+msgstr "Consulta GitHub una vez al día"
+
+msgid "Chequerboard"
+msgstr "Tablero de ajedrez"
+
+msgid "Chevron"
+msgstr "Chevrón"
+
+msgid "Choose Colour Profile"
+msgstr "Elegir perfil de color"
+
+msgid "Choose Library"
+msgstr "Elegir biblioteca"
+
+msgid "Choose List Style"
+msgstr "Elegir estilo de lista"
+
+msgid "Choose a colour profile for PDF/X first"
+msgstr "Elija primero un perfil de color para PDF/X"
+
+msgid "Choose any size"
+msgstr "Elegir cualquier tamaño"
+
+msgid "Choose…"
+msgstr "Elegir…"
+
+msgid "Click a path or shape to align text along it"
+msgstr "Haga clic en un trazado o forma para alinear el texto a lo largo"
+
+msgid "Click an object to edit it"
+msgstr "Haga clic en un objeto para editarlo"
+
+msgid "Click the bar: add a colour stop · Drag a colour stop: move it · Del: remove it"
+msgstr "Clic en la barra: añadir parada de color · Arrastrar una parada: moverla · Supr: eliminarla"
+
+msgid "Click to Select or Deselect"
+msgstr "Clic para seleccionar o deseleccionar"
+
+msgid "Clicking the corner of the rulers changes the unit"
+msgstr "Al hacer clic en la esquina de las reglas cambia la unidad"
+
+msgid "Close Tab"
+msgstr "Cerrar pestaña"
+
+msgid "Close within"
+msgstr "Cerrar a menos de"
+
+msgid "Coarse pixels"
+msgstr "Píxeles gruesos"
+
+msgid "Colour"
+msgstr "Color"
+
+msgid "Colour Opacity"
+msgstr "Opacidad del color"
+
+msgid "Colour Profile"
+msgstr "Perfil de color"
+
+msgid "Colour Scheme"
+msgstr "Esquema de color"
+
+msgid "Colour burn"
+msgstr "Subexponer color"
+
+msgid "Colour dodge"
+msgstr "Sobreexponer color"
+
+msgid "Colour overlay"
+msgstr "Superposición de color"
+
+msgid "Colour profile: {}"
+msgstr "Perfil de color: {}"
+
+msgid "Colour value, e.g. #3584E4"
+msgstr "Valor de color, p. ej. #3584E4"
+
+msgid "Colours"
+msgstr "Colores"
+
+msgid "Columns"
+msgstr "Columnas"
+
+msgid "Convert Stroke to Fill"
+msgstr "Convertir contorno en relleno"
+
+msgid "Convert Text to Paths"
+msgstr "Convertir texto en trazados"
+
+msgid "Convert the image into editable vector areas"
+msgstr "Convertir la imagen en áreas vectoriales editables"
+
+msgid "Convert to outlines"
+msgstr "Convertir en contornos"
+
+msgid "Copied as image"
+msgstr "Copiado como imagen"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Copy as Image"
+msgstr "Copiar como imagen"
+
+msgid "Copying failed: {}"
+msgstr "Error al copiar: {}"
+
+msgid "Corner"
+msgstr "Esquina"
+
+msgid "Corner radius"
+msgstr "Radio de esquina"
+
+msgid "Corner radius in px"
+msgstr "Radio de esquina en px"
+
+msgid "Corners"
+msgstr "Esquinas"
+
+msgid "Could not reach GitHub"
+msgstr "No se pudo conectar con GitHub"
+
+msgid "Cover"
+msgstr "Cubrir"
+
+msgid "Cow print"
+msgstr "Estampado de vaca"
+
+msgid "Crash: "
+msgstr "Fallo: "
+
+msgid "Crayons"
+msgstr "Ceras"
+
+msgid "Create"
+msgstr "Crear"
+
+msgid "Create a blend between the two shapes"
+msgstr "Crear una fusión entre las dos formas"
+
+msgid "Create a document of any size"
+msgstr "Crear un documento de cualquier tamaño"
+
+msgid "Crop"
+msgstr "Recortar"
+
+msgid "Crystal"
+msgstr "Cristal"
+
+msgid "Ctrl"
+msgstr "Ctrl"
+
+msgid "Curvature Pen"
+msgstr "Pluma de curvatura"
+
+msgid "Curvature Pen (Shift P)"
+msgstr "Pluma de curvatura (Mayús P)"
+
+msgid "Custom Format …"
+msgstr "Formato personalizado …"
+
+msgid "Custom colour – “+” adds it to the library"
+msgstr "Color personalizado: «+» lo añade a la biblioteca"
+
+msgid "Custom size"
+msgstr "Tamaño personalizado"
+
+msgid "Cut"
+msgstr "Cortar"
+
+msgid "DL (flyer)"
+msgstr "DL (folleto)"
+
+msgid "Dark"
+msgstr "Oscuro"
+
+msgid "Darken"
+msgstr "Oscurecer"
+
+msgid "Darken (darker colour)"
+msgstr "Oscurecer (color más oscuro)"
+
+msgid "Dash-dot"
+msgstr "Raya y punto"
+
+msgid "Dashed"
+msgstr "Discontinua"
+
+msgid "Decrease Indent"
+msgstr "Reducir sangría"
+
+msgid "Default"
+msgstr "Predeterminado"
+
+msgid "Default Shortcuts"
+msgstr "Atajos predeterminados"
+
+msgid "Default; every document remembers its own unit"
+msgstr "Predeterminada; cada documento recuerda su propia unidad"
+
+msgid "Del"
+msgstr "Supr"
+
+msgid "Delay (s)"
+msgstr "Retardo (s)"
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Delete All"
+msgstr "Eliminar todo"
+
+msgid "Delete Layer"
+msgstr "Eliminar capa"
+
+msgid "Delete Nodes (Del)"
+msgstr "Eliminar nodos (Supr)"
+
+msgid "Delete Selection"
+msgstr "Eliminar selección"
+
+msgid "Delete library?"
+msgstr "¿Eliminar la biblioteca?"
+
+msgid "Delete …"
+msgstr "Eliminar …"
+
+msgid "Depth"
+msgstr "Profundidad"
+
+msgid "Depth: −100 % pressed in, 100 % raised"
+msgstr "Profundidad: −100 % hundido, 100 % en relieve"
+
+msgid "Difference"
+msgstr "Diferencia"
+
+msgid "Direction"
+msgstr "Dirección"
+
+msgid "Direction of the brush strokes"
+msgstr "Dirección de las pinceladas"
+
+msgid "Direction the shadow falls in"
+msgstr "Dirección en la que cae la sombra"
+
+msgid "Distance"
+msgstr "Distancia"
+
+msgid "Distance between text and frame"
+msgstr "Distancia entre el texto y el marco"
+
+msgid "Distance from the start of the path in px"
+msgstr "Distancia desde el inicio del trazado en px"
+
+msgid "Distribute Horizontally"
+msgstr "Distribuir horizontalmente"
+
+msgid "Distribute Vertically"
+msgstr "Distribuir verticalmente"
+
+msgid "Document Information"
+msgstr "Información del documento"
+
+msgid "Dot"
+msgstr "Punto"
+
+msgid "Dots"
+msgstr "Puntos"
+
+msgid "Dotted"
+msgstr "Punteada"
+
+msgid "Download"
+msgstr "Descargar"
+
+msgid "Duplicate"
+msgstr "Duplicar"
+
+msgid "Duplicate Artboard With Its Contents"
+msgstr "Duplicar la mesa de trabajo con su contenido"
+
+msgid "Edge centre"
+msgstr "Centro del borde"
+
+msgid "Edit"
+msgstr "Editar"
+
+msgid "Edit Artboard"
+msgstr "Editar mesa de trabajo"
+
+msgid "Edit Nodes"
+msgstr "Editar nodos"
+
+msgid "Edit Nodes (A)"
+msgstr "Editar nodos (A)"
+
+msgid "Edit frame and image together"
+msgstr "Editar marco e imagen a la vez"
+
+msgid "Effect Quality"
+msgstr "Calidad de los efectos"
+
+msgid "Effects"
+msgstr "Efectos"
+
+msgid "Effects – for all selected objects"
+msgstr "Efectos: para todos los objetos seleccionados"
+
+msgid "Ellipse"
+msgstr "Elipse"
+
+msgid "Embed Fonts"
+msgstr "Incrustar tipografías"
+
+msgid "End"
+msgstr "Final"
+
+msgid "Ends"
+msgstr "Extremos"
+
+msgid "Enter"
+msgstr "Intro"
+
+msgid "Eraser"
+msgstr "Borrador"
+
+msgid "Eraser (Shift E) – size with [ and ]"
+msgstr "Borrador (Mayús E): tamaño con [ y ]"
+
+msgid "Eraser diameter ( [ and ] change it )"
+msgstr "Diámetro del borrador ( [ y ] lo cambian )"
+
+msgid "Esc"
+msgstr "Esc"
+
+msgid "Esc cancels, ⌫ removes the shortcut"
+msgstr "Esc cancela, ⌫ elimina el atajo"
+
+msgid "Exclude Overlap"
+msgstr "Excluir superposición"
+
+msgid "Exclusion"
+msgstr "Exclusión"
+
+msgid "Expand or Collapse"
+msgstr "Expandir o contraer"
+
+msgid "Expand or collapse the colour picker"
+msgstr "Expandir o contraer el selector de color"
+
+msgid "Export"
+msgstr "Exportar"
+
+msgid "Export Library"
+msgstr "Exportar biblioteca"
+
+msgid "Export Se_lection…"
+msgstr "Exportar se_lección…"
+
+msgid "Export Selection"
+msgstr "Exportar selección"
+
+msgid "Export failed: {}"
+msgstr "Error al exportar: {}"
+
+msgid "Export …"
+msgstr "Exportar …"
+
+msgid "Exported: {}"
+msgstr "Exportado: {}"
+
+msgid "Export…"
+msgstr "Exportar…"
+
+msgid "Extras"
+msgstr "Extras"
+
+msgid "Eyedropper: pick a colour from the document or a photo (Esc cancels)"
+msgstr "Cuentagotas: tomar un color del documento o de una foto (Esc cancela)"
+
+msgid "Facebook cover"
+msgstr "Portada de Facebook"
+
+msgid "Facebook post"
+msgstr "Publicación de Facebook"
+
+msgid "File"
+msgstr "Archivo"
+
+msgid "File Created"
+msgstr "Archivo creado"
+
+msgid "File Modified"
+msgstr "Archivo modificado"
+
+msgid "File Size"
+msgstr "Tamaño del archivo"
+
+msgid "File imported and opened as SVG. Saving creates a new SVG file."
+msgstr "Archivo importado y abierto como SVG. Al guardar se crea un archivo SVG nuevo."
+
+msgid "File name"
+msgstr "Nombre de archivo"
+
+msgid "Fill"
+msgstr "Relleno"
+
+msgid "Fill colour of the selection"
+msgstr "Color de relleno de la selección"
+
+msgid "Fine grain like satin-finished glass"
+msgstr "Grano fino como el vidrio satinado"
+
+msgid "Finish Drawing"
+msgstr "Terminar el dibujo"
+
+msgid "Fixed keys"
+msgstr "Teclas fijas"
+
+msgid "Flip Horizontally"
+msgstr "Voltear horizontalmente"
+
+msgid "Flip Vertically"
+msgstr "Voltear verticalmente"
+
+msgid "Flip horizontally (Shift H)"
+msgstr "Voltear horizontalmente (Mayús H)"
+
+msgid "Flip vertically (Shift V)"
+msgstr "Voltear verticalmente (Mayús V)"
+
+msgid "Folder"
+msgstr "Carpeta"
+
+msgid "Font"
+msgstr "Tipografía"
+
+msgid "Font size in px"
+msgstr "Tamaño de letra en px"
+
+msgid "Font style"
+msgstr "Estilo de letra"
+
+msgid "Fonts are replaced by installed fonts; line breaks stay as separate lines of text"
+msgstr "Las tipografías se sustituyen por las instaladas; los saltos de línea quedan como líneas de texto separadas"
+
+msgid "Format"
+msgstr "Formato"
+
+msgid "Frame"
+msgstr "Marco"
+
+msgid "Frame Fill"
+msgstr "Relleno del marco"
+
+msgid "Frame Stroke"
+msgstr "Contorno del marco"
+
+msgid "Framed Image"
+msgstr "Imagen con marco"
+
+msgid "Freehand"
+msgstr "Mano alzada"
+
+msgid "Freehand (N)"
+msgstr "Mano alzada (N)"
+
+msgid "Full HD"
+msgstr "Full HD"
+
+msgid "Gap between the object and its reflection"
+msgstr "Distancia entre el objeto y su reflejo"
+
+msgid "Gingham"
+msgstr "Vichy"
+
+msgid "Glass"
+msgstr "Vidrio"
+
+msgid "Gloss"
+msgstr "Brillo"
+
+msgid "Glow"
+msgstr "Resplandor"
+
+msgid "Gradient"
+msgstr "Degradado"
+
+msgid "Gradient angle in degrees"
+msgstr "Ángulo del degradado en grados"
+
+msgid "Grain"
+msgstr "Grano"
+
+msgid "Grainy"
+msgstr "Granulado"
+
+msgid "Graphic"
+msgstr "Gráfico"
+
+msgid "Graphic {}"
+msgstr "Gráfico {}"
+
+msgid "Graphics"
+msgstr "Gráficos"
+
+msgid "Grid"
+msgstr "Cuadrícula"
+
+msgid "Grid Spacing (px)"
+msgstr "Espaciado de la cuadrícula (px)"
+
+msgid "Group"
+msgstr "Agrupar"
+
+msgid "Guide"
+msgstr "Guía"
+
+msgid "Guide angle in degrees"
+msgstr "Ángulo de la guía en grados"
+
+msgid "Guides"
+msgstr "Guías"
+
+msgid "Guides (G) – click and drag, Shift snaps the angle"
+msgstr "Guías (G): haga clic y arrastre, Mayús ajusta el ángulo"
+
+msgid "Halftone"
+msgstr "Semitonos"
+
+msgid "Hard light"
+msgstr "Luz fuerte"
+
+msgid "Heading"
+msgstr "Título"
+
+msgid "Height (%)"
+msgstr "Altura (%)"
+
+msgid "Height ({})"
+msgstr "Altura ({})"
+
+msgid "Herringbone"
+msgstr "Espiga"
+
+msgid "High (600 dpi)"
+msgstr "Alta (600 ppp)"
+
+msgid "Home"
+msgstr "Inicio"
+
+msgid "Honeycomb"
+msgstr "Panal"
+
+msgid "How far and how brightly the stroke glows"
+msgstr "Hasta dónde y con qué intensidad brilla el contorno"
+
+msgid "How long an image or text box has to be held over a shape before it is placed inside"
+msgstr "Cuánto tiempo hay que mantener una imagen o un cuadro de texto sobre una forma antes de colocarlo dentro"
+
+msgid "How much shaky strokes are smoothed"
+msgstr "Cuánto se suavizan los trazos temblorosos"
+
+msgid "How much what lies underneath is blurred"
+msgstr "Cuánto se desenfoca lo que hay debajo"
+
+msgid "Hue"
+msgstr "Tono"
+
+msgid "ICC colour profiles"
+msgstr "Perfiles de color ICC"
+
+msgid "If start and end are closer than this, the shape is closed (0 = never)"
+msgstr "Si el inicio y el final están más cerca que esto, la forma se cierra (0 = nunca)"
+
+msgid "If you don’t save, your changes will be lost"
+msgstr "Si no guarda, se perderán los cambios"
+
+msgid "Image"
+msgstr "Imagen"
+
+msgid "Image filters"
+msgstr "Filtros de imagen"
+
+msgid "Image “{}” (file not found)"
+msgstr "Imagen «{}» (archivo no encontrado)"
+
+msgid "Image “{}” (not an image file)"
+msgstr "Imagen «{}» (no es un archivo de imagen)"
+
+msgid "Images"
+msgstr "Imágenes"
+
+msgid "Images with special compression (JPEG 2000, JBIG2, CCITT) were skipped"
+msgstr "Se omitieron imágenes con compresión especial (JPEG 2000, JBIG2, CCITT)"
+
+msgid "Import Library"
+msgstr "Importar biblioteca"
+
+msgid "Import failed: {}"
+msgstr "Error al importar: {}"
+
+msgid "Import …"
+msgstr "Importar …"
+
+msgid "Imported. {}"
+msgstr "Importado. {}"
+
+msgid "Inches (in)"
+msgstr "Pulgadas (in)"
+
+msgid "Include Background"
+msgstr "Incluir fondo"
+
+msgid "Increase Indent"
+msgstr "Aumentar sangría"
+
+msgid "Inner"
+msgstr "Interior"
+
+msgid "Inner shadow"
+msgstr "Sombra interior"
+
+msgid "Insert Image"
+msgstr "Insertar imagen"
+
+msgid "Inside"
+msgstr "Dentro"
+
+msgid "Instagram portrait"
+msgstr "Instagram vertical"
+
+msgid "Instagram post"
+msgstr "Publicación de Instagram"
+
+msgid "Instagram story / reel"
+msgstr "Instagram story / reel"
+
+msgid "Intersect"
+msgstr "Intersecar"
+
+msgid "Invalid start of file"
+msgstr "Inicio de archivo no válido"
+
+msgid "Invert colours"
+msgstr "Invertir colores"
+
+msgid "JPG Quality"
+msgstr "Calidad JPG"
+
+msgid "JPG does not support transparency – white is used instead"
+msgstr "JPG no admite transparencia: se usa blanco en su lugar"
+
+msgid "JPG image"
+msgstr "Imagen JPG"
+
+msgid "Join Paths"
+msgstr "Unir trazados"
+
+msgid "Justify"
+msgstr "Justificar"
+
+msgid "Keyboard Shortcuts"
+msgstr "Atajos de teclado"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Layer"
+msgstr "Capa"
+
+msgid "Layer 1"
+msgstr "Capa 1"
+
+msgid "Layer {}"
+msgstr "Capa {}"
+
+msgid "Layers"
+msgstr "Capas"
+
+msgid "Layers and Artboards"
+msgstr "Capas y mesas de trabajo"
+
+msgid "Left"
+msgstr "Izquierda"
+
+msgid "Left aligned"
+msgstr "Alineado a la izquierda"
+
+msgid "Length"
+msgstr "Longitud"
+
+msgid "Length of the reflection in % of the object height"
+msgstr "Longitud del reflejo en % de la altura del objeto"
+
+msgid "Leopard"
+msgstr "Leopardo"
+
+msgid "Letter spacing"
+msgstr "Espaciado entre letras"
+
+msgid "Letter spacing in 1/1000 em"
+msgstr "Espaciado entre letras en 1/1000 em"
+
+msgid "Libraries"
+msgstr "Bibliotecas"
+
+msgid "Library"
+msgstr "Biblioteca"
+
+msgid "Library {}"
+msgstr "Biblioteca {}"
+
+msgid "Library – collect and apply colours and styles"
+msgstr "Biblioteca: reunir y aplicar colores y estilos"
+
+msgid "Light"
+msgstr "Claro"
+
+msgid "Light & Shadow"
+msgstr "Luz y sombra"
+
+msgid "Lighten"
+msgstr "Aclarar"
+
+msgid "Lighten (lighter colour)"
+msgstr "Aclarar (color más claro)"
+
+msgid "Lighting"
+msgstr "Iluminación"
+
+msgid "Line"
+msgstr "Línea"
+
+msgid "Line end"
+msgstr "Final de línea"
+
+msgid "Line spacing"
+msgstr "Interlineado"
+
+msgid "Line spacing (multiple of the font size)"
+msgstr "Interlineado (múltiplo del tamaño de letra)"
+
+msgid "Line spacing in % of the font size"
+msgstr "Interlineado en % del tamaño de letra"
+
+msgid "Linear"
+msgstr "Lineal"
+
+msgid "LinkedIn post"
+msgstr "Publicación de LinkedIn"
+
+msgid "List"
+msgstr "Lista"
+
+msgid "List ({})"
+msgstr "Lista ({})"
+
+msgid "Lock"
+msgstr "Bloquear"
+
+msgid "Locked objects cannot be changed"
+msgstr "Los objetos bloqueados no se pueden modificar"
+
+msgid "Locked objects cannot be deleted"
+msgstr "Los objetos bloqueados no se pueden eliminar"
+
+msgid "Long dashes"
+msgstr "Guiones largos"
+
+msgid "Low (150 dpi)"
+msgstr "Baja (150 ppp)"
+
+msgid "Luminosity"
+msgstr "Luminosidad"
+
+msgid "Main Menu"
+msgstr "Menú principal"
+
+msgid "Manage Libraries"
+msgstr "Gestionar bibliotecas"
+
+msgid "Material"
+msgstr "Material"
+
+msgid "Medium (300 dpi)"
+msgstr "Media (300 ppp)"
+
+msgid "Metal"
+msgstr "Metal"
+
+msgid "Middle of the box"
+msgstr "Centro del cuadro"
+
+msgid "Millimetres (mm)"
+msgstr "Milímetros (mm)"
+
+msgid "Mitred corners"
+msgstr "Esquinas en inglete"
+
+msgid "More Options"
+msgstr "Más opciones"
+
+msgid "Move selection (with Shift: 10 px)"
+msgstr "Mover la selección (con Mayús: 10 px)"
+
+msgid "Move to Layer"
+msgstr "Mover a la capa"
+
+msgid "My Library"
+msgstr "Mi biblioteca"
+
+msgid "My Library (new)"
+msgstr "Mi biblioteca (nueva)"
+
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Name (optional)"
+msgstr "Nombre (opcional)"
+
+msgid "Name colour"
+msgstr "Nombre del color"
+
+msgid "Name graphic"
+msgstr "Nombre del gráfico"
+
+msgid "Name style"
+msgstr "Nombre del estilo"
+
+msgid "Name text style"
+msgstr "Nombre del estilo de texto"
+
+msgid "Name …"
+msgstr "Nombre …"
+
+msgid "Name, e.g. Logo"
+msgstr "Nombre, p. ej. Logo"
+
+msgid "New Document"
+msgstr "Documento nuevo"
+
+msgid "New Layer"
+msgstr "Capa nueva"
+
+msgid "New Library"
+msgstr "Biblioteca nueva"
+
+msgid "New Line Within a Paragraph (text box)"
+msgstr "Línea nueva dentro de un párrafo (cuadro de texto)"
+
+msgid "New Shape"
+msgstr "Forma nueva"
+
+msgid "New Style"
+msgstr "Estilo nuevo"
+
+msgid "New Text"
+msgstr "Texto nuevo"
+
+msgid "New Text Box"
+msgstr "Cuadro de texto nuevo"
+
+msgid "New Text Style"
+msgstr "Estilo de texto nuevo"
+
+msgid "New colour for the library"
+msgstr "Color nuevo para la biblioteca"
+
+msgid "New colour …"
+msgstr "Color nuevo …"
+
+msgid "New style …"
+msgstr "Estilo nuevo …"
+
+msgid "New text style …"
+msgstr "Estilo de texto nuevo …"
+
+msgid "Next page (Page ↓)"
+msgstr "Página siguiente (Av Pág)"
+
+msgid "Next/Previous Page (Notebook)"
+msgstr "Página siguiente/anterior (cuaderno)"
+
+msgid "No Colour"
+msgstr "Sin color"
+
+msgid "No areas were found in the image"
+msgstr "No se encontraron áreas en la imagen"
+
+msgid "No artboard selected"
+msgstr "Ninguna mesa de trabajo seleccionada"
+
+msgid "No colour selected"
+msgstr "Ningún color seleccionado"
+
+msgid "No colours yet"
+msgstr "Todavía no hay colores"
+
+msgid "No displayable content was found on the first page"
+msgstr "No se encontró contenido visualizable en la primera página"
+
+msgid "No matching format – “Custom Format …” creates any size"
+msgstr "Ningún formato coincide: «Formato personalizado …» crea cualquier tamaño"
+
+msgid "No root element found"
+msgstr "No se encontró ningún elemento raíz"
+
+msgid "No styles yet"
+msgstr "Todavía no hay estilos"
+
+msgid "No text styles yet"
+msgstr "Todavía no hay estilos de texto"
+
+msgid "Nodes"
+msgstr "Nodos"
+
+msgid "None"
+msgstr "Ninguno"
+
+msgid "None found – e.g. download “PSO Coated v3” from eci.org and choose it"
+msgstr "No se encontró ninguno: p. ej. descargue «PSO Coated v3» de eci.org y elíjalo"
+
+msgid "Not assigned"
+msgstr "Sin asignar"
+
+msgid "Not everything can be imported"
+msgstr "No todo se puede importar"
+
+msgid "Not saved"
+msgstr "Sin guardar"
+
+msgid "Notebook"
+msgstr "Cuaderno"
+
+msgid "Notebook View On/Off"
+msgstr "Activar/desactivar vista de cuaderno"
+
+msgid "Notebook: one page after another"
+msgstr "Cuaderno: una página tras otra"
+
+msgid "Notebook: one page after another, scrolling turns the page"
+msgstr "Cuaderno: una página tras otra, el desplazamiento pasa la página"
+
+msgid "Nothing selected"
+msgstr "Nada seleccionado"
+
+msgid "Now press the new key combination …"
+msgstr "Ahora pulse la nueva combinación de teclas …"
+
+msgid "Num +"
+msgstr "Num +"
+
+msgid "Num −"
+msgstr "Num −"
+
+msgid "Number of colours in the image"
+msgstr "Número de colores de la imagen"
+
+msgid "Number of columns – the text flows from column to column"
+msgstr "Número de columnas: el texto fluye de una columna a otra"
+
+msgid "Number of corners"
+msgstr "Número de esquinas"
+
+msgid "Number of corners for new polygons and stars (and the selected ones)"
+msgstr "Número de esquinas para polígonos y estrellas nuevos (y los seleccionados)"
+
+msgid "Number of intermediate steps"
+msgstr "Número de pasos intermedios"
+
+msgid "Objects"
+msgstr "Objetos"
+
+msgid "Offset"
+msgstr "Desplazamiento"
+
+msgid "Offset X"
+msgstr "Desplazamiento X"
+
+msgid "Offset Y"
+msgstr "Desplazamiento Y"
+
+msgid "Offset downwards in px"
+msgstr "Desplazamiento hacia abajo en px"
+
+msgid "Offset of the shadow"
+msgstr "Desplazamiento de la sombra"
+
+msgid "Offset to the right in px"
+msgstr "Desplazamiento hacia la derecha en px"
+
+msgid "Oil paint"
+msgstr "Pintura al óleo"
+
+msgid "Online"
+msgstr "Online"
+
+msgid "Only move or scale the image inside the frame"
+msgstr "Solo mover o escalar la imagen dentro del marco"
+
+msgid "Only the first {} pages were read."
+msgstr "Solo se leyeron las primeras {} páginas."
+
+msgid "Opacity"
+msgstr "Opacidad"
+
+msgid "Opacity (%)"
+msgstr "Opacidad (%)"
+
+msgid "Opacity in per cent"
+msgstr "Opacidad en porcentaje"
+
+msgid "Opacity in per cent – type a value"
+msgstr "Opacidad en porcentaje: escriba un valor"
+
+msgid "Opacity masks were not imported"
+msgstr "No se importaron las máscaras de opacidad"
+
+msgid "Open"
+msgstr "Abrir"
+
+msgid "Open Document"
+msgstr "Abrir documento"
+
+msgid "Open Folder"
+msgstr "Abrir carpeta"
+
+msgid "Open arrow"
+msgstr "Flecha abierta"
+
+msgid "Open …"
+msgstr "Abrir …"
+
+msgid "Opening failed: {}"
+msgstr "Error al abrir: {}"
+
+msgid "Outside"
+msgstr "Fuera"
+
+msgid "Overlay"
+msgstr "Superponer"
+
+msgid "PDF document"
+msgstr "Documento PDF"
+
+msgid "PDF/X needs a colour profile for the printing condition"
+msgstr "PDF/X necesita un perfil de color de la condición de impresión"
+
+msgid "PDF/X-4 (print shop)"
+msgstr "PDF/X-4 (imprenta)"
+
+msgid "PDF: one page per artboard. Other formats: one file per artboard."
+msgstr "PDF: una página por mesa de trabajo. Otros formatos: un archivo por mesa de trabajo."
+
+msgid "PNG image"
+msgstr "Imagen PNG"
+
+msgid "Padding"
+msgstr "Relleno interior"
+
+msgid "Page"
+msgstr "Página"
+
+msgid "Page 1 of 1"
+msgstr "Página 1 de 1"
+
+msgid "Page centre"
+msgstr "Centro de la página"
+
+msgid "Page corner"
+msgstr "Esquina de la página"
+
+msgid "Page {} of {}"
+msgstr "Página {} de {}"
+
+msgid "Page ↑"
+msgstr "Re Pág"
+
+msgid "Page ↓"
+msgstr "Av Pág"
+
+msgid "Pan the View (hold and drag)"
+msgstr "Desplazar la vista (mantener y arrastrar)"
+
+msgid "Paragraph spacing"
+msgstr "Espacio entre párrafos"
+
+msgid "Paste"
+msgstr "Pegar"
+
+msgid "Path"
+msgstr "Trazado"
+
+msgid "Path Operations"
+msgstr "Operaciones de trazado"
+
+msgid "Paths"
+msgstr "Trazados"
+
+msgid "Pattern"
+msgstr "Patrón"
+
+msgid "Pattern and mesh fills were simplified"
+msgstr "Se simplificaron los rellenos de patrón y de malla"
+
+msgid "Pattern angle in degrees"
+msgstr "Ángulo del patrón en grados"
+
+msgid "Pattern colour"
+msgstr "Color del patrón"
+
+msgid "Pattern size"
+msgstr "Tamaño del patrón"
+
+msgid "Pen"
+msgstr "Pluma"
+
+msgid "Pen (P)"
+msgstr "Pluma (P)"
+
+msgid "Pencil"
+msgstr "Lápiz"
+
+msgid "Pinterest pin"
+msgstr "Pin de Pinterest"
+
+msgid "Pixels"
+msgstr "Píxeles"
+
+msgid "Pixels (px)"
+msgstr "Píxeles (px)"
+
+msgid "Placing in Shapes"
+msgstr "Colocar en formas"
+
+msgid "Points (pt)"
+msgstr "Puntos (pt)"
+
+msgid "Polygon"
+msgstr "Polígono"
+
+msgid "Position"
+msgstr "Posición"
+
+msgid "Position of the selected guide"
+msgstr "Posición de la guía seleccionada"
+
+msgid "Position {} ({})"
+msgstr "Posición {} ({})"
+
+msgid "Postcard"
+msgstr "Postal"
+
+msgid "Preferences"
+msgstr "Preferencias"
+
+msgid "Previous page (Page ↑)"
+msgstr "Página anterior (Re Pág)"
+
+msgid "Print"
+msgstr "Impresión"
+
+msgid "Properties"
+msgstr "Propiedades"
+
+msgid "Put a frame around the image and adjust it"
+msgstr "Poner un marco alrededor de la imagen y ajustarlo"
+
+msgid "Pyramid"
+msgstr "Pirámide"
+
+msgid "Quit"
+msgstr "Salir"
+
+msgid "Quotation mark expected at position {}"
+msgstr "Se esperaban comillas en la posición {}"
+
+msgid "Quote"
+msgstr "Cita"
+
+msgid "RGB (screen)"
+msgstr "RGB (pantalla)"
+
+msgid "Radial"
+msgstr "Radial"
+
+msgid "Radius for the selected corners (without a selection: all corners)"
+msgstr "Radio de las esquinas seleccionadas (sin selección: todas las esquinas)"
+
+msgid "Radius {} {}"
+msgstr "Radio {} {}"
+
+msgid "Raindrop"
+msgstr "Gota de lluvia"
+
+msgid "Recently opened"
+msgstr "Abiertos recientemente"
+
+msgid "Recover documents?"
+msgstr "¿Recuperar documentos?"
+
+msgid "Rectangle"
+msgstr "Rectángulo"
+
+msgid "Rectangle (R)"
+msgstr "Rectángulo (R)"
+
+msgid "Redo"
+msgstr "Rehacer"
+
+msgid "Reflection"
+msgstr "Reflejo"
+
+msgid "Release Frame"
+msgstr "Liberar marco"
+
+msgid "Release Shape"
+msgstr "Liberar forma"
+
+msgid "Reload"
+msgstr "Recargar"
+
+msgid "Remove 3D effect"
+msgstr "Quitar efecto 3D"
+
+msgid "Remove Artboard (the objects stay)"
+msgstr "Quitar mesa de trabajo (los objetos se mantienen)"
+
+msgid "Remove From the List"
+msgstr "Quitar de la lista"
+
+msgid "Remove artistic effect"
+msgstr "Quitar efecto artístico"
+
+msgid "Remove colour overlay"
+msgstr "Quitar superposición de color"
+
+msgid "Remove from the library"
+msgstr "Quitar de la biblioteca"
+
+msgid "Remove glass"
+msgstr "Quitar vidrio"
+
+msgid "Remove image filter"
+msgstr "Quitar filtro de imagen"
+
+msgid "Remove light & shadow"
+msgstr "Quitar luz y sombra"
+
+msgid "Remove material"
+msgstr "Quitar material"
+
+msgid "Rename Library"
+msgstr "Renombrar biblioteca"
+
+msgid "Rename …"
+msgstr "Renombrar …"
+
+msgid "Report copied to the clipboard"
+msgstr "Informe copiado al portapapeles"
+
+msgid "Reset All"
+msgstr "Restablecer todo"
+
+msgid "Reset to Default"
+msgstr "Restablecer valores predeterminados"
+
+msgid "Resolution"
+msgstr "Resolución"
+
+msgid "Resolution of shadows, glass, 3D and artistic effects"
+msgstr "Resolución de sombras, vidrio, 3D y efectos artísticos"
+
+msgid "Reverse direction (text the other way round, e.g. readable at the bottom of a circle)"
+msgstr "Invertir dirección (texto al revés, p. ej. legible en la parte inferior de un círculo)"
+
+msgid "Right"
+msgstr "Derecha"
+
+msgid "Right aligned"
+msgstr "Alineado a la derecha"
+
+msgid "Risograph"
+msgstr "Risografía"
+
+msgid "Rotate 90° left"
+msgstr "Girar 90° a la izquierda"
+
+msgid "Rotate 90° right"
+msgstr "Girar 90° a la derecha"
+
+msgid "Rotation"
+msgstr "Rotación"
+
+msgid "Rotation in degrees (anticlockwise) – type a value or change it with − and +"
+msgstr "Rotación en grados (antihoraria): escriba un valor o cámbielo con − y +"
+
+msgid "Round corners"
+msgstr "Esquinas redondeadas"
+
+msgid "Round ends"
+msgstr "Extremos redondeados"
+
+msgid "Rulers"
+msgstr "Reglas"
+
+msgid "SVG file"
+msgstr "Archivo SVG"
+
+msgid "SVG files"
+msgstr "Archivos SVG"
+
+msgid "SVG, Illustrator (.ai) and PDF"
+msgstr "SVG, Illustrator (.ai) y PDF"
+
+msgid "Same as the document"
+msgstr "Igual que el documento"
+
+msgid "Saturation"
+msgstr "Saturación"
+
+msgid "Save"
+msgstr "Guardar"
+
+msgid "Save As"
+msgstr "Guardar como"
+
+msgid "Save _As…"
+msgstr "Guardar _como…"
+
+msgid "Save changes to “{}”?"
+msgstr "¿Guardar los cambios en «{}»?"
+
+msgid "Saved"
+msgstr "Guardado"
+
+msgid "Saving failed: {}"
+msgstr "Error al guardar: {}"
+
+msgid "Scale"
+msgstr "Escala"
+
+msgid "Scale Strokes and Shadows Too"
+msgstr "Escalar también contornos y sombras"
+
+msgid "Scale …"
+msgstr "Escalar …"
+
+msgid "Scales"
+msgstr "Escamas"
+
+msgid "Scissors"
+msgstr "Tijeras"
+
+msgid "Scissors (C) – draw a line to cut shapes and paths"
+msgstr "Tijeras (C): dibuje una línea para cortar formas y trazados"
+
+msgid "Screen"
+msgstr "Trama"
+
+msgid "Search formats, e.g. “A5” or “Story”"
+msgstr "Buscar formatos, p. ej. «A5» o «Story»"
+
+msgid "Search preferences"
+msgstr "Buscar en las preferencias"
+
+msgid "Search results"
+msgstr "Resultados de la búsqueda"
+
+msgid "Searchable"
+msgstr "Con búsqueda de texto"
+
+msgid "Select"
+msgstr "Seleccionar"
+
+msgid "Select (V)"
+msgstr "Seleccionar (V)"
+
+msgid "Select All"
+msgstr "Seleccionar todo"
+
+msgid "Select a shape or path first"
+msgstr "Seleccione primero una forma o un trazado"
+
+msgid "Select a text first"
+msgstr "Seleccione primero un texto"
+
+msgid "Select an object with this colour first"
+msgstr "Seleccione primero un objeto con este color"
+
+msgid "Select at least one artboard"
+msgstr "Seleccione al menos una mesa de trabajo"
+
+msgid "Select at least two objects for this"
+msgstr "Seleccione al menos dos objetos para esto"
+
+msgid "Select something first"
+msgstr "Seleccione algo primero"
+
+msgid "Select the objects of the graphic first"
+msgstr "Seleccione primero los objetos del gráfico"
+
+msgid "Selection Only"
+msgstr "Solo la selección"
+
+msgid "Selection as graphic …"
+msgstr "Selección como gráfico …"
+
+msgid "Send Backward"
+msgstr "Bajar"
+
+msgid "Send to Back"
+msgstr "Enviar al fondo"
+
+msgid "Sepia"
+msgstr "Sepia"
+
+msgid "Shadow"
+msgstr "Sombra"
+
+msgid "Shadow blur"
+msgstr "Desenfoque de la sombra"
+
+msgid "Shadow opacity"
+msgstr "Opacidad de la sombra"
+
+msgid "Shape"
+msgstr "Forma"
+
+msgid "Shape Builder"
+msgstr "Generador de formas"
+
+msgid "Shape Builder (Shift M or K) – click an area to make it a shape, drag across areas to merge them, hold Alt to delete"
+msgstr "Generador de formas (Mayús M o K): haga clic en un área para convertirla en forma, arrastre sobre áreas para unirlas, mantenga Alt para eliminar"
+
+msgid "Shape of the line ends, e.g. arrow"
+msgstr "Forma de los extremos de línea, p. ej. flecha"
+
+msgid "Sharp"
+msgstr "Angular"
+
+msgid "Shift"
+msgstr "Mayús"
+
+msgid "Shortcuts need Ctrl or Alt (or a function key), otherwise they get in the way of typing"
+msgstr "Los atajos necesitan Ctrl o Alt (o una tecla de función); si no, estorban al escribir"
+
+msgid "Show"
+msgstr "Mostrar"
+
+msgid "Show report"
+msgstr "Mostrar informe"
+
+msgid "Show/Hide"
+msgstr "Mostrar/ocultar"
+
+msgid "Show/Hide Layers and Library"
+msgstr "Mostrar/ocultar capas y biblioteca"
+
+msgid "Show/Hide Properties"
+msgstr "Mostrar/ocultar propiedades"
+
+msgid "Size"
+msgstr "Tamaño"
+
+msgid "Size (%)"
+msgstr "Tamaño (%)"
+
+msgid "Size (px)"
+msgstr "Tamaño (px)"
+
+msgid "Size of the line ends"
+msgstr "Tamaño de los extremos de línea"
+
+msgid "Small caps: lower-case letters as small capitals"
+msgstr "Versalitas: minúsculas como mayúsculas pequeñas"
+
+msgid "Smooth"
+msgstr "Suave"
+
+msgid "Smoothing"
+msgstr "Suavizado"
+
+msgid "Snap"
+msgstr "Ajustar"
+
+msgid "Snap To"
+msgstr "Ajustar a"
+
+msgid "So that an earlier export is not replaced"
+msgstr "Para que no se sustituya una exportación anterior"
+
+msgid "Soft"
+msgstr "Suave"
+
+msgid "Soft light"
+msgstr "Luz suave"
+
+msgid "Solid"
+msgstr "Continua"
+
+msgid "Solid, Dashed or Dotted"
+msgstr "Continua, discontinua o punteada"
+
+msgid "Some page content could not be read"
+msgstr "No se pudo leer parte del contenido de la página"
+
+msgid "Space"
+msgstr "Espacio"
+
+msgid "Space between paragraphs in % of the font size"
+msgstr "Espacio entre párrafos en % del tamaño de letra"
+
+msgid "Spacing"
+msgstr "Espaciado"
+
+msgid "Spacing of the halftone dots"
+msgstr "Espaciado de los puntos de la trama"
+
+msgid "Sphere"
+msgstr "Esfera"
+
+msgid "Square ends"
+msgstr "Extremos cuadrados"
+
+msgid "Star"
+msgstr "Estrella"
+
+msgid "Start"
+msgstr "Inicio"
+
+msgid "Start a new document or pick up where you left off."
+msgstr "Empiece un documento nuevo o continúe donde lo dejó."
+
+msgid "Steps"
+msgstr "Pasos"
+
+msgid "Stijl crashed"
+msgstr "Stijl se cerró inesperadamente"
+
+msgid "Stijl is up to date"
+msgstr "Stijl está actualizado"
+
+msgid "Stijl library (SVG)"
+msgstr "Biblioteca de Stijl (SVG)"
+
+msgid "Stijl was not closed properly last time. These unsaved documents can be recovered:\n"
+msgstr "Stijl no se cerró correctamente la última vez. Estos documentos sin guardar se pueden recuperar:\n"
+
+msgid "Stijl {} is available"
+msgstr "Stijl {} está disponible"
+
+msgid "Strength"
+msgstr "Intensidad"
+
+msgid "Strength of Light and Shadow"
+msgstr "Intensidad de luz y sombra"
+
+msgid "Strikethrough"
+msgstr "Tachado"
+
+msgid "Stripes"
+msgstr "Rayas"
+
+msgid "Stroke"
+msgstr "Contorno"
+
+msgid "Stroke centred on the line"
+msgstr "Contorno centrado en la línea"
+
+msgid "Stroke colour of the selection"
+msgstr "Color del contorno de la selección"
+
+msgid "Stroke inside"
+msgstr "Contorno por dentro"
+
+msgid "Stroke outside"
+msgstr "Contorno por fuera"
+
+msgid "Stroke width"
+msgstr "Grosor del contorno"
+
+msgid "Stroke width in px"
+msgstr "Grosor del contorno en px"
+
+msgid "Stroke width of the frame in px"
+msgstr "Grosor del contorno del marco en px"
+
+msgid "Style"
+msgstr "Estilo"
+
+msgid "Style of the selection"
+msgstr "Estilo de la selección"
+
+msgid "Styles"
+msgstr "Estilos"
+
+msgid "Subtract Front"
+msgstr "Restar el frontal"
+
+msgid "Super"
+msgstr "Súper"
+
+msgid "System"
+msgstr "Sistema"
+
+msgid "Tab in Text"
+msgstr "Tabulación en el texto"
+
+msgid "Temperature"
+msgstr "Temperatura"
+
+msgid "Temperature: −100 % cool, 0 % original, 100 % warm"
+msgstr "Temperatura: −100 % fría, 0 % original, 100 % cálida"
+
+msgid "Terrazzo"
+msgstr "Terrazo"
+
+msgid "Text"
+msgstr "Texto"
+
+msgid "Text (T)"
+msgstr "Texto (T)"
+
+msgid "Text Box"
+msgstr "Cuadro de texto"
+
+msgid "Text Colour"
+msgstr "Color del texto"
+
+msgid "Text below the path instead of above"
+msgstr "Texto debajo del trazado en lugar de encima"
+
+msgid "Text cannot be aligned along an image"
+msgstr "El texto no se puede alinear a lo largo de una imagen"
+
+msgid "Text fill"
+msgstr "Relleno del texto"
+
+msgid "Text on Path"
+msgstr "Texto en trazado"
+
+msgid "Text on Path (Shift T)"
+msgstr "Texto en trazado (Mayús T)"
+
+msgid "Text stroke"
+msgstr "Contorno del texto"
+
+msgid "Text style"
+msgstr "Estilo de texto"
+
+msgid "Text style of the selection"
+msgstr "Estilo de texto de la selección"
+
+msgid "Text styles"
+msgstr "Estilos de texto"
+
+msgid "Text with an unknown character encoding was partly skipped"
+msgstr "Se omitió parte del texto con una codificación de caracteres desconocida"
+
+msgid "The PDF file has an invalid catalogue"
+msgstr "El archivo PDF tiene un catálogo no válido"
+
+msgid "The PDF file has no catalogue"
+msgstr "El archivo PDF no tiene catálogo"
+
+msgid "The PDF structure of the file is damaged (no document catalogue)"
+msgstr "La estructura PDF del archivo está dañada (no hay catálogo del documento)"
+
+msgid "The colour profile is not a readable CMYK print profile"
+msgstr "El perfil de color no es un perfil de impresión CMYK legible"
+
+msgid "The current layer is locked"
+msgstr "La capa actual está bloqueada"
+
+msgid "The default library “Stijl” cannot be changed"
+msgstr "La biblioteca predeterminada «Stijl» no se puede modificar"
+
+msgid "The default library “Stijl” cannot be changed. For your own colours and styles, create a new library via ⋮."
+msgstr "La biblioteca predeterminada «Stijl» no se puede modificar. Para sus propios colores y estilos, cree una biblioteca nueva mediante ⋮."
+
+msgid "The default library “Stijl” cannot be deleted"
+msgstr "La biblioteca predeterminada «Stijl» no se puede eliminar"
+
+msgid "The default library “Stijl” cannot be renamed"
+msgstr "La biblioteca predeterminada «Stijl» no se puede renombrar"
+
+msgid "The file contains no pages"
+msgstr "El archivo no contiene páginas"
+
+msgid "The file is encrypted (password-protected) and cannot be opened"
+msgstr "El archivo está cifrado (protegido con contraseña) y no se puede abrir"
+
+msgid "The file is nested too deeply"
+msgstr "El archivo está anidado a demasiada profundidad"
+
+msgid "The file is not an SVG document"
+msgstr "El archivo no es un documento SVG"
+
+msgid "The file is very large; only part of it was read"
+msgstr "El archivo es muy grande; solo se leyó una parte"
+
+msgid "The fonts used are stored in the SVG file (larger file)"
+msgstr "Las tipografías usadas se guardan en el archivo SVG (archivo más grande)"
+
+msgid "The image cannot be read"
+msgstr "No se puede leer la imagen"
+
+msgid "The image could not be read: {}"
+msgstr "No se pudo leer la imagen: {}"
+
+msgid "The language changes the next time Stijl starts"
+msgstr "El idioma cambiará la próxima vez que se inicie Stijl"
+
+msgid "The last layer cannot be deleted"
+msgstr "La última capa no se puede eliminar"
+
+msgid "The layer “{}” is hidden"
+msgstr "La capa «{}» está oculta"
+
+msgid "The layer “{}” is locked"
+msgstr "La capa «{}» está bloqueada"
+
+msgid "The layer “{}” is locked or hidden"
+msgstr "La capa «{}» está bloqueada u oculta"
+
+msgid "The name is optional and appears below the swatch"
+msgstr "El nombre es opcional y aparece debajo de la muestra"
+
+msgid "The result would be empty"
+msgstr "El resultado estaría vacío"
+
+msgid "The selected objects can later be copied into any document by dragging"
+msgstr "Los objetos seleccionados se pueden copiar después en cualquier documento arrastrándolos"
+
+msgid "The stroke becomes an object of its own – scalable, with its own fill and stroke"
+msgstr "El contorno se convierte en un objeto propio: escalable, con su propio relleno y contorno"
+
+msgid "There is no closed area here"
+msgstr "Aquí no hay ningún área cerrada"
+
+msgid "There is no colour here – click on the page"
+msgstr "Aquí no hay ningún color: haga clic en la página"
+
+msgid "There is no library in this file"
+msgstr "Este archivo no contiene ninguna biblioteca"
+
+msgid "This SVG file contains content that Stijl cannot display or edit:\n{}\n\nSo that nothing is lost, the original file stays unchanged: saving creates a new SVG file."
+msgstr "Este archivo SVG contiene contenido que Stijl no puede mostrar ni editar:\n{}\n\nPara que no se pierda nada, el archivo original no se modifica: al guardar se crea un archivo SVG nuevo."
+
+msgid "This document has a transparent background"
+msgstr "Este documento tiene un fondo transparente"
+
+msgid "This file contains no PDF data. The Illustrator file must be saved with the option “Create PDF Compatible File”."
+msgstr "Este archivo no contiene datos PDF. El archivo de Illustrator debe guardarse con la opción «Crear archivo compatible con PDF»."
+
+msgid "This image format is not supported"
+msgstr "Este formato de imagen no es compatible"
+
+msgid "This is not a CMYK print profile (ICC)"
+msgstr "No es un perfil de impresión CMYK (ICC)"
+
+msgid "This is not an Illustrator or PDF file"
+msgstr "No es un archivo de Illustrator ni PDF"
+
+msgid "This key is fixed"
+msgstr "Esta tecla es fija"
+
+msgid "TikTok video"
+msgstr "Vídeo de TikTok"
+
+msgid "Tool keys can only be a single key, with or without Shift"
+msgstr "Las teclas de herramienta solo pueden ser una tecla, con o sin Mayús"
+
+msgid "Tools"
+msgstr "Herramientas"
+
+msgid "Top of the box"
+msgstr "Parte superior del cuadro"
+
+msgid "Trace"
+msgstr "Vectorizar"
+
+msgid "Traced"
+msgstr "Vectorizado"
+
+msgid "Transparency of JPEG images was not imported"
+msgstr "No se importó la transparencia de las imágenes JPEG"
+
+msgid "Type"
+msgstr "Tipo"
+
+msgid "Type a Value"
+msgstr "Escriba un valor"
+
+msgid "US Letter"
+msgstr "US Letter"
+
+msgid "Underline"
+msgstr "Subrayado"
+
+msgid "Undo"
+msgstr "Deshacer"
+
+msgid "Unexpected end of file, “{}” is missing"
+msgstr "Fin de archivo inesperado, falta «{}»"
+
+msgid "Ungroup"
+msgstr "Desagrupar"
+
+msgid "Unit"
+msgstr "Unidad"
+
+msgid "Unit of Measurement"
+msgstr "Unidad de medida"
+
+msgid "Unite"
+msgstr "Unir"
+
+msgid "Unlock"
+msgstr "Desbloquear"
+
+msgid "Untitled"
+msgstr "Sin título"
+
+msgid "Updates"
+msgstr "Actualizaciones"
+
+msgid "Use ligatures (fi, fl …) where the font has them"
+msgstr "Usar ligaduras (fi, fl …) cuando la tipografía las tenga"
+
+msgid "Velvet"
+msgstr "Terciopelo"
+
+msgid "Vertical"
+msgstr "Vertical"
+
+msgid "View"
+msgstr "Ver"
+
+msgid "Watercolour"
+msgstr "Acuarela"
+
+msgid "Waves"
+msgstr "Ondas"
+
+msgid "Weight"
+msgstr "Grosor"
+
+msgid "Weight (variable font)"
+msgstr "Grosor (tipografía variable)"
+
+msgid "Welcome to Stijl"
+msgstr "Bienvenido a Stijl"
+
+msgid "What should be taken from the selection into the library?"
+msgstr "¿Qué debe pasar de la selección a la biblioteca?"
+
+msgid "When switched off, the artboard is transparent"
+msgstr "Si se desactiva, la mesa de trabajo es transparente"
+
+msgid "When switched off, the background is transparent"
+msgstr "Si se desactiva, el fondo es transparente"
+
+msgid "While this panel is open, artboards can be moved by their name and resized with their handles"
+msgstr "Mientras este panel está abierto, las mesas de trabajo se pueden mover por su nombre y redimensionar con sus tiradores"
+
+msgid "White Background"
+msgstr "Fondo blanco"
+
+msgid "Whole Page"
+msgstr "Página completa"
+
+msgid "Width (%)"
+msgstr "Anchura (%)"
+
+msgid "Width ({})"
+msgstr "Anchura ({})"
+
+msgid "Width and Height Separately"
+msgstr "Anchura y altura por separado"
+
+msgid "With a running number"
+msgstr "Con un número correlativo"
+
+msgid "With date and time"
+msgstr "Con fecha y hora"
+
+msgid "Wrap the text in a rectangle again; the shape stays as an object of its own"
+msgstr "Volver a ajustar el texto en un rectángulo; la forma queda como objeto propio"
+
+msgid "X / Twitter post"
+msgstr "Publicación de X / Twitter"
+
+msgid "YouTube banner"
+msgstr "Banner de YouTube"
+
+msgid "YouTube thumbnail"
+msgstr "Miniatura de YouTube"
+
+msgid "Zebra"
+msgstr "Cebra"
+
+msgid "Zoom In"
+msgstr "Acercar"
+
+msgid "Zoom Out"
+msgstr "Alejar"
+
+msgid "_Add"
+msgstr "_Añadir"
+
+msgid "_Apply"
+msgstr "_Aplicar"
+
+msgid "_Cancel"
+msgstr "_Cancelar"
+
+msgid "_Copy"
+msgstr "_Copiar"
+
+msgid "_Create"
+msgstr "_Crear"
+
+msgid "_Delete"
+msgstr "_Eliminar"
+
+msgid "_Discard"
+msgstr "_Descartar"
+
+msgid "_Don’t Send"
+msgstr "_No enviar"
+
+msgid "_Export…"
+msgstr "_Exportar…"
+
+msgid "_Help"
+msgstr "Ay_uda"
+
+msgid "_Insert Image…"
+msgstr "_Insertar imagen…"
+
+msgid "_Keyboard Shortcuts"
+msgstr "Ata_jos de teclado"
+
+msgid "_Later"
+msgstr "_Más tarde"
+
+msgid "_New"
+msgstr "_Nuevo"
+
+msgid "_Open…"
+msgstr "_Abrir…"
+
+msgid "_Preferences"
+msgstr "_Preferencias"
+
+msgid "_Recover"
+msgstr "_Recuperar"
+
+msgid "_Rename"
+msgstr "_Renombrar"
+
+msgid "_Report a Problem…"
+msgstr "Informar de un p_roblema…"
+
+msgid "_Save"
+msgstr "_Guardar"
+
+msgid "_Send"
+msgstr "_Enviar"
+
+msgid "anchor points paths points"
+msgstr "puntos de anclaje trazados puntos anchor points paths"
+
+msgid "background default dark chequerboard checkerboard transparent workspace"
+msgstr "fondo predeterminado oscuro tablero ajedrez transparente espacio de trabajo background dark checkerboard"
+
+msgid "centres centre edge centres objects points"
+msgstr "centros centro centros de borde objetos puntos centres"
+
+msgid "clipping paths (clip-path)"
+msgstr "trazados de recorte (clip-path)"
+
+msgid "colour color scheme system light dark appearance theme design"
+msgstr "color esquema sistema claro oscuro apariencia tema diseño colour scheme theme"
+
+msgid "corners objects points"
+msgstr "esquinas objetos puntos corners"
+
+msgid "default shortcuts reset all keyboard shortcuts key combination"
+msgstr "atajos predeterminados restablecer todo teclado combinación de teclas shortcuts"
+
+msgid "delay place shapes image text box hold frame"
+msgstr "retardo colocar formas imagen cuadro de texto mantener marco"
+
+msgid "embedded HTML content"
+msgstr "contenido HTML incrustado"
+
+msgid "embedded inline images are not supported"
+msgstr "no se admiten imágenes incrustadas en línea"
+
+msgid "filters (e.g. blur or shadows from other programs)"
+msgstr "filtros (p. ej. desenfoque o sombras de otros programas)"
+
+msgid "grid"
+msgstr "cuadrícula"
+
+msgid "grid spacing grid px"
+msgstr "espaciado de cuadrícula cuadrícula px grid"
+
+msgid "line ends from other programs (markers)"
+msgstr "extremos de línea de otros programas (marcadores)"
+
+msgid "masks"
+msgstr "máscaras"
+
+msgid "nested groups (merged into one group)"
+msgstr "grupos anidados (unidos en un grupo)"
+
+msgid "no file name"
+msgstr "sin nombre de archivo"
+
+msgid "page artboard edge"
+msgstr "página mesa de trabajo borde"
+
+msgid "parts of the CSS styling"
+msgstr "partes del estilo CSS"
+
+msgid "paths strokes lines"
+msgstr "trazados contornos líneas"
+
+msgid "patterns from other programs"
+msgstr "patrones de otros programas"
+
+msgid "reused elements (<use>)"
+msgstr "elementos reutilizados (<use>)"
+
+msgid "rulers top left unit"
+msgstr "reglas arriba izquierda unidad"
+
+msgid "snap {}"
+msgstr "ajustar {}"
+
+msgid "spacing equal gaps row"
+msgstr "espaciado espacios iguales fila"
+
+msgid "unit of measurement unit pixel px millimetre mm centimetre cm inch in point pt metric imperial"
+msgstr "unidad de medida unidad píxel px milímetro mm centímetro cm pulgada in punto pt métrico imperial"
+
+msgid "unnamed"
+msgstr "sin nombre"
+
+msgid "updates update new version github"
+msgstr "actualizaciones actualizar nueva versión github"
+
+msgid "view artboard notebook pages turn page canva"
+msgstr "vista mesa de trabajo cuaderno páginas pasar página canva"
+
+msgid "{} (copy)"
+msgstr "{} (copia)"
+
+msgid "{} (custom)"
+msgstr "{} (personalizado)"
+
+msgid "{} added to “{}”"
+msgstr "{} añadido a «{}»"
+
+msgid "{} files exported"
+msgstr "{} archivos exportados"
+
+msgid "{} is already in “{}”"
+msgstr "{} ya está en «{}»"
+
+msgid "{} is already used for “{}”. Choose another combination or press Esc."
+msgstr "{} ya se usa para «{}». Elija otra combinación o pulse Esc."
+
+msgid "{} objects"
+msgstr "{} objetos"
+
+msgid "{} – Stijl"
+msgstr "{} – Stijl"
+
+msgid "{} – click to insert, or drag into the document"
+msgstr "{}: haga clic para insertar o arrástrelo al documento"
+
+msgid "{} – double-click to rename"
+msgstr "{}: doble clic para renombrar"
+
+msgid "{} – the selection is on this layer; drag the square onto another layer to move it there"
+msgstr "{}: la selección está en esta capa; arrastre el cuadrado a otra capa para moverla allí"
+
+msgid "{}Style – click applies fill, stroke, opacity …"
+msgstr "{}Estilo: un clic aplica relleno, contorno, opacidad …"
+
+msgid "{}{} {} px – click applies the text style (while editing, only to the selected text)"
+msgstr "{}{} {} px: un clic aplica el estilo de texto (al editar, solo al texto seleccionado)"
+
+msgid "{}{} {} px{}{} – click applies the text style"
+msgstr "{}{} {} px{}{}: un clic aplica el estilo de texto"
+
+msgid "{}{} – click: fill, Shift-click: stroke"
+msgstr "{}{}: clic, relleno; Mayús+clic, contorno"
+
+msgid "– Dashes"
+msgstr "– Guiones"
+
+msgid "“{}” and all its colours and styles will be deleted"
+msgstr "Se eliminará «{}» con todos sus colores y estilos"
+
+msgid "“{}” could not be recovered: {}"
+msgstr "No se pudo recuperar «{}»: {}"
+
+msgid "“{}” exported"
+msgstr "«{}» exportado"
+
+msgid "“{}” imported"
+msgstr "«{}» importado"
+
+msgid "• Bullets"
+msgstr "• Viñetas"
+
+msgid "▪ Squares"
+msgstr "▪ Cuadrados"
+
+msgid "Some images were left out because there is too much image data"
+msgstr "Se omitieron algunas imágenes porque hay demasiados datos de imagen"
+
+msgid "objects with invalid sizes or coordinates (left out)"
+msgstr "objetos con tamaño o posición no válidos (omitidos)"
+
+msgid "Element <{}> is not closed"
+msgstr "El elemento <{}> no está cerrado"
+
+msgid "</{}> does not match <{}>"
+msgstr "</{}> no coincide con <{}>"
+
+msgid "The top object must be a single shape, path or text"
+msgstr "El objeto superior debe ser una sola forma, un trazado o un texto"
+
+msgid "Repeat …"
+msgstr "Repetir …"
+
+msgid "Offset Path …"
+msgstr "Desplazar trazado …"
+
+msgid "Simplify Path"
+msgstr "Simplificar trazado"
+
+msgid "Release Clipping Mask"
+msgstr "Soltar máscara de recorte"
+
+msgid "Make Clipping Mask"
+msgstr "Crear máscara de recorte"
+
+msgid "Prin_t…"
+msgstr "Impri_mir…"
+
+msgid "Print Document"
+msgstr "Imprimir documento"
+
+msgid "The selection has no clipping mask"
+msgstr "La selección no tiene ninguna máscara de recorte"
+
+msgid "Nothing to simplify"
+msgstr "No hay nada que simplificar"
+
+msgid "Offset Path"
+msgstr "Desplazar trazado"
+
+msgid "Positive values grow the shape, negative values shrink it"
+msgstr "Los valores positivos agrandan la forma; los negativos la reducen"
+
+msgid "Round"
+msgstr "Redondeado"
+
+msgid "Nothing left at this distance"
+msgstr "A esta distancia no queda nada"
+
+msgid "Repeat"
+msgstr "Repetir"
+
+msgid "Each copy moves, turns and scales a step further"
+msgstr "Cada copia se desplaza, gira y escala un paso más"
+
+msgid "Copies"
+msgstr "Copias"
+
+msgid "Rotation (°)"
+msgstr "Rotación (°)"
+
+msgid "Rotate Around"
+msgstr "Girar alrededor de"
+
+msgid "Centre of the Selection"
+msgstr "Centro de la selección"
+
+msgid "Centre of the Page"
+msgstr "Centro de la página"
+
+msgid "Printing failed"
+msgstr "Error al imprimir"
+
+msgid "Edit Colour …"
+msgstr "Editar color …"
+
+msgid "Edit Colour"
+msgstr "Editar color"
+
+msgid "Objects that use this colour change with it"
+msgstr "Los objetos que usan este color cambian con él"
+
+msgid "{} colours updated from the library"
+msgstr "{} colores actualizados desde la biblioteca"
+
+msgid "Distance ({})"
+msgstr "Distancia ({})"
+
+msgid "Horizontal Offset ({})"
+msgstr "Desplazamiento horizontal ({})"
+
+msgid "Vertical Offset ({})"
+msgstr "Desplazamiento vertical ({})"
+
+msgid "Printing failed: {}"
+msgstr "Error al imprimir: {}"
+
+msgid "{} colours updated"
+msgstr "{} colores actualizados"

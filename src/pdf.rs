@@ -189,8 +189,7 @@ pub fn inflate(data: &[u8]) -> Vec<u8> {
         cnt: 0,
     };
     let mut out = Vec::with_capacity(data.len() * 3);
-    loop {
-        let Some(last) = b.bits(1) else { break };
+    while let Some(last) = b.bits(1) {
         let Some(typ) = b.bits(2) else { break };
         let ok = match typ {
             0 => {
@@ -567,6 +566,7 @@ impl<'a> Lex<'a> {
         e
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Tok {
         // einzelne „)“ und „>“ ohne Gegenstück überspringen (in einer Schleife, nicht rekursiv)
         loop {
@@ -894,7 +894,7 @@ impl Pdf {
 
     pub fn load(file: &[u8]) -> Result<Pdf, String> {
         let start = find(file, b"%PDF-", 0).ok_or_else(|| {
-            tr("Diese Datei enthält keine PDF-Daten. Die Illustrator-Datei muss mit der Option „PDF-kompatible Datei erstellen“ gespeichert sein.")
+            tr("This file contains no PDF data. The Illustrator file must be saved with the option “Create PDF Compatible File”.")
                 .to_string()
         })?;
         let data = &file[start..];
@@ -1014,9 +1014,7 @@ impl Pdf {
             }
         }
         if trailers.iter().any(|t| t.contains_key("Encrypt")) {
-            return Err(
-                tr("Die Datei ist verschlüsselt (passwortgeschützt) und lässt sich nicht öffnen").into(),
-            );
+            return Err(tr("The file is encrypted (password-protected) and cannot be opened").into());
         }
         let root = trailers
             .iter()
@@ -1031,7 +1029,7 @@ impl Pdf {
                     .cloned()
             })
             .ok_or_else(|| {
-                tr("Die PDF-Struktur der Datei ist beschädigt (kein Dokumentkatalog)").to_string()
+                tr("The PDF structure of the file is damaged (no document catalogue)").to_string()
             })?;
         pdf.root = root;
         Ok(pdf)

@@ -23,10 +23,10 @@ impl Format {
     pub const ALL: [Format; 4] = [Format::Png, Format::Jpeg, Format::Pdf, Format::Svg];
     pub fn label(self) -> &'static str {
         match self {
-            Format::Png => tr("PNG-Bild"),
-            Format::Jpeg => tr("JPG-Bild"),
-            Format::Pdf => tr("PDF-Dokument"),
-            Format::Svg => tr("SVG-Datei"),
+            Format::Png => tr("PNG image"),
+            Format::Jpeg => tr("JPG image"),
+            Format::Pdf => tr("PDF document"),
+            Format::Svg => tr("SVG file"),
         }
     }
     pub fn ext(self) -> &'static str {
@@ -162,10 +162,13 @@ pub fn find_profiles() -> Vec<(std::path::PathBuf, String)> {
 /// Objekte mit Effekten, die andere Programme nicht kennen, als Bild (für den SVG-Export).
 fn needs_raster(o: &Object) -> bool {
     let fx = &o.style.fx;
-    fx.tex.is_some()
+    fx.glass.is_some()
+        || fx.mat.is_some()
         || fx.lens.is_some_and(|(_, k)| k.abs() > 0.004)
         || fx.art.is_some()
         || fx.mirror.is_some()
+        || fx.glow.is_some()
+        || fx.inner.is_some()
         || (matches!(o.shape, Shape::Image { .. }) && (fx.tint.is_some() || fx.temp.abs() > 1e-9))
 }
 
@@ -234,6 +237,8 @@ fn split_text_boxes(doc: &mut Document) {
                         style: st,
                         angle: o.angle,
                         group: o.group,
+                        sub: o.sub.clone(),
+                        mask: o.mask,
                         locked: o.locked,
                         name: String::new(),
                     });
@@ -256,7 +261,7 @@ fn pdf_bytes(docs: &[Document], opt: &Options, background: bool) -> Result<Vec<u
     // 96 Pixel = 72 Punkte
     let k = 72.0 / 96.0;
     let bleed = opt.bleed_mm.max(0.0) * 72.0 / 25.4;
-    let first = docs.first().ok_or(tr("Keine Zeichenfläche gewählt"))?;
+    let first = docs.first().ok_or(tr("No artboard selected"))?;
     let tmp = std::env::temp_dir().join(format!("stijl-export-{}.pdf", std::process::id()));
     let prev_res = crate::render::set_effect_resolution(opt.effect_dpi / 72.0);
     let prev_text = crate::render::set_text_as_glyphs(opt.pdf_text);
@@ -297,13 +302,13 @@ fn pdf_bytes(docs: &[Document], opt: &Options, background: bool) -> Result<Vec<u
         return Ok(data);
     }
     let icc = match &opt.profile {
-        Some(p) => Some(std::fs::read(p).map_err(|e| trf("Farbprofil: {}", &[&(e)]))?),
+        Some(p) => Some(std::fs::read(p).map_err(|e| trf("Colour profile: {}", &[&(e)]))?),
         None => None,
     };
     let profile = match &icc {
         Some(d) => Some(
             crate::icc::CmykProfile::parse(d)
-                .ok_or(tr("Das Farbprofil ist kein lesbares CMYK-Druckprofil"))?,
+                .ok_or(tr("The colour profile is not a readable CMYK print profile"))?,
         ),
         None => None,
     };

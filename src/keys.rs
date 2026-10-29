@@ -48,12 +48,12 @@ const fn d(
     }
 }
 
-pub const GROUP_FILE: &str = "Datei";
-pub const GROUP_EDIT: &str = "Bearbeiten";
-pub const GROUP_ARRANGE: &str = "Anordnen";
-pub const GROUP_VIEW: &str = "Ansicht";
-pub const GROUP_TOOLS: &str = "Werkzeuge";
-pub const GROUP_FIXED: &str = "Feste Tasten";
+pub const GROUP_FILE: &str = "File";
+pub const GROUP_EDIT: &str = "Edit";
+pub const GROUP_ARRANGE: &str = "Arrange";
+pub const GROUP_VIEW: &str = "View";
+pub const GROUP_TOOLS: &str = "Tools";
+pub const GROUP_FIXED: &str = "Fixed keys";
 
 pub const GROUPS: [&str; 6] = [
     GROUP_FILE,
@@ -69,249 +69,273 @@ use Kind::{Action, Fixed, Flip};
 pub const DEFS: &[Def] = &[
     d(
         "new",
-        "Neues Dokument",
+        "New Document",
         GROUP_FILE,
         &["<Control>n", "<Control>t"],
         Action("win.new"),
     ),
-    d("open", "Öffnen", GROUP_FILE, &["<Control>o"], Action("win.open")),
-    d(
-        "save",
-        "Speichern",
-        GROUP_FILE,
-        &["<Control>s"],
-        Action("win.save"),
-    ),
+    d("open", "Open", GROUP_FILE, &["<Control>o"], Action("win.open")),
+    d("save", "Save", GROUP_FILE, &["<Control>s"], Action("win.save")),
     d(
         "save-as",
-        "Speichern unter",
+        "Save As",
         GROUP_FILE,
         &["<Control><Shift>s"],
         Action("win.save-as"),
     ),
     d(
         "export",
-        "Exportieren",
+        "Export",
         GROUP_FILE,
         &["<Control>e"],
         Action("win.export"),
     ),
     d(
         "export-selection",
-        "Auswahl exportieren",
+        "Export Selection",
         GROUP_FILE,
         &[],
         Action("win.export-selection"),
     ),
     d(
+        "print",
+        "Print Document",
+        GROUP_FILE,
+        &["<Control>p"],
+        Action("win.print"),
+    ),
+    d(
         "copy-image",
-        "Als Bild kopieren",
+        "Copy as Image",
         GROUP_EDIT,
         // kein Standardkürzel (GNOME: Alt nicht für Kürzel); eigenes lässt sich festlegen
         &[],
         Action("win.copy-image"),
     ),
-    d("quit", "Beenden", GROUP_FILE, &["<Control>q"], Action("app.quit")),
+    d("quit", "Quit", GROUP_FILE, &["<Control>q"], Action("app.quit")),
     d(
         "close-tab",
-        "Tab schließen",
+        "Close Tab",
         GROUP_FILE,
         &["<Control>w"],
         Action("win.close-tab"),
     ),
     d(
         "insert-image",
-        "Bild einfügen",
+        "Insert Image",
         GROUP_FILE,
         &["<Control>i"],
         Action("win.insert-image"),
     ),
     d(
         "preferences",
-        "Einstellungen",
+        "Preferences",
         GROUP_FILE,
         &["<Control>comma"],
         Action("win.preferences"),
     ),
-    d(
-        "undo",
-        "Rückgängig",
-        GROUP_EDIT,
-        &["<Control>z"],
-        Action("win.undo"),
-    ),
+    d("undo", "Undo", GROUP_EDIT, &["<Control>z"], Action("win.undo")),
     d(
         "redo",
-        "Wiederholen",
+        "Redo",
         GROUP_EDIT,
         &["<Control><Shift>z", "<Control>y"],
         Action("win.redo"),
     ),
     d(
         "duplicate",
-        "Duplizieren",
+        "Duplicate",
         GROUP_EDIT,
         &["<Control>d"],
         Action("win.duplicate"),
     ),
     d(
         "to-path",
-        "Text in Pfade umwandeln",
+        "Convert Text to Paths",
         GROUP_EDIT,
         &["<Control><Shift>c"],
         Action("win.to-path"),
     ),
     d(
         "group",
-        "Gruppieren",
+        "Group",
         GROUP_ARRANGE,
         &["<Control>g"],
         Action("win.group"),
     ),
     d(
         "ungroup",
-        "Gruppierung auflösen",
+        "Ungroup",
         GROUP_ARRANGE,
         &["<Control><Shift>g"],
         Action("win.ungroup"),
     ),
     d(
         "join-paths",
-        "Pfade verbinden",
+        "Join Paths",
         GROUP_ARRANGE,
         &["<Control>j"],
         Action("win.join-paths"),
     ),
     d(
+        "clip-make",
+        "Make Clipping Mask",
+        GROUP_ARRANGE,
+        &["<Control>7"],
+        Action("win.clip-make"),
+    ),
+    d(
+        "clip-release",
+        "Release Clipping Mask",
+        GROUP_ARRANGE,
+        &["<Control><Alt>7"],
+        Action("win.clip-release"),
+    ),
+    d(
+        "simplify",
+        "Simplify Path",
+        GROUP_ARRANGE,
+        &["<Control>l"],
+        Action("win.simplify"),
+    ),
+    d(
+        "offset-path",
+        "Offset Path",
+        GROUP_ARRANGE,
+        &[],
+        Action("win.offset-path"),
+    ),
+    d("repeat", "Repeat", GROUP_EDIT, &[], Action("win.repeat")),
+    d(
         "raise",
-        "Schritt nach vorne",
+        "Bring Forward",
         GROUP_ARRANGE,
         &["<Control>bracketright"],
         Action("win.raise"),
     ),
     d(
         "lower",
-        "Schritt nach hinten",
+        "Send Backward",
         GROUP_ARRANGE,
         &["<Control>bracketleft"],
         Action("win.lower"),
     ),
     d(
         "raise-top",
-        "In den Vordergrund",
+        "Bring to Front",
         GROUP_ARRANGE,
         &["<Control><Shift>bracketright", "<Control>braceright"],
         Action("win.raise-top"),
     ),
     d(
         "lower-bottom",
-        "In den Hintergrund",
+        "Send to Back",
         GROUP_ARRANGE,
         &["<Control><Shift>bracketleft", "<Control>braceleft"],
         Action("win.lower-bottom"),
     ),
     d(
         "flip-h",
-        "Waagerecht spiegeln",
+        "Flip Horizontally",
         GROUP_ARRANGE,
         &["<Shift>h"],
         Flip { horizontal: true },
     ),
     d(
         "flip-v",
-        "Senkrecht spiegeln",
+        "Flip Vertically",
         GROUP_ARRANGE,
         &["<Shift>v"],
         Flip { horizontal: false },
     ),
     d(
         "zoom-in",
-        "Vergrößern",
+        "Zoom In",
         GROUP_VIEW,
         &["<Control>plus", "<Control>equal", "<Control>KP_Add"],
         Action("win.zoom-in"),
     ),
     d(
         "zoom-out",
-        "Verkleinern",
+        "Zoom Out",
         GROUP_VIEW,
         &["<Control>minus", "<Control>KP_Subtract"],
         Action("win.zoom-out"),
     ),
     d(
         "zoom-100",
-        "Originalgröße",
+        "Actual Size",
         GROUP_VIEW,
         &["<Control>1"],
         Action("win.zoom-100"),
     ),
     d(
         "zoom-fit",
-        "Ganze Seite",
+        "Whole Page",
         GROUP_VIEW,
         &["<Control>0"],
         Action("win.zoom-fit"),
     ),
     d(
         "view-notebook",
-        "Notizheft-Ansicht ein/aus",
+        "Notebook View On/Off",
         GROUP_VIEW,
         &["<Control><Shift>n"],
         Action("win.notebook"),
     ),
     d(
         "toggle-panel",
-        "Eigenschaften ein-/ausblenden",
+        "Show/Hide Properties",
         GROUP_VIEW,
         &["F9"],
         Action("win.toggle-panel"),
     ),
     d(
         "shortcuts",
-        "Tastenkürzel",
+        "Keyboard Shortcuts",
         GROUP_VIEW,
         &["<Control>question"],
         Action("win.shortcuts"),
     ),
     d(
         "toggle-sidebar",
-        "Ebenen und Bibliothek ein-/ausblenden",
+        "Show/Hide Layers and Library",
         GROUP_VIEW,
         &["F8"],
         Action("win.toggle-sidebar"),
     ),
     d(
         "tool-select",
-        "Auswahl",
+        "Select",
         GROUP_TOOLS,
         &["v"],
         Kind::Tool(Tool::Select),
     ),
     d(
         "tool-node",
-        "Knoten bearbeiten",
+        "Edit Nodes",
         GROUP_TOOLS,
         &["a"],
         Kind::Tool(Tool::Node),
     ),
-    d("tool-shape", "Form", GROUP_TOOLS, &["r"], Kind::Tool(Tool::Shape)),
     d(
-        "tool-pen",
-        "Zeichenstift",
+        "tool-shape",
+        "Shape",
         GROUP_TOOLS,
-        &["p"],
-        Kind::Tool(Tool::Pen),
+        &["r"],
+        Kind::Tool(Tool::Shape),
     ),
+    d("tool-pen", "Pen", GROUP_TOOLS, &["p"], Kind::Tool(Tool::Pen)),
     d(
         "tool-curvature",
-        "Kurvenstift",
+        "Curvature Pen",
         GROUP_TOOLS,
         &["<Shift>p"],
         Kind::Tool(Tool::Curvature),
     ),
     d(
         "tool-pencil",
-        "Bleistift",
+        "Pencil",
         GROUP_TOOLS,
         &["n"],
         Kind::Tool(Tool::Pencil),
@@ -319,95 +343,83 @@ pub const DEFS: &[Def] = &[
     d("tool-text", "Text", GROUP_TOOLS, &["t"], Kind::Tool(Tool::Text)),
     d(
         "tool-textpath",
-        "Text auf Pfad",
+        "Text on Path",
         GROUP_TOOLS,
         &["<Shift>t"],
         Kind::Tool(Tool::TextPath),
     ),
     d(
         "tool-guide",
-        "Hilfslinie",
+        "Guide",
         GROUP_TOOLS,
         &["g"],
         Kind::Tool(Tool::Guide),
     ),
     d(
         "tool-eraser",
-        "Radierer",
+        "Eraser",
         GROUP_TOOLS,
         &["<Shift>e"],
         Kind::Tool(Tool::Eraser),
     ),
     d(
         "tool-scissors",
-        "Schere",
+        "Scissors",
         GROUP_TOOLS,
         &["c"],
         Kind::Tool(Tool::Scissors),
     ),
     d(
         "tool-builder",
-        "Formerstellung",
+        "Shape Builder",
         GROUP_TOOLS,
         &["<Shift>m", "k"],
         Kind::Tool(Tool::Builder),
     ),
     d(
         "fixed-delete",
-        "Auswahl löschen",
+        "Delete Selection",
         GROUP_FIXED,
         &["Delete", "BackSpace"],
         Fixed,
     ),
     d(
         "fixed-escape",
-        "Abbrechen, Auswahl aufheben",
+        "Cancel, Deselect",
         GROUP_FIXED,
         &["Escape"],
         Fixed,
     ),
-    d(
-        "fixed-finish",
-        "Zeichnen beenden",
-        GROUP_FIXED,
-        &["Return"],
-        Fixed,
-    ),
+    d("fixed-finish", "Finish Drawing", GROUP_FIXED, &["Return"], Fixed),
     d(
         "fixed-nudge",
-        "Auswahl verschieben (mit Umschalt: 10 px)",
+        "Move selection (with Shift: 10 px)",
         GROUP_FIXED,
         &["Left", "Right", "Up", "Down"],
         Fixed,
     ),
     d(
         "fixed-pan",
-        "Ansicht verschieben (gedrückt halten, ziehen)",
+        "Pan the View (hold and drag)",
         GROUP_FIXED,
         &["space"],
         Fixed,
     ),
     d(
         "fixed-pages",
-        "Nächste/vorige Seite (Notizheft)",
+        "Next/Previous Page (Notebook)",
         GROUP_FIXED,
         &["Page_Down", "Page_Up"],
         Fixed,
     ),
-    d("fixed-cut", "Ausschneiden", GROUP_FIXED, &["<Control>x"], Fixed),
-    d("fixed-copy", "Kopieren", GROUP_FIXED, &["<Control>c"], Fixed),
-    d("fixed-paste", "Einfügen", GROUP_FIXED, &["<Control>v"], Fixed),
-    d(
-        "fixed-all",
-        "Alles auswählen",
-        GROUP_FIXED,
-        &["<Control>a"],
-        Fixed,
-    ),
-    d("fixed-tab", "Tabulator im Text", GROUP_FIXED, &["Tab"], Fixed),
+    d("fixed-cut", "Cut", GROUP_FIXED, &["<Control>x"], Fixed),
+    d("fixed-copy", "Copy", GROUP_FIXED, &["<Control>c"], Fixed),
+    d("fixed-paste", "Paste", GROUP_FIXED, &["<Control>v"], Fixed),
+    d("fixed-all", "Select All", GROUP_FIXED, &["<Control>a"], Fixed),
+    d("fixed-tab", "Tab in Text", GROUP_FIXED, &["Tab"], Fixed),
     d(
         "fixed-newline",
-        "Neue Zeile im Absatz (Textfeld)",
+        "New Line Within a Paragraph (text box)",
         GROUP_FIXED,
         &["<Shift>Return"],
         Fixed,
@@ -558,26 +570,24 @@ pub fn allowed(kind: Kind, accel: &str) -> Result<(), &'static str> {
     let has_ctrl_or_alt = a.contains("<Control>") || a.contains("<Alt>");
     let key = a.rsplit('>').next().unwrap_or("");
     match kind {
-        Kind::Fixed => Err(tr("Diese Taste ist fest")),
+        Kind::Fixed => Err(tr("This key is fixed")),
         Action(_) => {
             let fkey = key.len() >= 2 && key.starts_with('F') && key[1..].chars().all(|c| c.is_ascii_digit());
             if has_ctrl_or_alt || fkey {
                 Ok(())
             } else {
                 Err(tr(
-                    "Kürzel brauchen Strg oder Alt (oder eine F-Taste), sonst stören sie die Texteingabe",
+                    "Shortcuts need Ctrl or Alt (or a function key), otherwise they get in the way of typing",
                 ))
             }
         }
         Kind::Tool(_) | Kind::Flip { .. } => {
             if has_ctrl_or_alt {
-                Err(tr(
-                    "Werkzeugtasten gehen nur als einzelne Taste, mit oder ohne Umschalt",
-                ))
+                Err(tr("Tool keys can only be a single key, with or without Shift"))
             } else if key.chars().count() == 1 {
                 Ok(())
             } else {
-                Err(tr("Hier ist ein Buchstabe, eine Ziffer oder ein Zeichen nötig"))
+                Err(tr("A letter, digit or character is needed here"))
             }
         }
     }
@@ -600,8 +610,8 @@ pub fn label(accel: &str) -> String {
         let Some(end) = r.find('>') else { break };
         out.push(
             match &r[..end] {
-                "Control" => tr("Strg"),
-                "Shift" => tr("Umschalt"),
+                "Control" => tr("Ctrl"),
+                "Shift" => tr("Shift"),
                 "Alt" => tr("Alt"),
                 "Super" => tr("Super"),
                 o => o,
@@ -627,8 +637,8 @@ fn label_plain(key: &str) -> String {
         "equal" => "=".into(),
         "KP_Add" => tr("Num +").into(),
         "KP_Subtract" => tr("Num −").into(),
-        "space" => tr("Leertaste").into(),
-        "Delete" => tr("Entf").into(),
+        "space" => tr("Space").into(),
+        "Delete" => tr("Del").into(),
         "BackSpace" => "⌫".into(),
         "Escape" => tr("Esc").into(),
         "Return" => tr("Enter").into(),
@@ -637,8 +647,8 @@ fn label_plain(key: &str) -> String {
         "Up" => "↑".into(),
         "Down" => "↓".into(),
         "Tab" => "Tab".into(),
-        "Page_Down" => tr("Bild ↓").into(),
-        "Page_Up" => tr("Bild ↑").into(),
+        "Page_Down" => tr("Page ↓").into(),
+        "Page_Up" => tr("Page ↑").into(),
         k if k.chars().count() == 1 => k.to_uppercase(),
         k => k.to_string(),
     }
@@ -753,13 +763,13 @@ mod tests {
 
     #[test]
     fn labels_are_readable() {
-        assert_eq!(label("<Control><Shift>s"), "Strg+Umschalt+S");
-        assert_eq!(label("<Control>bracketright"), "Strg+]");
+        assert_eq!(label("<Control><Shift>s"), "Ctrl+Shift+S");
+        assert_eq!(label("<Control>bracketright"), "Ctrl+]");
         assert_eq!(mac_label("<Control><Shift>s"), "⇧⌘S");
         assert_eq!(mac_label("<Alt><Control>c"), "⌥⌘C");
         assert_eq!(mac_label("F9"), "F9");
         assert_eq!(to_gtk("<Shift><Control>Z"), "<Primary><Shift>z");
         assert_eq!(label("F9"), "F9");
-        assert_eq!(label("space"), "Leertaste");
+        assert_eq!(label("space"), "Space");
     }
 }

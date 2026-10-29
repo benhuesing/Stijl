@@ -47,13 +47,7 @@ fn main() -> glib::ExitCode {
     // Weicht die gewählte Sprache vom System ab, auch GTKs eigene Texte (Dateidialog …)
     // umstellen – das muss vor dem Start von GTK geschehen.
     if lang != i18n::choose("system", &system) {
-        std::env::set_var(
-            "LANGUAGE",
-            match lang {
-                i18n::Lang::De => "de_DE:de",
-                i18n::Lang::EnGb => "en_GB:en",
-            },
-        );
+        std::env::set_var("LANGUAGE", lang.env());
     }
     i18n::init(lang);
 

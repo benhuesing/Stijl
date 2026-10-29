@@ -8,6 +8,8 @@
   <name>Stijl</name>
   <summary>Draw vector graphics</summary>
   <summary xml:lang="de">Vektorgrafiken zeichnen</summary>
+  <summary xml:lang="es">Dibuje gráficos vectoriales</summary>
+  <summary xml:lang="fr">Dessinez des graphiques vectoriels</summary>
 
   <developer id="io.github.benhuesing">
     <name>Bendix Hüsing</name>
@@ -16,18 +18,30 @@
   <description>
     <p>Stijl is a vector graphics editor for GNOME. Draw shapes, paths and text, arrange them on several artboards and save your work as SVG, PDF, PNG or JPG.</p>
     <p xml:lang="de">Stijl ist ein Vektorzeichenprogramm für GNOME. Zeichne Formen, Pfade und Text, ordne sie auf mehreren Zeichenflächen an und speichere sie als SVG, PDF, PNG oder JPG.</p>
+    <p xml:lang="es">Stijl es un editor de gráficos vectoriales para GNOME. Dibuje formas, trazados y texto, organícelos en varias mesas de trabajo y guárdelos como SVG, PDF, PNG o JPG.</p>
+    <p xml:lang="fr">Stijl est un éditeur de graphiques vectoriels pour GNOME. Dessinez des formes, des tracés et du texte, disposez-les sur plusieurs plans de travail et enregistrez-les en SVG, PDF, PNG ou JPG.</p>
     <ul>
       <li>Shapes, pen, pencil and curvature tools, node editing and boolean operations</li>
       <li xml:lang="de">Formen, Zeichenstift, Bleistift und Kurvenwerkzeug, Knotenbearbeitung und boolesche Operationen</li>
+      <li xml:lang="es">Formas, pluma, lápiz y pluma de curvatura, edición de nodos y operaciones booleanas</li>
+      <li xml:lang="fr">Formes, plume, crayon et plume de courbure, édition des nœuds et opérations booléennes</li>
       <li>Text boxes, text on a path and libraries for colours and styles</li>
       <li xml:lang="de">Textfelder, Text auf Pfad und Bibliotheken für Farben und Stile</li>
+      <li xml:lang="es">Cuadros de texto, texto en trazado y bibliotecas de colores y estilos</li>
+      <li xml:lang="fr">Zones de texte, texte sur un tracé et bibliothèques de couleurs et de styles</li>
       <li>Print-ready PDF/X export with CMYK colours and bleed</li>
       <li xml:lang="de">Druckfertiger PDF/X-Export mit CMYK-Farben und Beschnittzugabe</li>
+      <li xml:lang="es">Exportación PDF/X lista para imprenta con colores CMYK y sangrado</li>
+      <li xml:lang="fr">Export PDF/X prêt pour l’impression avec couleurs CMJN et fond perdu</li>
       <li>Opens SVG, PDF and Illustrator files</li>
       <li xml:lang="de">Öffnet SVG-, PDF- und Illustrator-Dateien</li>
+      <li xml:lang="es">Abre archivos SVG, PDF e Illustrator</li>
+      <li xml:lang="fr">Ouvre les fichiers SVG, PDF et Illustrator</li>
     </ul>
     <p>Stijl was largely written with the help of AI (Claude by Anthropic); ideas, requirements and testing come from the author.</p>
     <p xml:lang="de">Stijl wurde größtenteils mit Hilfe von KI (Claude von Anthropic) geschrieben; Ideen, Anforderungen und Tests stammen vom Autor.</p>
+    <p xml:lang="es">Stijl se escribió en gran parte con ayuda de IA (Claude de Anthropic); las ideas, los requisitos y las pruebas son del autor.</p>
+    <p xml:lang="fr">Stijl a été en grande partie écrit avec l’aide de l’IA (Claude d’Anthropic) ; les idées, les exigences et les tests viennent de l’auteur.</p>
   </description>
 
   <launchable type="desktop-id">io.github.benhuesing.Stijl.desktop</launchable>
@@ -46,6 +60,8 @@
       <image>https://raw.githubusercontent.com/benhuesing/Stijl/main/data/screenshots/main.png</image>
       <caption>Drawing with shapes and paths</caption>
       <caption xml:lang="de">Zeichnen mit Formen und Pfaden</caption>
+      <caption xml:lang="es">Dibujo con formas y trazados</caption>
+      <caption xml:lang="fr">Dessin avec des formes et des tracés</caption>
     </screenshot>
   </screenshots>
 
@@ -77,6 +93,56 @@
   </keywords>
 
   <releases>
+    <release version="0.9.67" date="2026-10-29">
+      <description>
+        <p>Builds without warnings again.</p>
+      </description>
+    </release>
+    <release version="0.9.66" date="2026-10-29">
+      <description>
+        <p>New: clipping masks, nested groups, offset path, simplify path, repeat (copies with offset, rotation and scale), global colours from the library and printing.</p>
+      </description>
+    </release>
+    <release version="0.9.65" date="2026-10-28">
+      <description>
+        <p>English is now the original language of Stijl, with German, Spanish and French translations. Effects on images (filters, shadow, glow …) and the line ends of dotted outlines are saved again. Damaged or manipulated SVG and PDF files can no longer use up all memory or bring the drawing out of step.</p>
+      </description>
+    </release>
+    <release version="0.9.64" date="2026-10-28">
+      <description>
+        <p>Effects are much faster: they are no longer recalculated when scrolling or zooming a little, frosted glass only updates when something underneath it changes, and the work is spread over all processor cores.</p>
+      </description>
+    </release>
+    <release version="0.9.63" date="2026-10-28">
+      <description>
+        <p>The wood and fur materials were removed.</p>
+      </description>
+    </release>
+    <release version="0.9.62" date="2026-10-28">
+      <description>
+        <p>Frosted glass blurs what lies underneath again; the fill colour lightly tints the glass.</p>
+      </description>
+    </release>
+    <release version="0.9.61" date="2026-10-28">
+      <description>
+        <p>Patterns no longer show thin seams. Shadow, inner shadow, glow and reflection share one “Light &amp; Shadow” section and can be combined. Frosted glass is its own category and works on solid fills. New materials – gloss, metal, brushed metal, wood, fur and velvet – that also change how a 3D effect catches the light.</p>
+      </description>
+    </release>
+    <release version="0.9.60" date="2026-10-27">
+      <description>
+        <p>Every artboard has its own background colour. Export previews show the content again. Inner shadow (direction, distance, blur) and reflection (length, gap) have more settings. Artistic effects keep photos recognisable, and gingham is a true two-colour pattern.</p>
+      </description>
+    </release>
+    <release version="0.9.59" date="2026-10-26">
+      <description>
+        <p>New effects: inner shadow, halftone, risograph and a paper texture. Nine new patterns – gingham, chevron, herringbone, honeycomb, waves, scales, bricks, leopard and terrazzo – shown five per row.</p>
+      </description>
+    </release>
+    <release version="0.9.58" date="2026-10-26">
+      <description>
+        <p>New effects: glow, crayons and oil paint. New patterns: grid, zebra and cow print. Exports show a preview and no longer replace earlier files – a running number or the date is added. Resizing snaps the moving anchor points too.</p>
+      </description>
+    </release>
     <release version="0.9.57" date="2026-10-23">
       <description>
         <p>Tool groups open right in the toolbar – no more right-clicking for ellipse, star or the eraser – and tool settings such as corners or eraser size have their own small bar under the tools. A friendlier start page with evenly sized cards.</p>

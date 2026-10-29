@@ -27,11 +27,11 @@ use crate::render::{self, CairoMetrics, Unit, RULER};
 use crate::svg;
 
 const SHAPE_KINDS: [(ShapeKind, &str); 5] = [
-    (ShapeKind::Rect, "Rechteck"),
+    (ShapeKind::Rect, "Rectangle"),
     (ShapeKind::Ellipse, "Ellipse"),
-    (ShapeKind::Line, "Linie"),
-    (ShapeKind::Polygon, "Vieleck"),
-    (ShapeKind::Star, "Stern"),
+    (ShapeKind::Line, "Line"),
+    (ShapeKind::Polygon, "Polygon"),
+    (ShapeKind::Star, "Star"),
 ];
 
 const PANEL_WIDTH: i32 = 300;
@@ -58,6 +58,10 @@ struct ExportSettings {
     profile: Option<(PathBuf, String)>,
     /// PDF: Beschnittzugabe in mm
     bleed: f64,
+    /// Dateiname: 0 wie das Dokument, 1 mit fortlaufender Nummer, 2 mit Datum und Uhrzeit
+    suffix: u32,
+    /// Ordner des letzten Exports (dort schlägt der Dialog den nächsten freien Namen vor)
+    last_dir: Option<PathBuf>,
 }
 
 /// Auflösung der Effekte je Qualitätsstufe (dpi).
@@ -226,13 +230,13 @@ impl ColorPicker {
         };
         let hue = bar();
         let alpha = bar();
-        alpha.set_tooltip_text(Some(tr("Deckkraft der Farbe")));
+        alpha.set_tooltip_text(Some(tr("Colour Opacity")));
         let dot = gtk::DrawingArea::new();
         dot.set_content_width(22);
         dot.set_content_height(22);
         dot.set_valign(gtk::Align::Center);
         let hex = gtk::Entry::builder().hexpand(true).max_length(9).build();
-        hex.set_tooltip_text(Some(tr("Farbwert, z. B. #3584E4")));
+        hex.set_tooltip_text(Some(tr("Colour value, e.g. #3584E4")));
         let hex_row = hbox(8);
         hex_row.add_css_class("mondrian-hex");
         hex_row.append(&dot);
@@ -243,7 +247,7 @@ impl ColorPicker {
         alpha_spin.set_width_chars(4);
         alpha_spin.set_numeric(true);
         alpha_spin.set_valign(gtk::Align::Center);
-        alpha_spin.set_tooltip_text(Some(tr("Deckkraft in Prozent – Wert eintippen")));
+        alpha_spin.set_tooltip_text(Some(tr("Opacity in per cent – type a value")));
         let alpha_unit = gtk::Label::new(Some("%"));
         alpha_unit.add_css_class("dim-label");
         let alpha_row = hbox(6);
@@ -531,10 +535,14 @@ fn fold_register(detail: &gtk::Box, arrow: &gtk::Button, open: &Rc<Cell<bool>>) 
 /// Bereich auf- oder zuklappen; beim Aufklappen schließen sich alle anderen.
 fn fold_set(idx: usize, v: bool) {
     let all: Vec<(gtk::Box, gtk::Button, Rc<Cell<bool>>)> = FOLDS.with(|f| f.borrow().clone());
+    let target = all.get(idx).map(|t| t.0.clone());
     for (i, (d, a, o)) in all.iter().enumerate() {
+        // Bereiche, in denen der geöffnete liegt (Farbe des Schattens in „Licht & Schatten“),
+        // bleiben offen
+        let holds = target.as_ref().is_some_and(|t| t.is_ancestor(d));
         let open = if i == idx {
             v
-        } else if v {
+        } else if v && !holds {
             false
         } else {
             o.get()
@@ -561,6 +569,115 @@ struct FxFold {
     strength: gtk::Scale,
     /// zweiter Regler (3D-Effekt: Beleuchtung)
     strength2: gtk::Scale,
+    /// Inhalt (für weitere Zeilen) und die Zeile mit „Entfernen“ (bleibt unten)
+    detail: gtk::Box,
+    remove_row: gtk::Box,
+}
+
+/// „Licht & Schatten“: ein Ausklappbereich für Schatten, Innenschatten, Leuchten und
+/// Spiegelung. Reiter wechseln zwischen den vier, jeder lässt sich mit einem Schalter
+/// unabhängig von den anderen ein- und ausschalten.
+struct LightFold {
+    root: gtk::Box,
+    hint: gtk::Label,
+    tabs: Vec<gtk::ToggleButton>,
+    switches: Vec<gtk::Switch>,
+    /// angewendete Effekte beim letzten Abgleich (Bitmaske), um zu einem neu
+    /// hinzugekommenen zu wechseln
+    seen: Cell<u8>,
+}
+
+/// Reihenfolge der Effekte in „Licht & Schatten“.
+const LIGHT_SHADOW: usize = 0;
+const LIGHT_INNER: usize = 1;
+const LIGHT_GLOW: usize = 2;
+const LIGHT_MIRROR: usize = 3;
+
+/// `pages`: je Effekt (Reiter, Name, Einstellungen); die Einstellungen sind nur zu sehen,
+/// solange der Effekt eingeschaltet ist.
+fn light_fold(pages: Vec<(&str, &str, gtk::Widget)>) -> LightFold {
+    let t = gtk::Label::new(Some(tr("Light & Shadow")));
+    t.add_css_class("heading");
+    let hint = gtk::Label::new(None);
+    hint.set_ellipsize(pango::EllipsizeMode::End);
+    let arrow = gtk::Button::from_icon_name("pan-end-symbolic");
+    let head = fold_head(&t, &hint, None, &arrow);
+    let tab_row = hbox(0);
+    tab_row.set_homogeneous(true);
+    tab_row.set_hexpand(true);
+    let stack = gtk::Stack::new();
+    stack.set_vhomogeneous(false);
+    stack.set_hhomogeneous(true);
+    let mut tabs: Vec<gtk::ToggleButton> = Vec::new();
+    let mut switches = Vec::new();
+    for (i, (tab, name, settings)) in pages.into_iter().enumerate() {
+        let b = gtk::ToggleButton::with_label(tab);
+        b.set_hexpand(true);
+        b.add_css_class("flat");
+        b.add_css_class("mondrian-tab");
+        b.set_tooltip_text(Some(name));
+        if let Some(f) = tabs.first() {
+            b.set_group(Some(f));
+        }
+        tab_row.append(&b);
+        let sw = gtk::Switch::new();
+        sw.update_property(&[gtk::accessible::Property::Label(name)]);
+        let page = group_box();
+        page.append(&prow(name, &sw));
+        page.append(&settings);
+        let key = i.to_string();
+        stack.add_named(&page, Some(key.as_str()));
+        {
+            let stack = stack.clone();
+            b.connect_toggled(move |b| {
+                if b.is_active() {
+                    stack.set_visible_child_name(&key);
+                }
+            });
+        }
+        tabs.push(b);
+        switches.push(sw);
+    }
+    if let Some(f) = tabs.first() {
+        f.set_active(true);
+    }
+    let tabs_wrap = vbox(0);
+    tabs_wrap.add_css_class("mondrian-pad");
+    tabs_wrap.append(&tab_row);
+    let remove = gtk::Button::with_label(tr("Remove light & shadow"));
+    remove.add_css_class("mondrian-layer-delete");
+    remove.set_action_name(Some("win.effect-remove-light"));
+    let remove_row = group_box();
+    remove_row.append(&wide(&remove));
+    let detail = rows_box();
+    detail.append(&tabs_wrap);
+    detail.append(&stack);
+    detail.append(&remove_row);
+    detail.set_visible(false);
+    let open = Rc::new(Cell::new(false));
+    let idx = fold_register(&detail, &arrow, &open);
+    {
+        let open = open.clone();
+        arrow.connect_clicked(move |_| fold_set(idx, !open.get()));
+    }
+    {
+        let open = open.clone();
+        let click = gtk::GestureClick::new();
+        click.connect_released(move |_, _, _, _| fold_set(idx, !open.get()));
+        t.add_controller(click);
+    }
+    let root = rows_box();
+    root.add_css_class("mondrian-fold");
+    root.append(&head);
+    root.append(&detail);
+    root.set_visible(false);
+    LightFold {
+        root,
+        hint,
+        tabs,
+        switches,
+        seen: Cell::new(0),
+    }
 }
 
 /// Einheitlicher Regler: runde Leiste wie bei der Deckkraft der Farbe, daneben ein Feld, in
@@ -580,7 +697,7 @@ fn slider_row_unit(label: &str, scale: &gtk::Scale, unit: &str) -> gtk::Box {
     spin.set_width_chars(4);
     spin.set_numeric(true);
     spin.set_valign(gtk::Align::Center);
-    spin.set_tooltip_text(Some(tr("Wert eintippen")));
+    spin.set_tooltip_text(Some(tr("Type a Value")));
     let line = hbox(6);
     line.append(scale);
     line.append(&spin);
@@ -624,10 +741,10 @@ fn fx_fold(
     let detail = group_box();
     let choice = gtk::DropDown::from_strings(choices);
     if !choices.is_empty() {
-        detail.append(&prow(tr("Art"), &choice));
+        detail.append(&prow(tr("Type"), &choice));
     }
     let scale = new_slider(0.0, 100.0);
-    scale.set_tooltip_text(Some(tr("Stärke")));
+    scale.set_tooltip_text(Some(tr("Strength")));
     if let Some(l) = strength {
         detail.append(&slider_row(l, &scale));
     }
@@ -638,7 +755,8 @@ fn fx_fold(
     let remove = gtk::Button::with_label(remove_label);
     remove.add_css_class("mondrian-layer-delete");
     remove.set_action_name(Some(remove_action));
-    detail.append(&wide(&remove));
+    let remove_row = wide(&remove);
+    detail.append(&remove_row);
     detail.set_visible(false);
     let open = Rc::new(Cell::new(false));
     let idx = fold_register(&detail, &arrow, &open);
@@ -663,6 +781,8 @@ fn fx_fold(
         choice,
         strength: scale,
         strength2: scale2,
+        detail,
+        remove_row,
     }
 }
 
@@ -680,7 +800,7 @@ fn fold_head(
     arrow.add_css_class("flat");
     arrow.add_css_class("circular");
     arrow.set_valign(gtk::Align::Center);
-    arrow.set_tooltip_text(Some(tr("Auf- oder zuklappen")));
+    arrow.set_tooltip_text(Some(tr("Expand or Collapse")));
     let head = hbox(6);
     head.add_css_class("mondrian-fold-head");
     head.append(title);
@@ -836,11 +956,47 @@ fn draw_pattern_preview(
                 row_ += 1;
             }
         }
-        _ => {
+        GradShape::Stripes => {
             let mut x = 0.0;
             while x < w {
                 cr.rectangle(x, 0.0, k * 0.5, h);
                 x += k;
+            }
+        }
+        // übrige Muster: Kachel so groß, dass das Motiv erkennbar ist (große Motive wie
+        // Leopard etwa einmal, kleine wie Gitter mehrfach)
+        other => {
+            let base = other.pattern_tile(1.0).map(|t| t.w.max(t.h)).unwrap_or(1.0);
+            let f = (0.35 + (base - 1.0) * 0.12).clamp(0.35, 0.95);
+            if let Some(t) = other.pattern_tile((w.min(h) * f / base).max(0.5)) {
+                cr.set_fill_rule(gtk::cairo::FillRule::EvenOdd);
+                let mut ty = 0.0;
+                while ty < h {
+                    let mut tx = 0.0;
+                    while tx < w {
+                        let _ = cr.save();
+                        cr.rectangle(tx, ty, t.w, t.h);
+                        cr.clip();
+                        for sh in &t.shapes {
+                            for c in &sh.contours {
+                                for (i, p) in c.iter().enumerate() {
+                                    if i == 0 {
+                                        cr.move_to(tx + p.x, ty + p.y);
+                                    } else {
+                                        cr.line_to(tx + p.x, ty + p.y);
+                                    }
+                                }
+                                cr.close_path();
+                            }
+                            let col = if sh.ink { c2 } else { c1 };
+                            cr.set_source_rgba(col.r, col.g, col.b, col.a * sh.alpha);
+                            let _ = cr.fill();
+                        }
+                        let _ = cr.restore();
+                        tx += t.w;
+                    }
+                    ty += t.h;
+                }
             }
         }
     }
@@ -920,8 +1076,8 @@ impl Swatches {
         let title = gtk::Label::builder().label(title).xalign(0.0).build();
         title.add_css_class("heading");
         // Reiter Farbe / Verlauf
-        let solid = gtk::ToggleButton::with_label(tr("Farbe"));
-        let grad_tab = gtk::ToggleButton::with_label(tr("Verlauf"));
+        let solid = gtk::ToggleButton::with_label(tr("Colour"));
+        let grad_tab = gtk::ToggleButton::with_label(tr("Gradient"));
         grad_tab.set_group(Some(&solid));
         solid.set_active(true);
         for b in [&solid, &grad_tab] {
@@ -929,7 +1085,7 @@ impl Swatches {
             b.add_css_class("flat");
             b.add_css_class("mondrian-tab");
         }
-        let pattern_tab = gtk::ToggleButton::with_label(tr("Muster"));
+        let pattern_tab = gtk::ToggleButton::with_label(tr("Pattern"));
         pattern_tab.set_group(Some(&solid));
         pattern_tab.set_hexpand(true);
         pattern_tab.add_css_class("flat");
@@ -948,7 +1104,7 @@ impl Swatches {
         pipette_btn.add_css_class("flat");
         pipette_btn.set_valign(gtk::Align::Center);
         pipette_btn.set_tooltip_text(Some(tr(
-            "Pipette: Farbe aus dem Dokument oder einem Foto aufnehmen (Esc bricht ab)",
+            "Eyedropper: pick a colour from the document or a photo (Esc cancels)",
         )));
         let tabs_line = hbox(4);
         tabs_line.append(&tab_row);
@@ -961,13 +1117,13 @@ impl Swatches {
         bar.set_focusable(true);
         bar.set_cursor_from_name(Some("pointer"));
         bar.set_tooltip_text(Some(tr(
-            "Klick auf die Leiste: Farbstopp hinzufügen · Farbstopp ziehen: verschieben · Entf: entfernen",
+            "Click the bar: add a colour stop · Drag a colour stop: move it · Del: remove it",
         )));
-        let angle = spin(-180.0, 180.0, 1.0, 0, tr("Winkel des Verlaufs in Grad"));
+        let angle = spin(-180.0, 180.0, 1.0, 0, tr("Gradient angle in degrees"));
         angle.set_wrap(true);
         // linear oder kreisförmig
         let lin_btn = gtk::ToggleButton::with_label(tr("Linear"));
-        let rad_btn = gtk::ToggleButton::with_label(tr("Kreisförmig"));
+        let rad_btn = gtk::ToggleButton::with_label(tr("Radial"));
         rad_btn.set_group(Some(&lin_btn));
         lin_btn.set_active(true);
         let shape_row = hbox(0);
@@ -976,15 +1132,23 @@ impl Swatches {
             b.set_hexpand(true);
             shape_row.append(b);
         }
-        let angle_row = row(tr("Winkel (°)"), &angle);
+        let angle_row = row(tr("Angle (°)"), &angle);
         let grad_area = vbox(8);
         grad_area.append(&shape_row);
         grad_area.append(&bar);
         grad_area.append(&angle_row);
         grad_area.set_visible(false);
         // Muster: Vorschaubilder zur Auswahl
-        let pattern_row = hbox(6);
-        pattern_row.set_homogeneous(true);
+        // fünfzehn Muster: höchstens fünf je Reihe, damit die Vorschauen groß genug bleiben
+        let pattern_row = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .homogeneous(true)
+            .min_children_per_line(4)
+            .max_children_per_line(5)
+            .column_spacing(6)
+            .row_spacing(6)
+            .build();
+        pattern_row.add_css_class("mondrian-cards");
         let mut pattern_btns: Vec<(crate::model::GradShape, gtk::ToggleButton)> = Vec::new();
         for shp in crate::model::GradShape::PATTERNS {
             let da = gtk::DrawingArea::new();
@@ -998,7 +1162,7 @@ impl Swatches {
             if let Some((_, f)) = pattern_btns.first() {
                 b.set_group(Some(f));
             }
-            pattern_row.append(&b);
+            pattern_row.insert(&b, -1);
             pattern_btns.push((shp, b));
         }
         // zwei Farben: Klick wählt, welche die Farbwahl ändert
@@ -1011,23 +1175,23 @@ impl Swatches {
             c.set_tooltip_text(Some(tip));
             c
         };
-        let pattern_chips = [mk_chip(tr("Grundfarbe")), mk_chip(tr("Musterfarbe"))];
+        let pattern_chips = [mk_chip(tr("Base colour")), mk_chip(tr("Pattern colour"))];
         let chip_label = gtk::Label::builder()
-            .label(tr("Farben"))
+            .label(tr("Colours"))
             .xalign(0.0)
             .hexpand(true)
             .build();
         chip_row.append(&chip_label);
         chip_row.append(&pattern_chips[0]);
         chip_row.append(&pattern_chips[1]);
-        let (cell_box, pattern_cell) = unit_spin(2.0, 500.0, 1.0, 0, "px", tr("Größe des Musters"));
-        let pattern_angle = spin(-180.0, 180.0, 1.0, 0, tr("Winkel des Musters in Grad"));
+        let (cell_box, pattern_cell) = unit_spin(2.0, 500.0, 1.0, 0, "px", tr("Pattern size"));
+        let pattern_angle = spin(-180.0, 180.0, 1.0, 0, tr("Pattern angle in degrees"));
         pattern_angle.set_wrap(true);
         let pattern_area = vbox(8);
         pattern_area.append(&pattern_row);
         pattern_area.append(&chip_row);
-        pattern_area.append(&row(tr("Größe"), &cell_box));
-        pattern_area.append(&row(tr("Winkel (°)"), &pattern_angle));
+        pattern_area.append(&row(tr("Size"), &cell_box));
+        pattern_area.append(&row(tr("Angle (°)"), &pattern_angle));
         pattern_area.set_visible(false);
         let picker = ColorPicker::new();
         let grid = gtk::Grid::builder()
@@ -1041,12 +1205,12 @@ impl Swatches {
         chip.set_content_height(24);
         chip.set_valign(gtk::Align::Center);
         chip.set_cursor_from_name(Some("pointer"));
-        chip.set_tooltip_text(Some(tr("Farbwahl auf- oder zuklappen")));
+        chip.set_tooltip_text(Some(tr("Expand or collapse the colour picker")));
         let arrow = gtk::Button::from_icon_name("pan-end-symbolic");
         arrow.add_css_class("flat");
         arrow.add_css_class("circular");
         arrow.set_valign(gtk::Align::Center);
-        arrow.set_tooltip_text(Some(tr("Farbwahl auf- oder zuklappen")));
+        arrow.set_tooltip_text(Some(tr("Expand or collapse the colour picker")));
         let hint = gtk::Label::new(None);
         let head = fold_head(&title, &hint, Some(&chip), &arrow);
         // aufgeklappt: Farbwahl (mit Innenabstand), darunter weitere Einstellungen als Zeilen
@@ -1640,7 +1804,7 @@ impl Swatches {
             self.grid.remove(&c);
         }
         let mut cells: Vec<gtk::Widget> = Vec::new();
-        let mut items: Vec<(SwItem, String)> = vec![(SwItem::None, tr("Keine").into())];
+        let mut items: Vec<(SwItem, String)> = vec![(SwItem::None, tr("None").into())];
         items.extend(
             colors
                 .iter()
@@ -1655,11 +1819,11 @@ impl Swatches {
             area.set_content_height(SWATCH);
             area.set_cursor_from_name(Some("pointer"));
             let tip = match &item {
-                SwItem::None => tr("Keine").to_string(),
-                SwItem::Lib(_, Some(_)) if name.is_empty() => tr("Verlauf").to_string(),
+                SwItem::None => tr("None").to_string(),
+                SwItem::Lib(_, Some(_)) if name.is_empty() => tr("Gradient").to_string(),
                 SwItem::Lib(col, None) if name.is_empty() => col.to_hex(),
                 SwItem::Lib(col, _) => format!("{name} · {}", col.to_hex()),
-                SwItem::Custom => tr("Eigene Farbe – „+“ nimmt sie in die Bibliothek auf").to_string(),
+                SwItem::Custom => tr("Custom colour – “+” adds it to the library").to_string(),
             };
             area.set_tooltip_text(Some(&tip));
             {
@@ -1720,7 +1884,7 @@ impl Swatches {
         // „+“: aktuelle Farbe (oder Verlauf) in die Bibliothek aufnehmen
         let add = gtk::Button::from_icon_name("list-add-symbolic");
         add.add_css_class("mondrian-swatch-add");
-        add.set_tooltip_text(Some(tr("Aktuelle Farbe zur Bibliothek hinzufügen")));
+        add.set_tooltip_text(Some(tr("Add the current colour to the library")));
         add.set_size_request(SWATCH, SWATCH);
         add.set_valign(gtk::Align::Center);
         add.set_halign(gtk::Align::Center);
@@ -1730,7 +1894,7 @@ impl Swatches {
                 let Some(sw) = w.upgrade() else { return };
                 let Some(u) = sw.ui.borrow().upgrade() else { return };
                 let Some(c) = sw.current.get() else {
-                    u.toast(tr("Keine Farbe gewählt"));
+                    u.toast(tr("No colour selected"));
                     return;
                 };
                 let g = sw.grad.borrow().clone();
@@ -1770,7 +1934,7 @@ fn lib_paint_dialog(ui: &Rc<Ui>, c: Color, g: Option<Gradient>, editable: bool) 
         .collect();
     let mut names: Vec<String> = own.iter().map(|(_, n)| n.clone()).collect();
     if names.is_empty() {
-        names.push(tr("Meine Bibliothek (neu)").into());
+        names.push(tr("My Library (new)").into());
     }
     let refs: Vec<&str> = names.iter().map(|n| n.as_str()).collect();
     let dd = gtk::DropDown::from_strings(&refs);
@@ -1779,7 +1943,7 @@ fn lib_paint_dialog(ui: &Rc<Ui>, c: Color, g: Option<Gradient>, editable: bool) 
         dd.set_selected(p as u32);
     }
     let entry = gtk::Entry::builder()
-        .placeholder_text(tr("Name (freiwillig)"))
+        .placeholder_text(tr("Name (optional)"))
         .activates_default(true)
         .build();
     let preview = gtk::DrawingArea::new();
@@ -1802,20 +1966,20 @@ fn lib_paint_dialog(ui: &Rc<Ui>, c: Color, g: Option<Gradient>, editable: bool) 
         }
         None => form.append(&preview),
     }
-    form.append(&form_row(tr("Bibliothek"), &dd));
+    form.append(&form_row(tr("Library"), &dd));
     form.append(&entry);
-    let what = if g.is_some() { tr("Verlauf") } else { tr("Farbe") };
+    let what = if g.is_some() { tr("Gradient") } else { tr("Colour") };
     let dlg = adw::AlertDialog::new(
         Some(&if editable {
-            tr("Neue Farbe für die Bibliothek").to_string()
+            tr("New colour for the library").to_string()
         } else {
-            trf("{} zur Bibliothek hinzufügen", &[&(what)])
+            trf("Add {} to the Library", &[&(what)])
         }),
         None,
     );
     dlg.set_extra_child(Some(&form));
-    dlg.add_response("cancel", tr("_Abbrechen"));
-    dlg.add_response("add", tr("_Hinzufügen"));
+    dlg.add_response("cancel", tr("_Cancel"));
+    dlg.add_response("add", tr("_Add"));
     dlg.set_response_appearance("add", adw::ResponseAppearance::Suggested);
     dlg.set_default_response(Some("add"));
     dlg.set_close_response("cancel");
@@ -1979,6 +2143,35 @@ fn not_image(o: &crate::model::Object) -> bool {
     !is_image(o)
 }
 
+/// Einen der vier Effekte unter „Licht & Schatten“ ein- oder ausschalten (eingeschaltete
+/// behalten ihre Einstellungen).
+fn set_light_effect(s: &mut crate::model::Style, i: usize, on: bool) {
+    use crate::model::FX_DEFAULT;
+    match (i, on) {
+        (LIGHT_SHADOW, true) => {
+            if s.shadow.is_none() {
+                s.shadow = Some(crate::model::Shadow::default());
+            }
+        }
+        (LIGHT_SHADOW, false) => {
+            s.shadow = None;
+            s.shadow_gradient = None;
+        }
+        (LIGHT_INNER, true) => {
+            s.fx.inner.get_or_insert(FX_DEFAULT);
+        }
+        (LIGHT_INNER, false) => s.fx.inner = None,
+        (LIGHT_GLOW, true) => {
+            s.fx.glow.get_or_insert(FX_DEFAULT);
+        }
+        (LIGHT_GLOW, false) => s.fx.glow = None,
+        (_, true) => {
+            s.fx.mirror.get_or_insert(FX_DEFAULT);
+        }
+        (_, false) => s.fx.mirror = None,
+    }
+}
+
 /// Effektmenü der Schwebeleiste: wirkt auf alle ausgewählten Objekte.
 fn show_effect_menu(d: &DocTab, rect: gdk::Rectangle) {
     let item = |label: &str, action: &str, target: &str| {
@@ -1992,36 +2185,40 @@ fn show_effect_menu(d: &DocTab, rect: gdk::Rectangle) {
     for b in &Blend::SIMPLE[1..] {
         color.append_item(&item(b.label(), "win.effect-blend", b.css()));
     }
-    menu.append_submenu(Some(tr("Farbüberlagerung")), &color);
-    let tex = gio::Menu::new();
-    for t in crate::model::Texture::ALL {
-        tex.append_item(&item(t.label(), "win.effect-tex", t.name()));
+    menu.append_submenu(Some(tr("Colour overlay")), &color);
+    // Glas: verändert, wie das Darunterliegende erscheint
+    menu.append(Some(tr("Glass")), Some("win.effect-glass"));
+    let mat = gio::Menu::new();
+    for t in crate::model::Material::ALL {
+        mat.append_item(&item(t.label(), "win.effect-mat", t.name()));
     }
-    menu.append_submenu(Some(tr("Textur")), &tex);
+    menu.append_submenu(Some(tr("Material")), &mat);
     let (any_image, any_other) = d.ed.borrow().selection_image_kinds();
     let art = gio::Menu::new();
     for a in crate::model::Art::ALL {
         art.append_item(&item(a.label(), "win.effect-art", a.name()));
     }
-    menu.append_submenu(Some(tr("Kunsteffekte")), &art);
+    menu.append_submenu(Some(tr("Artistic effects")), &art);
     let lens = gio::Menu::new();
     for l in crate::model::Lens::ALL {
         lens.append_item(&item(l.label(), "win.effect-lens", l.name()));
     }
     if any_other {
-        menu.append_submenu(Some(tr("3D-Effekte")), &lens);
+        menu.append_submenu(Some(tr("3D effects")), &lens);
     }
     if any_image {
         let tint = gio::Menu::new();
         for f in crate::model::ImgFilter::ALL {
             tint.append_item(&item(f.label(), "win.effect-tint", f.name()));
         }
-        menu.append_submenu(Some(tr("Bildfilter")), &tint);
+        menu.append_submenu(Some(tr("Image filters")), &tint);
     }
-    let extras = gio::Menu::new();
-    extras.append(Some(tr("Schatten")), Some("win.effect-shadow"));
-    extras.append(Some(tr("Spiegelung")), Some("win.effect-mirror"));
-    menu.append_submenu(Some(tr("Extras")), &extras);
+    let light = gio::Menu::new();
+    light.append(Some(tr("Shadow")), Some("win.effect-shadow"));
+    light.append(Some(tr("Inner shadow")), Some("win.effect-inner"));
+    light.append(Some(tr("Glow")), Some("win.effect-glow"));
+    light.append(Some(tr("Reflection")), Some("win.effect-mirror"));
+    menu.append_submenu(Some(tr("Light & Shadow")), &light);
     popup_menu(d, &menu, rect, Some("mondrian-fxmenu"));
 }
 
@@ -2082,26 +2279,26 @@ fn build_float_bar() -> FloatBar {
     bar.set_visible(false);
     let group = float_label_button(
         "mondrian-group-symbolic",
-        tr("Gruppieren"),
-        &key_tip(tr("Gruppieren"), "group"),
+        tr("Group"),
+        &key_tip(tr("Group"), "group"),
         "win.group",
     );
     let ungroup = float_label_button(
         "mondrian-ungroup-symbolic",
-        tr("Gruppierung auflösen"),
-        &key_tip(tr("Gruppierung auflösen"), "ungroup"),
+        tr("Ungroup"),
+        &key_tip(tr("Ungroup"), "ungroup"),
         "win.ungroup",
     );
     let sep = gtk::Separator::new(gtk::Orientation::Vertical);
     sep.set_margin_top(6);
     sep.set_margin_bottom(6);
-    let lock = float_button("changes-allow-symbolic", tr("Sperren"), "win.lock-toggle");
+    let lock = float_button("changes-allow-symbolic", tr("Lock"), "win.lock-toggle");
     // „fx“ als Schrift (wie in vielen Grafikprogrammen) statt eines Symbols
     let effects = gtk::Button::with_label("fx");
-    effects.set_tooltip_text(Some(tr("Effekte – für alle ausgewählten Objekte")));
+    effects.set_tooltip_text(Some(tr("Effects – for all selected objects")));
     effects.add_css_class("flat");
     effects.add_css_class("mondrian-fx");
-    effects.update_property(&[gtk::accessible::Property::Label(tr("Effekte"))]);
+    effects.update_property(&[gtk::accessible::Property::Label(tr("Effects"))]);
     effects.set_focusable(false);
     // Knopf mit Symbol und Text, der ein Fenster öffnet
     let label_menu_button = |icon: &str, label: &str, tip: &str| {
@@ -2118,19 +2315,19 @@ fn build_float_bar() -> FloatBar {
     };
     let trace = label_menu_button(
         "insert-image-symbolic",
-        tr("Nachzeichnen"),
-        tr("Bild in bearbeitbare Vektorflächen umwandeln"),
+        tr("Trace"),
+        tr("Convert the image into editable vector areas"),
     );
-    let trace_colors = spin(2.0, 24.0, 1.0, 0, tr("Anzahl der Farben im Bild"));
+    let trace_colors = spin(2.0, 24.0, 1.0, 0, tr("Number of colours in the image"));
     trace_colors.set_value(8.0);
-    let trace_make = gtk::Button::with_label(tr("Nachzeichnen"));
+    let trace_make = gtk::Button::with_label(tr("Trace"));
     trace_make.add_css_class("suggested-action");
     let trace_box = vbox(10);
     trace_box.set_margin_top(10);
     trace_box.set_margin_bottom(10);
     trace_box.set_margin_start(10);
     trace_box.set_margin_end(10);
-    trace_box.append(&row(tr("Farben"), &trace_colors));
+    trace_box.append(&row(tr("Colours"), &trace_colors));
     trace_box.append(&trace_make);
     let trace_pop = gtk::Popover::new();
     trace_pop.set_child(Some(&trace_box));
@@ -2138,8 +2335,8 @@ fn build_float_bar() -> FloatBar {
     // Ausrichten aneinander (ab zwei Objekten), Verteilen (ab drei)
     let arrange = label_menu_button(
         "mondrian-page-hcenter-symbolic",
-        tr("Ausrichten"),
-        tr("Objekte aneinander ausrichten"),
+        tr("Align"),
+        tr("Align objects to each other"),
     );
     let align_section = |items: [(&str, &str); 3]| {
         let m = gio::Menu::new();
@@ -2153,23 +2350,23 @@ fn build_float_bar() -> FloatBar {
         m.append_section(
             None,
             &align_section([
-                (tr("Links ausrichten"), "win.sel-align-left"),
-                (tr("Waagerecht mittig ausrichten"), "win.sel-align-hcenter"),
-                (tr("Rechts ausrichten"), "win.sel-align-right"),
+                (tr("Align left"), "win.sel-align-left"),
+                (tr("Centre horizontally"), "win.sel-align-hcenter"),
+                (tr("Align right"), "win.sel-align-right"),
             ]),
         );
         m.append_section(
             None,
             &align_section([
-                (tr("Oben ausrichten"), "win.sel-align-top"),
-                (tr("Senkrecht mittig ausrichten"), "win.sel-align-vcenter"),
-                (tr("Unten ausrichten"), "win.sel-align-bottom"),
+                (tr("Align top"), "win.sel-align-top"),
+                (tr("Centre vertically"), "win.sel-align-vcenter"),
+                (tr("Align bottom"), "win.sel-align-bottom"),
             ]),
         );
         if dist {
             let d = gio::Menu::new();
-            d.append(Some(tr("Horizontal verteilen")), Some("win.distribute-h"));
-            d.append(Some(tr("Vertikal verteilen")), Some("win.distribute-v"));
+            d.append(Some(tr("Distribute Horizontally")), Some("win.distribute-h"));
+            d.append(Some(tr("Distribute Vertically")), Some("win.distribute-v"));
             m.append_section(None, &d);
         }
         m
@@ -2179,20 +2376,20 @@ fn build_float_bar() -> FloatBar {
     // Pfadoperationen direkt als Symbole
     let bools = hbox(0);
     for (icon, tip, action) in [
-        ("mondrian-union-symbolic", tr("Vereinigen"), "win.bool-union"),
+        ("mondrian-union-symbolic", tr("Unite"), "win.bool-union"),
         (
             "mondrian-subtract-symbolic",
-            tr("Vorderes abziehen"),
+            tr("Subtract Front"),
             "win.bool-subtract",
         ),
         (
             "mondrian-intersect-symbolic",
-            tr("Schnittmenge"),
+            tr("Intersect"),
             "win.bool-intersect",
         ),
         (
             "mondrian-exclude-symbolic",
-            tr("Überlappung entfernen"),
+            tr("Exclude Overlap"),
             "win.bool-exclude",
         ),
     ] {
@@ -2209,7 +2406,7 @@ fn build_float_bar() -> FloatBar {
     bar.append(&effects);
     let more = gtk::Button::from_icon_name("view-more-symbolic");
     more.add_css_class("flat");
-    more.set_tooltip_text(Some(tr("Weitere Möglichkeiten")));
+    more.set_tooltip_text(Some(tr("More Options")));
     more.set_focusable(false);
     bar.append(&more);
     FloatBar {
@@ -2243,22 +2440,22 @@ fn blend_dialog(ui: &Rc<Ui>) {
         return;
     }
     let dlg = adw::AlertDialog::new(
-        Some(tr("Übergang")),
-        Some(tr("Übergang zwischen den beiden Formen erzeugen")),
+        Some(tr("Blend")),
+        Some(tr("Create a blend between the two shapes")),
     );
-    let steps = spin(1.0, 100.0, 1.0, 0, tr("Anzahl der Zwischenschritte"));
+    let steps = spin(1.0, 100.0, 1.0, 0, tr("Number of intermediate steps"));
     steps.set_value(BLEND_STEPS.with(|c| c.get()));
     let r = hbox(12);
     let l = gtk::Label::builder()
-        .label(tr("Schritte"))
+        .label(tr("Steps"))
         .xalign(0.0)
         .hexpand(true)
         .build();
     r.append(&l);
     r.append(&steps);
     dlg.set_extra_child(Some(&r));
-    dlg.add_response("cancel", tr("_Abbrechen"));
-    dlg.add_response("create", tr("_Erstellen"));
+    dlg.add_response("cancel", tr("_Cancel"));
+    dlg.add_response("create", tr("_Create"));
     dlg.set_response_appearance("create", adw::ResponseAppearance::Suggested);
     dlg.set_default_response(Some("create"));
     dlg.set_close_response("cancel");
@@ -2291,22 +2488,20 @@ fn lib_add_dialog(ui: &Rc<Ui>) {
         )
     };
     let dlg = adw::AlertDialog::new(
-        Some(tr("Zur Bibliothek hinzufügen")),
-        Some(tr(
-            "Was soll aus der Auswahl in die Bibliothek übernommen werden?",
-        )),
+        Some(tr("Add to Library")),
+        Some(tr("What should be taken from the selection into the library?")),
     );
-    dlg.add_response("cancel", tr("_Abbrechen"));
-    dlg.add_response("color", tr("_Farbe hinzufügen"));
+    dlg.add_response("cancel", tr("_Cancel"));
+    dlg.add_response("color", tr("Add _Colour"));
     dlg.add_response(
         "style",
         if text && !style {
-            tr("_Textstil hinzufügen")
+            tr("Add _Text Style")
         } else {
-            tr("_Stil hinzufügen")
+            tr("Add _Style")
         },
     );
-    dlg.add_response("graphic", tr("Als _Grafik"));
+    dlg.add_response("graphic", tr("As _Graphic"));
     dlg.set_response_enabled("color", fill || stroke);
     dlg.set_response_enabled("style", style || text);
     dlg.set_response_appearance("style", adw::ResponseAppearance::Suggested);
@@ -2409,7 +2604,7 @@ fn update_float(ui: &Ui, d: &DocTab) {
             "changes-allow-symbolic"
         });
         fb.lock
-            .set_tooltip_text(Some(if locked { tr("Entsperren") } else { tr("Sperren") }));
+            .set_tooltip_text(Some(if locked { tr("Unlock") } else { tr("Lock") }));
         fb.group.set_sensitive(!locked);
     }
     fb.bar.set_visible(true);
@@ -2451,7 +2646,7 @@ impl DocTab {
             .as_ref()
             .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_string()))
             .or_else(|| self.title.borrow().clone())
-            .unwrap_or_else(|| tr("Unbenannt").into())
+            .unwrap_or_else(|| tr("Untitled").into())
     }
 
     /// Leeres, unverändertes Dokument ohne Datei (kann beim Öffnen ersetzt werden).
@@ -2539,37 +2734,37 @@ fn build_tool_opts() -> ToolOpts {
     bar.set_halign(gtk::Align::Start);
     bar.set_spacing(12);
     let (corners_box, corners) = opt_spin(
-        tr("Ecken"),
+        tr("Corners"),
         3.0,
         64.0,
         1.0,
         "",
-        tr("Anzahl der Ecken neuer Vielecke und Sterne (und der ausgewählten)"),
+        tr("Number of corners for new polygons and stars (and the selected ones)"),
     );
     let (eraser_box, eraser) = opt_spin(
-        tr("Größe"),
+        tr("Size"),
         1.0,
         2000.0,
         1.0,
         "px",
-        tr("Durchmesser des Radierers ( [ und ] ändern ihn )"),
+        tr("Eraser diameter ( [ and ] change it )"),
     );
     let pencil_box = hbox(12);
     let (sb, smooth) = opt_spin(
-        tr("Glättung"),
+        tr("Smoothing"),
         0.0,
         100.0,
         5.0,
         "%",
-        tr("Wie stark zittrige Striche geglättet werden"),
+        tr("How much shaky strokes are smoothed"),
     );
     let (cb, close) = opt_spin(
-        tr("Schließen bis"),
+        tr("Close within"),
         0.0,
         200.0,
         1.0,
         "px",
-        tr("Liegen Anfang und Ende näher beieinander, wird die Form geschlossen (0 = nie)"),
+        tr("If start and end are closer than this, the shape is closed (0 = never)"),
     );
     pencil_box.append(&sb);
     pencil_box.append(&cb);
@@ -2598,19 +2793,19 @@ fn slot_definitions() -> Vec<Vec<Variant>> {
         label,
     };
     vec![
-        vec![v(Tool::Select, None, "mondrian-select-symbolic", tr("Auswahl (V)"))],
+        vec![v(Tool::Select, None, "mondrian-select-symbolic", tr("Select (V)"))],
         vec![v(
             Tool::Node,
             None,
             "mondrian-node-symbolic",
-            tr("Knoten bearbeiten (A)"),
+            tr("Edit Nodes (A)"),
         )],
         vec![
             v(
                 Tool::Shape,
                 Some(ShapeKind::Rect),
                 "mondrian-rect-symbolic",
-                tr("Rechteck (R)"),
+                tr("Rectangle (R)"),
             ),
             v(
                 Tool::Shape,
@@ -2622,43 +2817,43 @@ fn slot_definitions() -> Vec<Vec<Variant>> {
                 Tool::Shape,
                 Some(ShapeKind::Polygon),
                 "mondrian-polygon-symbolic",
-                tr("Vieleck"),
+                tr("Polygon"),
             ),
             v(
                 Tool::Shape,
                 Some(ShapeKind::Star),
                 "mondrian-star-symbolic",
-                tr("Stern"),
+                tr("Star"),
             ),
         ],
         vec![v(
             Tool::Builder,
             None,
             "mondrian-builder-symbolic",
-            tr("Formerstellung (Umschalt M oder K) – Klick in eine Fläche macht sie zur Form, Ziehen über Flächen vereinigt sie, mit Alt löschen"),
+            tr("Shape Builder (Shift M or K) – click an area to make it a shape, drag across areas to merge them, hold Alt to delete"),
         )],
         vec![
-            v(Tool::Pen, None, "mondrian-pen-symbolic", tr("Zeichenstift (P)")),
+            v(Tool::Pen, None, "mondrian-pen-symbolic", tr("Pen (P)")),
             v(
                 Tool::Curvature,
                 None,
                 "mondrian-curvature-symbolic",
-                tr("Kurvenzeichner (Umschalt P)"),
+                tr("Curvature Pen (Shift P)"),
             ),
         ],
-        vec![v(Tool::Pencil, None, "mondrian-pencil-symbolic", tr("Freihand (N)"))],
+        vec![v(Tool::Pencil, None, "mondrian-pencil-symbolic", tr("Freehand (N)"))],
         vec![
             v(
                 Tool::Eraser,
                 None,
                 "mondrian-eraser-symbolic",
-                tr("Radierer (Umschalt E) – Größe mit [ und ]"),
+                tr("Eraser (Shift E) – size with [ and ]"),
             ),
             v(
                 Tool::Scissors,
                 None,
                 "edit-cut-symbolic",
-                tr("Schere (C) – eine Linie ziehen zerschneidet Formen und Pfade"),
+                tr("Scissors (C) – draw a line to cut shapes and paths"),
             ),
         ],
         vec![
@@ -2667,15 +2862,15 @@ fn slot_definitions() -> Vec<Vec<Variant>> {
                 Tool::TextPath,
                 None,
                 "mondrian-textpath-symbolic",
-                tr("Text auf Pfad (Umschalt T)"),
+                tr("Text on Path (Shift T)"),
             ),
-            v(Tool::TextArea, None, "mondrian-textarea-symbolic", tr("Textfeld")),
+            v(Tool::TextArea, None, "mondrian-textarea-symbolic", tr("Text Box")),
         ],
         vec![v(
             Tool::Guide,
             None,
             "mondrian-guide-symbolic",
-            tr("Hilfslinien (G) – klicken und ziehen, Umschalt rastet den Winkel ein"),
+            tr("Guides (G) – click and drag, Shift snaps the angle"),
         )],
     ]
 }
@@ -2745,11 +2940,31 @@ struct Panel {
     shadow_section: gtk::Box,
     /// je Effektkategorie ein Ausklappbereich
     blend_fold: FxFold,
-    tex_fold: FxFold,
+    glass_fold: FxFold,
+    glass_grain: gtk::Scale,
+    mat_fold: FxFold,
+    mat_angle: gtk::SpinButton,
+    mat_angle_row: gtk::Box,
     art_fold: FxFold,
     lens_fold: FxFold,
     tint_fold: FxFold,
-    mirror_fold: FxFold,
+    /// Licht & Schatten: Schatten, Innenschatten, Leuchten, Spiegelung
+    light_fold: LightFold,
+    /// Einstellungen der vier (nur sichtbar, solange eingeschaltet)
+    light_boxes: [gtk::Box; 4],
+    mirror_strength: gtk::Scale,
+    glow_strength: gtk::Scale,
+    inner_strength: gtk::Scale,
+    inner_angle: gtk::SpinButton,
+    inner_dist: gtk::SpinButton,
+    inner_blur: gtk::SpinButton,
+    mirror_len: gtk::SpinButton,
+    mirror_gap: gtk::SpinButton,
+    /// Rasterpunkte: Abstand und Winkel
+    art_size: gtk::SpinButton,
+    art_size_row: gtk::Box,
+    art_angle: gtk::SpinButton,
+    art_angle_row: gtk::Box,
     image_sw: Rc<Swatches>,
     temp: gtk::Scale,
     stroke_align: [gtk::ToggleButton; 3],
@@ -2877,6 +3092,8 @@ pub struct Ui {
     /// Bibliotheken (Farben, Stile) und die gerade gewählte
     libraries: RefCell<Vec<Library>>,
     lib_current: Cell<usize>,
+    /// zuletzt gewählter Drucker und seine Einstellungen (für die Sitzung)
+    print_settings: RefCell<Option<gtk::PrintSettings>>,
     lib: LibWidgets,
     /// Breite der Eigenschaften
     props_width: Cell<i32>,
@@ -3030,7 +3247,7 @@ fn font_dropdown() -> gtk::DropDown {
     let dd = gtk::DropDown::new(Some(list), Some(expr));
     dd.set_enable_search(true);
     dd.set_search_match_mode(gtk::StringFilterMatchMode::Substring);
-    dd.set_tooltip_text(Some(tr("Schriftart")));
+    dd.set_tooltip_text(Some(tr("Font")));
     dd.set_valign(gtk::Align::Center);
     let factory = gtk::SignalListItemFactory::new();
     factory.connect_setup(|_, item| {
@@ -3414,8 +3631,8 @@ impl Scheme {
     fn label(self) -> &'static str {
         match self {
             Scheme::System => tr("System"),
-            Scheme::Light => tr("Hell"),
-            Scheme::Dark => tr("Dunkel"),
+            Scheme::Light => tr("Light"),
+            Scheme::Dark => tr("Dark"),
         }
     }
     fn from_name(s: &str) -> Scheme {
@@ -3441,7 +3658,7 @@ struct Settings {
     rulers: bool,
     /// Ansicht: Notizheft statt Zeichenfläche
     notebook: bool,
-    /// Sprache: system, de oder en_GB (wirkt nach einem Neustart)
+    /// Sprache: system, en, de, es oder fr (wirkt nach einem Neustart)
     language: String,
     guides: bool,
     snap: bool,
@@ -3632,50 +3849,53 @@ fn menu_item(label: &str, action: &str, accel: Option<&str>) -> gio::MenuItem {
 fn edit_menu() -> gio::Menu {
     let menu = gio::Menu::new();
     let s1 = gio::Menu::new();
-    s1.append_item(&menu_item(tr("Ausschneiden"), "win.cut", Some("<Control>x")));
-    s1.append_item(&menu_item(tr("Kopieren"), "win.copy", Some("<Control>c")));
-    s1.append_item(&menu_item(tr("Als Bild kopieren"), "win.copy-image", None));
-    s1.append_item(&menu_item(tr("Einfügen"), "win.paste", Some("<Control>v")));
-    s1.append_item(&menu_item(tr("Duplizieren"), "win.duplicate", Some("<Control>d")));
+    s1.append_item(&menu_item(tr("Cut"), "win.cut", Some("<Control>x")));
+    s1.append_item(&menu_item(tr("Copy"), "win.copy", Some("<Control>c")));
+    s1.append_item(&menu_item(tr("Copy as Image"), "win.copy-image", None));
+    s1.append_item(&menu_item(tr("Paste"), "win.paste", Some("<Control>v")));
+    s1.append_item(&menu_item(tr("Duplicate"), "win.duplicate", Some("<Control>d")));
     menu.append_section(None, &s1);
     let s2 = gio::Menu::new();
-    s2.append_item(&menu_item(tr("Skalieren …"), "win.scale-dialog", None));
+    s2.append_item(&menu_item(tr("Scale …"), "win.scale-dialog", None));
+    s2.append_item(&menu_item(tr("Repeat …"), "win.repeat", None));
     menu.append_section(None, &s2);
     let s3 = gio::Menu::new();
     let order = gio::Menu::new();
     order.append_item(&menu_item(
-        tr("In den Vordergrund"),
+        tr("Bring to Front"),
         "win.raise-top",
         Some("<Control><Shift>bracketright"),
     ));
     order.append_item(&menu_item(
-        tr("Schritt nach vorne"),
+        tr("Bring Forward"),
         "win.raise",
         Some("<Control>bracketright"),
     ));
     order.append_item(&menu_item(
-        tr("Schritt nach hinten"),
+        tr("Send Backward"),
         "win.lower",
         Some("<Control>bracketleft"),
     ));
     order.append_item(&menu_item(
-        tr("In den Hintergrund"),
+        tr("Send to Back"),
         "win.lower-bottom",
         Some("<Control><Shift>bracketleft"),
     ));
-    s3.append_submenu(Some(tr("Anordnen")), &order);
+    s3.append_submenu(Some(tr("Arrange")), &order);
     menu.append_section(None, &s3);
     let s4 = gio::Menu::new();
     let bools = gio::Menu::new();
-    bools.append(Some(tr("Vereinigen")), Some("win.bool-union"));
-    bools.append(Some(tr("Vorderes abziehen")), Some("win.bool-subtract"));
-    bools.append(Some(tr("Schnittmenge")), Some("win.bool-intersect"));
-    bools.append(Some(tr("Überlappung entfernen")), Some("win.bool-exclude"));
-    s4.append_submenu(Some(tr("Pfadoperationen")), &bools);
+    bools.append(Some(tr("Unite")), Some("win.bool-union"));
+    bools.append(Some(tr("Subtract Front")), Some("win.bool-subtract"));
+    bools.append(Some(tr("Intersect")), Some("win.bool-intersect"));
+    bools.append(Some(tr("Exclude Overlap")), Some("win.bool-exclude"));
+    s4.append_submenu(Some(tr("Path Operations")), &bools);
+    s4.append_item(&menu_item(tr("Join Paths"), "win.join-paths", Some("<Control>j")));
+    s4.append_item(&menu_item(tr("Offset Path …"), "win.offset-path", None));
     s4.append_item(&menu_item(
-        tr("Pfade verbinden"),
-        "win.join-paths",
-        Some("<Control>j"),
+        tr("Simplify Path"),
+        "win.simplify",
+        Some("<Control>l"),
     ));
     menu.append_section(None, &s4);
     menu
@@ -3684,14 +3904,10 @@ fn edit_menu() -> gio::Menu {
 /// Letzte Abschnitte des Kontextmenüs: Bibliothek, Löschen.
 fn context_menu_end(menu: &gio::Menu) {
     let lib = gio::Menu::new();
-    lib.append_item(&menu_item(
-        tr("Zur Bibliothek hinzufügen …"),
-        "win.lib-add-ask",
-        None,
-    ));
+    lib.append_item(&menu_item(tr("Add to Library …"), "win.lib-add-ask", None));
     menu.append_section(None, &lib);
     let del = gio::Menu::new();
-    del.append_item(&menu_item(tr("Löschen"), "win.delete", Some("Delete")));
+    del.append_item(&menu_item(tr("Delete"), "win.delete", Some("Delete")));
     menu.append_section(None, &del);
 }
 
@@ -3702,10 +3918,28 @@ fn context_menu(d: &DocTab) -> gio::Menu {
     if ed.selection.is_empty() {
         return menu;
     }
+    // Schnittmaske: erstellen ab zwei Objekten, lösen, wenn eine dabei ist
+    let clip = gio::Menu::new();
+    if ed.selection_has_mask() {
+        clip.append_item(&menu_item(
+            tr("Release Clipping Mask"),
+            "win.clip-release",
+            Some("<Control><Alt>7"),
+        ));
+    } else if ed.selected_objects().len() >= 2 {
+        clip.append_item(&menu_item(
+            tr("Make Clipping Mask"),
+            "win.clip-make",
+            Some("<Control>7"),
+        ));
+    }
+    if clip.n_items() > 0 {
+        menu.append_section(None, &clip);
+    }
     // Übergang nur bei genau zwei Formen
     if ed.can_blend() && !ed.selected_objects().iter().any(|o| o.locked) {
         let sec = gio::Menu::new();
-        sec.append_item(&menu_item(tr("Übergang …"), "win.blend-dialog", None));
+        sec.append_item(&menu_item(tr("Blend…"), "win.blend-dialog", None));
         menu.append_section(None, &sec);
     }
     if ed.doc.layers.len() < 2 {
@@ -3723,7 +3957,7 @@ fn context_menu(d: &DocTab) -> gio::Menu {
         layers.append_item(&item);
     }
     let sec = gio::Menu::new();
-    sec.append_submenu(Some(tr("Auf Ebene verschieben")), &layers);
+    sec.append_submenu(Some(tr("Move to Layer")), &layers);
     menu.append_section(None, &sec);
     context_menu_end(&menu);
     menu
@@ -3733,18 +3967,19 @@ fn main_menu() -> gio::Menu {
     // Unterstrich: Zugriffstaste (in jeder Sprache eigene, innerhalb des Menüs eindeutig)
     let menu = gio::Menu::new();
     let s1 = gio::Menu::new();
-    s1.append(Some(tr("_Neu")), Some("win.new"));
-    s1.append(Some(tr("_Öffnen…")), Some("win.open"));
+    s1.append(Some(tr("_New")), Some("win.new"));
+    s1.append(Some(tr("_Open…")), Some("win.open"));
     menu.append_section(None, &s1);
     let s2 = gio::Menu::new();
-    s2.append(Some(tr("_Speichern")), Some("win.save"));
-    s2.append(Some(tr("Speichern _unter…")), Some("win.save-as"));
-    s2.append(Some(tr("_Exportieren…")), Some("win.export"));
-    s2.append(Some(tr("_Auswahl exportieren…")), Some("win.export-selection"));
+    s2.append(Some(tr("_Save")), Some("win.save"));
+    s2.append(Some(tr("Save _As…")), Some("win.save-as"));
+    s2.append(Some(tr("_Export…")), Some("win.export"));
+    s2.append(Some(tr("Export Se_lection…")), Some("win.export-selection"));
+    s2.append_item(&menu_item(tr("Prin_t…"), "win.print", Some("<Control>p")));
     menu.append_section(None, &s2);
     let s3 = gio::Menu::new();
     s3.append_item(&menu_item(
-        tr("_Bild einfügen…"),
+        tr("_Insert Image…"),
         "win.insert-image",
         Some("<Control>i"),
     ));
@@ -3752,18 +3987,18 @@ fn main_menu() -> gio::Menu {
     // Standardeinträge am Ende (GNOME): Einstellungen, Tastenkürzel, Hilfe, Info
     let s4 = gio::Menu::new();
     s4.append_item(&menu_item(
-        tr("E_instellungen"),
+        tr("_Preferences"),
         "win.preferences",
         Some("<Control>comma"),
     ));
     s4.append_item(&menu_item(
-        tr("_Tastenkürzel"),
+        tr("_Keyboard Shortcuts"),
         "win.shortcuts",
         Some("<Control>question"),
     ));
-    s4.append(Some(tr("_Hilfe")), Some("win.help"));
-    s4.append(Some(tr("_Fehler melden…")), Some("win.report-bug"));
-    s4.append(Some(tr("_Über Stijl")), Some("win.about"));
+    s4.append(Some(tr("_Help")), Some("win.help"));
+    s4.append(Some(tr("_Report a Problem…")), Some("win.report-bug"));
+    s4.append(Some(tr("A_bout Stijl")), Some("win.about"));
     menu.append_section(None, &s4);
     menu
 }
@@ -3779,15 +4014,15 @@ fn build_panel() -> (gtk::Box, Panel) {
     // Karten und Zeilenlisten, die sich ausblenden, wenn keine ihrer Zeilen sichtbar ist
     let mut cards: Vec<gtk::Box> = Vec::new();
 
-    let heading = gtk::Label::builder().label(tr("Auswahl")).xalign(0.0).build();
+    let heading = gtk::Label::builder().label(tr("Select")).xalign(0.0).build();
     heading.add_css_class("mondrian-panel-title");
     content.append(&heading);
     // nichts ausgewählt: kurzer Hinweis in der Mitte
     let empty_hint = vbox(6);
-    let empty_title = gtk::Label::new(Some(tr("Nichts ausgewählt")));
+    let empty_title = gtk::Label::new(Some(tr("Nothing selected")));
     empty_title.add_css_class("title-4");
     let empty_text = gtk::Label::builder()
-        .label(tr("Klicke ein Objekt an, um es zu bearbeiten"))
+        .label(tr("Click an object to edit it"))
         .wrap(true)
         .justify(gtk::Justification::Center)
         .build();
@@ -3801,16 +4036,16 @@ fn build_panel() -> (gtk::Box, Panel) {
     content.append(&empty_hint);
 
     // Form
-    let (shape_group, shape_card) = section(tr("Form"));
+    let (shape_group, shape_card) = section(tr("Shape"));
     cards.push(shape_card.clone());
     let names: Vec<&str> = SHAPE_KINDS.iter().map(|&(_, n)| tr(n)).collect();
     let shape_kind = gtk::DropDown::from_strings(&names);
-    shape_card.append(&prow(tr("Art"), &shape_kind));
-    let (corners_box, corners) = unit_spin(3.0, 64.0, 1.0, 0, "", tr("Anzahl der Ecken"));
-    let corners_row = prow(tr("Ecken"), &corners_box);
+    shape_card.append(&prow(tr("Type"), &shape_kind));
+    let (corners_box, corners) = unit_spin(3.0, 64.0, 1.0, 0, "", tr("Number of corners"));
+    let corners_row = prow(tr("Corners"), &corners_box);
     shape_card.append(&corners_row);
-    let (radius_box, radius) = unit_spin(0.0, 5000.0, 1.0, 0, "px", tr("Eckenradius in px"));
-    let radius_row = prow(tr("Eckenradius"), &radius_box);
+    let (radius_box, radius) = unit_spin(0.0, 5000.0, 1.0, 0, "px", tr("Corner radius in px"));
+    let radius_row = prow(tr("Corner radius"), &radius_box);
     shape_card.append(&radius_row);
 
     // Text: eigene Karte zum Aufklappen; in der Kopfzeile Schrift und Größe
@@ -3873,14 +4108,14 @@ fn build_panel() -> (gtk::Box, Panel) {
     g_font.append(&wide(&font));
     // Schnitt statt Fett/Kursiv: alle Schnitte der Familie, bei variablen Schriften ein Regler
     let face = gtk::DropDown::from_strings(&[]);
-    face.set_tooltip_text(Some(tr("Schnitt")));
+    face.set_tooltip_text(Some(tr("Font style")));
     g_font.append(&wide(&face));
-    let (size_box, size) = unit_spin(1.0, 2000.0, 1.0, 0, "px", tr("Schriftgröße in px"));
-    g_font.append(&prow(tr("Größe"), &size_box));
+    let (size_box, size) = unit_spin(1.0, 2000.0, 1.0, 0, "px", tr("Font size in px"));
+    g_font.append(&prow(tr("Size"), &size_box));
     let weight = new_slider(100.0, 900.0);
     weight.adjustment().set_step_increment(10.0);
-    weight.set_tooltip_text(Some(tr("Strichstärke (variable Schrift)")));
-    let weight_row = slider_row_unit(tr("Strichstärke"), &weight, "");
+    weight.set_tooltip_text(Some(tr("Weight (variable font)")));
+    let weight_row = slider_row_unit(tr("Weight"), &weight, "");
     weight_row.set_visible(false);
     g_font.append(&weight_row);
 
@@ -3891,29 +4126,22 @@ fn build_panel() -> (gtk::Box, Panel) {
             .tooltip_text(tip)
             .build()
     };
-    let underline = fmt_toggle("format-text-underline-symbolic", tr("Unterstrichen"));
-    let strike = fmt_toggle("format-text-strikethrough-symbolic", tr("Durchgestrichen"));
+    let underline = fmt_toggle("format-text-underline-symbolic", tr("Underline"));
+    let strike = fmt_toggle("format-text-strikethrough-symbolic", tr("Strikethrough"));
     // OpenType-Funktionen der Schrift: Kapitälchen und Ligaturen (fi, fl …, standardmäßig an)
     let small_caps = fmt_toggle(
         "mondrian-smallcaps-symbolic",
-        tr("Kapitälchen: Kleinbuchstaben als kleine Großbuchstaben"),
+        tr("Small caps: lower-case letters as small capitals"),
     );
     let ligatures = fmt_toggle(
         "mondrian-ligature-symbolic",
-        tr("Ligaturen (fi, fl …) verwenden, soweit die Schrift sie hat"),
+        tr("Use ligatures (fi, fl …) where the font has them"),
     );
     ligatures.set_active(true);
     let styles = linked_box(&[&underline, &strike, &small_caps, &ligatures]);
     g_char.append(&wide(&styles));
-    let (tracking_box, tracking) = unit_spin(
-        -300.0,
-        2000.0,
-        10.0,
-        0,
-        "",
-        tr("Zeichenabstand in 1/1000 Geviert"),
-    );
-    g_char.append(&prow(tr("Zeichenabstand"), &tracking_box));
+    let (tracking_box, tracking) = unit_spin(-300.0, 2000.0, 10.0, 0, "", tr("Letter spacing in 1/1000 em"));
+    g_char.append(&prow(tr("Letter spacing"), &tracking_box));
 
     // ── Absatz: Ausrichtung, Aufzählung, Abstände
     let mk_toggle = |icon: &str, tip: &str| {
@@ -3923,10 +4151,10 @@ fn build_panel() -> (gtk::Box, Panel) {
             .build()
     };
     let align = [
-        mk_toggle("format-justify-left-symbolic", tr("Linksbündig")),
-        mk_toggle("format-justify-center-symbolic", tr("Zentriert")),
-        mk_toggle("format-justify-right-symbolic", tr("Rechtsbündig")),
-        mk_toggle("format-justify-fill-symbolic", tr("Blocksatz")),
+        mk_toggle("format-justify-left-symbolic", tr("Left aligned")),
+        mk_toggle("format-justify-center-symbolic", tr("Centred")),
+        mk_toggle("format-justify-right-symbolic", tr("Right aligned")),
+        mk_toggle("format-justify-fill-symbolic", tr("Justify")),
     ];
     for b in &align[1..] {
         b.set_group(Some(&align[0]));
@@ -3935,7 +4163,7 @@ fn build_panel() -> (gtk::Box, Panel) {
     g_para.append(&wide(&align_box));
     // Aufzählung: Knopf schaltet ein/aus, der kleine Pfeil wählt den Stil; davor der Einzug
     let list_style = Rc::new(Cell::new(ListStyle::Dot));
-    let list_on = fmt_toggle("view-list-bullet-symbolic", tr("Aufzählung"));
+    let list_on = fmt_toggle("view-list-bullet-symbolic", tr("List"));
     let list_menu = gio::Menu::new();
     for ls in ListStyle::ALL {
         list_menu.append(
@@ -3945,7 +4173,7 @@ fn build_panel() -> (gtk::Box, Panel) {
     }
     let list_arrow = gtk::MenuButton::builder()
         .icon_name("pan-down-symbolic")
-        .tooltip_text(tr("Aufzählungszeichen wählen"))
+        .tooltip_text(tr("Choose List Style"))
         .menu_model(&list_menu)
         .build();
     list_arrow.add_css_class("mondrian-narrow");
@@ -3956,36 +4184,30 @@ fn build_panel() -> (gtk::Box, Panel) {
     // Einzug verkleinern/vergrößern (Absätze der Markierung bzw. alle)
     let indent_less = gtk::Button::builder()
         .icon_name("format-indent-less-symbolic")
-        .tooltip_text(tr("Einzug verkleinern"))
+        .tooltip_text(tr("Decrease Indent"))
         .build();
     let indent_more = gtk::Button::builder()
         .icon_name("format-indent-more-symbolic")
-        .tooltip_text(tr("Einzug vergrößern"))
+        .tooltip_text(tr("Increase Indent"))
         .build();
     let indent_links = linked_box(&[&indent_less, &indent_more]);
     let list_controls = hbox(6);
     list_controls.append(&indent_links);
     list_controls.append(&list_links);
-    let list_box = prow(tr("Aufzählung"), &list_controls);
+    let list_box = prow(tr("List"), &list_controls);
     g_para.append(&list_box);
-    let (ls_box, line_spacing) = unit_spin(
-        50.0,
-        500.0,
-        5.0,
-        0,
-        "%",
-        tr("Zeilenabstand in % der Schriftgröße"),
-    );
-    g_para.append(&prow(tr("Zeilenabstand"), &ls_box));
+    let (ls_box, line_spacing) =
+        unit_spin(50.0, 500.0, 5.0, 0, "%", tr("Line spacing in % of the font size"));
+    g_para.append(&prow(tr("Line spacing"), &ls_box));
     let (para_box, para_spacing) = unit_spin(
         0.0,
         500.0,
         10.0,
         0,
         "%",
-        tr("Abstand zwischen Absätzen in % der Schriftgröße"),
+        tr("Space between paragraphs in % of the font size"),
     );
-    let para_row = prow(tr("Absatzabstand"), &para_box);
+    let para_row = prow(tr("Paragraph spacing"), &para_box);
     g_para.append(&para_row);
     // Der Text wird direkt im Dokument bearbeitet; das Feld bleibt nur intern bestehen.
     let text = gtk::TextView::new();
@@ -4004,14 +4226,14 @@ fn build_panel() -> (gtk::Box, Panel) {
 
     // ── Textfeld: Lage im Feld, Spalten, Abstand zum Rahmen
     let valign = [
-        mk_toggle("mondrian-valign-top-symbolic", tr("Im Feld oben")),
-        mk_toggle("mondrian-valign-middle-symbolic", tr("Im Feld mittig")),
-        mk_toggle("mondrian-valign-bottom-symbolic", tr("Im Feld unten")),
+        mk_toggle("mondrian-valign-top-symbolic", tr("Top of the box")),
+        mk_toggle("mondrian-valign-middle-symbolic", tr("Middle of the box")),
+        mk_toggle("mondrian-valign-bottom-symbolic", tr("Bottom of the box")),
     ];
     for b in &valign[1..] {
         b.set_group(Some(&valign[0]));
     }
-    let valign_box = prow(tr("Vertikal"), &linked_box(&[&valign[0], &valign[1], &valign[2]]));
+    let valign_box = prow(tr("Vertical"), &linked_box(&[&valign[0], &valign[1], &valign[2]]));
     g_box.append(&valign_box);
     let (columns_box, columns) = unit_spin(
         1.0,
@@ -4019,12 +4241,13 @@ fn build_panel() -> (gtk::Box, Panel) {
         1.0,
         0,
         "",
-        tr("Spaltenzahl – der Text läuft von Spalte zu Spalte"),
+        tr("Number of columns – the text flows from column to column"),
     );
-    let columns_row = prow(tr("Spalten"), &columns_box);
+    let columns_row = prow(tr("Columns"), &columns_box);
     g_box.append(&columns_row);
-    let (inset_box, tframe_inset) = unit_spin(0.0, 1000.0, 1.0, 0, "px", tr("Abstand des Textes zum Rahmen"));
-    let inset_row = prow(tr("Abstand zum Rahmen"), &inset_box);
+    let (inset_box, tframe_inset) =
+        unit_spin(0.0, 1000.0, 1.0, 0, "px", tr("Distance between text and frame"));
+    let inset_row = prow(tr("Padding"), &inset_box);
     g_box.append(&inset_row);
 
     // ── Text auf Pfad: Versatz, unter der Linie und/oder umgekehrte Laufrichtung
@@ -4034,37 +4257,37 @@ fn build_panel() -> (gtk::Box, Panel) {
         1.0,
         0,
         "px",
-        tr("Abstand vom Pfadanfang in px"),
+        tr("Distance from the start of the path in px"),
     );
-    let offset_row = prow(tr("Versatz"), &offset_box);
+    let offset_row = prow(tr("Offset"), &offset_box);
     g_path.append(&offset_row);
     let path_below = gtk::ToggleButton::builder()
         .icon_name("mondrian-path-below-symbolic")
-        .tooltip_text(tr("Text unter dem Pfad statt darüber"))
+        .tooltip_text(tr("Text below the path instead of above"))
         .build();
     let path_reverse = gtk::ToggleButton::builder()
         .icon_name("mondrian-path-reverse-symbolic")
         .tooltip_text(tr(
-            "Laufrichtung umkehren (Text andersherum, z. B. unten am Kreis lesbar)",
+            "Reverse direction (text the other way round, e.g. readable at the bottom of a circle)",
         ))
         .build();
     let path_box = wide(&linked_box(&[&path_below, &path_reverse]));
     g_path.append(&path_box);
     text_group.append(&text_styles_box);
     // gehört zu den Textoptionen, nicht zur Position
-    let convert = gtk::Button::with_label(tr("Text in Pfade umwandeln"));
+    let convert = gtk::Button::with_label(tr("Convert Text to Paths"));
     convert.set_action_name(Some("win.to-path"));
     text_group.append(&wide(&convert));
 
     // Knoten
-    let (node_group, node_card) = section(tr("Knoten"));
+    let (node_group, node_card) = section(tr("Nodes"));
     cards.push(node_card.clone());
-    let node_corner = gtk::Button::with_label(tr("Eckig"));
+    let node_corner = gtk::Button::with_label(tr("Sharp"));
     node_corner.set_action_name(Some("win.node-corner"));
-    let node_smooth = gtk::Button::with_label(tr("Glatt"));
+    let node_smooth = gtk::Button::with_label(tr("Smooth"));
     node_smooth.set_action_name(Some("win.node-smooth"));
     let node_delete = gtk::Button::from_icon_name("user-trash-symbolic");
-    node_delete.set_tooltip_text(Some(tr("Knoten löschen (Entf)")));
+    node_delete.set_tooltip_text(Some(tr("Delete Nodes (Del)")));
     node_delete.set_action_name(Some("win.node-delete"));
     node_card.append(&wide(&linked_box(&[&node_corner, &node_smooth, &node_delete])));
     let node_radius = spin(
@@ -4072,7 +4295,7 @@ fn build_panel() -> (gtk::Box, Panel) {
         5000.0,
         1.0,
         0,
-        tr("Radius für die gewählten Ecken (ohne Auswahl: alle Ecken)"),
+        tr("Radius for the selected corners (without a selection: all corners)"),
     );
     // Eckenradius nur durch Ziehen der runden Punkte an den Ecken
     let _ = &node_radius;
@@ -4081,18 +4304,18 @@ fn build_panel() -> (gtk::Box, Panel) {
     let style_group = vbox(18);
     let appear = card();
     cards.push(appear.clone());
-    let fill_sw = Swatches::new(tr("Füllung"), SwTarget::Paint(PaintTarget::Fill));
+    let fill_sw = Swatches::new(tr("Fill"), SwTarget::Paint(PaintTarget::Fill));
     // Bilder: „Füllung“ ist nur ihre Deckkraft
-    let image_sw = Swatches::new(tr("Füllung"), SwTarget::ImageOpacity);
+    let image_sw = Swatches::new(tr("Fill"), SwTarget::ImageOpacity);
     // Farbtemperatur des Bildes: −100 % kalt, 0 % Original, 100 % warm
     let temp = gtk::Scale::with_range(gtk::Orientation::Horizontal, -100.0, 100.0, 5.0);
-    temp.set_tooltip_text(Some(tr("Temperatur: −100 % kalt, 0 % Original, 100 % warm")));
-    image_sw.extra.append(&slider_row(tr("Temperatur"), &temp));
+    temp.set_tooltip_text(Some(tr("Temperature: −100 % cool, 0 % original, 100 % warm")));
+    image_sw.extra.append(&slider_row(tr("Temperature"), &temp));
     let (fill_cmyk, fill_cmyk_scales) = cmyk_block();
     fill_sw.extra.append(&fill_cmyk);
     // Farbverlauf: kommt über den Reiter „Verlauf“ der Farbwahl; die alten Bedienelemente
     // bleiben nur intern bestehen
-    let grad_add = gtk::Button::with_label(tr("Farbverlauf hinzufügen"));
+    let grad_add = gtk::Button::with_label(tr("Add Gradient"));
     grad_add.set_visible(false);
     let grad_box = vbox(6);
     let grad_bar = gtk::DrawingArea::new();
@@ -4101,24 +4324,24 @@ fn build_panel() -> (gtk::Box, Panel) {
     let grad_color = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::builder().with_alpha(true).build()));
     let grad_remove_stop = gtk::Button::from_icon_name("list-remove-symbolic");
     grad_remove_stop.set_action_name(Some("win.gradient-remove-stop"));
-    let grad_angle = spin(-180.0, 180.0, 1.0, 0, tr("Winkel des Verlaufs in Grad"));
+    let grad_angle = spin(-180.0, 180.0, 1.0, 0, tr("Gradient angle in degrees"));
     grad_angle.set_wrap(true);
     let kind_names: Vec<&str> = GradientKind::ALL.iter().map(|k| k.label()).collect();
     let grad_kind = gtk::DropDown::from_strings(&kind_names);
 
-    let stroke_sw = Swatches::new(tr("Kontur"), SwTarget::Paint(PaintTarget::Stroke));
+    let stroke_sw = Swatches::new(tr("Stroke"), SwTarget::Paint(PaintTarget::Stroke));
     let (stroke_cmyk, stroke_cmyk_scales) = cmyk_block();
     stroke_sw.extra.append(&stroke_cmyk);
     // Stärke, Lage, Linie, Ecken, Enden und Linienenden im aufgeklappten Bereich der Kontur
-    let (width_box, width) = unit_spin(0.0, 500.0, 0.5, 1, "px", tr("Linienstärke in px"));
+    let (width_box, width) = unit_spin(0.0, 500.0, 0.5, 1, "px", tr("Stroke width in px"));
     let g_line = group_box();
     stroke_sw.extra.append(&g_line);
     cards.push(g_line.clone());
-    g_line.append(&prow(tr("Linienstärke"), &width_box));
+    g_line.append(&prow(tr("Stroke width"), &width_box));
     let stroke_align = [
-        (tr("Mitte"), tr("Kontur mittig auf der Linie")),
-        (tr("Innen"), tr("Kontur innen")),
-        (tr("Außen"), tr("Kontur außen")),
+        (tr("Centre"), tr("Stroke centred on the line")),
+        (tr("Inside"), tr("Stroke inside")),
+        (tr("Outside"), tr("Stroke outside")),
     ]
     .map(|(l, tip)| gtk::ToggleButton::builder().label(l).tooltip_text(tip).build());
     for b in &stroke_align[1..] {
@@ -4132,8 +4355,8 @@ fn build_panel() -> (gtk::Box, Panel) {
     // Strichmuster
     let dash_names: Vec<&str> = crate::model::Dash::ALL.iter().map(|d| d.label()).collect();
     let dash = gtk::DropDown::from_strings(&dash_names);
-    dash.set_tooltip_text(Some(tr("Durchgezogen, gestrichelt oder gepunktet")));
-    let dash_row = prow(tr("Linie"), &dash);
+    dash.set_tooltip_text(Some(tr("Solid, Dashed or Dotted")));
+    let dash_row = prow(tr("Line"), &dash);
     g_line.append(&dash_row);
     // Ecken und Enden der Kontur
     let toggles3 = |items: [(&str, &str); 3]| {
@@ -4149,143 +4372,229 @@ fn build_panel() -> (gtk::Box, Panel) {
         bs
     };
     let join = toggles3([
-        ("mondrian-join-miter-symbolic", tr("Spitze Ecken")),
-        ("mondrian-join-round-symbolic", tr("Runde Ecken")),
-        ("mondrian-join-bevel-symbolic", tr("Abgeschrägte Ecken")),
+        ("mondrian-join-miter-symbolic", tr("Mitred corners")),
+        ("mondrian-join-round-symbolic", tr("Round corners")),
+        ("mondrian-join-bevel-symbolic", tr("Bevelled corners")),
     ]);
-    let join_row = prow(tr("Ecken"), &linked_box(&[&join[0], &join[1], &join[2]]));
+    let join_row = prow(tr("Corners"), &linked_box(&[&join[0], &join[1], &join[2]]));
     g_line.append(&join_row);
     let cap = toggles3([
-        ("mondrian-cap-butt-symbolic", tr("Gerade Enden")),
-        ("mondrian-cap-round-symbolic", tr("Runde Enden")),
-        ("mondrian-cap-square-symbolic", tr("Überstehende Enden")),
+        ("mondrian-cap-butt-symbolic", tr("Butt ends")),
+        ("mondrian-cap-round-symbolic", tr("Round ends")),
+        ("mondrian-cap-square-symbolic", tr("Square ends")),
     ]);
-    let cap_row = prow(tr("Enden"), &linked_box(&[&cap[0], &cap[1], &cap[2]]));
+    let cap_row = prow(tr("Ends"), &linked_box(&[&cap[0], &cap[1], &cap[2]]));
     g_line.append(&cap_row);
     // Linienenden (nur offene Linien)
     let marker_row = group_box();
     let marker_names: Vec<&str> = Marker::ALL.iter().map(|m| m.label()).collect();
     let marker = gtk::DropDown::from_strings(&marker_names);
-    marker.set_tooltip_text(Some(tr("Form der Linienenden, z. B. Pfeil")));
-    marker_row.append(&prow(tr("Linienende"), &marker));
+    marker.set_tooltip_text(Some(tr("Shape of the line ends, e.g. arrow")));
+    marker_row.append(&prow(tr("Line end"), &marker));
     let mk_end = |label: &str| gtk::ToggleButton::builder().label(label).build();
-    let marker_ends = [mk_end(tr("Anfang")), mk_end(tr("Ende")), mk_end(tr("Beide"))];
+    let marker_ends = [mk_end(tr("Start")), mk_end(tr("End")), mk_end(tr("Both"))];
     for b in &marker_ends[1..] {
         b.set_group(Some(&marker_ends[0]));
     }
     let marker_ends_box = wide(&linked_box(&[&marker_ends[0], &marker_ends[1], &marker_ends[2]]));
     marker_row.append(&marker_ends_box);
-    let (msize_box, marker_size) = unit_spin(10.0, 1000.0, 10.0, 0, "%", tr("Größe der Linienenden"));
-    let marker_size_row = prow(tr("Größe"), &msize_box);
+    let (msize_box, marker_size) = unit_spin(10.0, 1000.0, 10.0, 0, "%", tr("Size of the line ends"));
+    let marker_size_row = prow(tr("Size"), &msize_box);
     marker_row.append(&marker_size_row);
     stroke_sw.extra.append(&marker_row);
-    let outline_button = gtk::Button::with_label(tr("Kontur in Fläche umwandeln"));
+    let outline_button = gtk::Button::with_label(tr("Convert Stroke to Fill"));
     outline_button.set_action_name(Some("win.outline-stroke"));
     outline_button.set_tooltip_text(Some(tr(
-        "Die Kontur wird ein eigenes Objekt – skalierbar, mit eigener Füllung und Kontur",
+        "The stroke becomes an object of its own – scalable, with its own fill and stroke",
     )));
     stroke_sw.extra.append(&wide(&outline_button));
 
     // Rahmen eines Textfeldes: Füllung und Kontur stehen unter denen des Textes
-    let frame_fill_sw = Swatches::new(tr("Rahmenfüllung"), SwTarget::FrameFill);
-    let frame_stroke_sw = Swatches::new(tr("Rahmenkontur"), SwTarget::FrameStroke);
+    let frame_fill_sw = Swatches::new(tr("Frame Fill"), SwTarget::FrameFill);
+    let frame_stroke_sw = Swatches::new(tr("Frame Stroke"), SwTarget::FrameStroke);
     let (tframe_width_box, tframe_width) =
-        unit_spin(0.0, 500.0, 0.5, 1, "px", tr("Linienstärke des Rahmens in px"));
-    let tframe_width_row = prow(tr("Linienstärke"), &tframe_width_box);
+        unit_spin(0.0, 500.0, 0.5, 1, "px", tr("Stroke width of the frame in px"));
+    let tframe_width_row = prow(tr("Stroke width"), &tframe_width_box);
     frame_stroke_sw.extra.append(&tframe_width_row);
     // (frühere Bedienelemente des Rahmens, nur noch intern)
     let fdlg = gtk::ColorDialog::builder().with_alpha(true).build();
-    let tframe_fill_on = gtk::CheckButton::with_label(tr("Rahmenfüllung"));
+    let tframe_fill_on = gtk::CheckButton::with_label(tr("Frame Fill"));
     let tframe_fill = gtk::ColorDialogButton::new(Some(fdlg.clone()));
-    let tframe_stroke_on = gtk::CheckButton::with_label(tr("Rahmenkontur"));
+    let tframe_stroke_on = gtk::CheckButton::with_label(tr("Frame Stroke"));
     let tframe_stroke = gtk::ColorDialogButton::new(Some(fdlg));
 
     // Effekte: jeder angewendete Effekt ist eine eigene aufklappbare Zeile; sie erscheinen
     // erst, wenn man sie über „Effekt anwenden“ hinzufügt
-    let remove_button = |label: &str, action: &str| {
-        let b = gtk::Button::with_label(label);
-        b.add_css_class("mondrian-layer-delete");
-        b.set_action_name(Some(action));
-        wide(&b)
-    };
-    let shadow_sw = Swatches::new(tr("Schatten"), SwTarget::Paint(PaintTarget::Shadow));
+    // Schatten: Farbe (mit Deckkraft) als Farbwahl, darunter Unschärfe und Versatz
+    let shadow_sw = Swatches::new(tr("Colour"), SwTarget::Paint(PaintTarget::Shadow));
     let shadow_box = group_box();
     // Deckkraft des Schattens = Deckkraftleiste seiner Farbe
-    let (_sop_row, shadow_opacity) = unit_spin(0.0, 100.0, 5.0, 0, "%", tr("Deckkraft des Schattens"));
-    let (sbl_box, shadow_blur) = unit_spin(0.0, 500.0, 1.0, 0, "px", tr("Unschärfe des Schattens"));
-    shadow_box.append(&prow(tr("Unschärfe"), &sbl_box));
-    let (sdx_box, shadow_dx) = unit_spin(-1000.0, 1000.0, 1.0, 0, "px", tr("Versatz nach rechts in px"));
-    shadow_box.append(&prow(tr("Versatz X"), &sdx_box));
-    let (sdy_box, shadow_dy) = unit_spin(-1000.0, 1000.0, 1.0, 0, "px", tr("Versatz nach unten in px"));
-    shadow_box.append(&prow(tr("Versatz Y"), &sdy_box));
-    shadow_sw.extra.append(&shadow_box);
-    shadow_sw.extra.append(&remove_button(
-        tr("Schatten entfernen"),
-        "win.effect-remove-shadow",
-    ));
-    let shadow_section = shadow_sw.root.clone();
+    let (_sop_row, shadow_opacity) = unit_spin(0.0, 100.0, 5.0, 0, "%", tr("Shadow opacity"));
+    let (sbl_box, shadow_blur) = unit_spin(0.0, 500.0, 1.0, 0, "px", tr("Shadow blur"));
+    shadow_box.append(&prow(tr("Blur"), &sbl_box));
+    let (sdx_box, shadow_dx) = unit_spin(-1000.0, 1000.0, 1.0, 0, "px", tr("Offset to the right in px"));
+    shadow_box.append(&prow(tr("Offset X"), &sdx_box));
+    let (sdy_box, shadow_dy) = unit_spin(-1000.0, 1000.0, 1.0, 0, "px", tr("Offset downwards in px"));
+    shadow_box.append(&prow(tr("Offset Y"), &sdy_box));
+    let shadow_section = vbox(0);
+    shadow_section.append(&shadow_sw.root);
+    shadow_section.append(&shadow_box);
 
     // Deckkraft steht an jeder Farbe (Leiste in der Farbwahl); der Wert bleibt intern
-    let (_opacity_row, opacity) = unit_spin(0.0, 100.0, 5.0, 0, "%", tr("Deckkraft in Prozent"));
+    let (_opacity_row, opacity) = unit_spin(0.0, 100.0, 5.0, 0, "%", tr("Opacity in per cent"));
     // Weitere Effekte je Kategorie (nur sichtbar, wenn angewendet)
     let blend_fold = fx_fold(
-        tr("Farbüberlagerung"),
+        tr("Colour overlay"),
         &[Blend::Screen.label(), Blend::Multiply.label()],
         None,
         None,
-        tr("Farbüberlagerung entfernen"),
+        tr("Remove colour overlay"),
         "win.effect-remove-blend",
     );
-    let tex_labels: Vec<&str> = crate::model::Texture::ALL.iter().map(|a| a.label()).collect();
-    let tex_fold = fx_fold(
-        tr("Textur"),
-        &tex_labels,
-        Some(tr("Stärke")),
+    // Glas: wirkt auf das, was unter dem Objekt liegt
+    let glass_fold = fx_fold(
+        tr("Glass"),
+        &[],
+        Some(tr("Blur")),
         None,
-        tr("Textur entfernen"),
-        "win.effect-remove-tex",
+        tr("Remove glass"),
+        "win.effect-remove-glass",
     );
+    glass_fold
+        .strength
+        .set_tooltip_text(Some(tr("How much what lies underneath is blurred")));
+    let glass_grain = new_slider(0.0, 100.0);
+    glass_grain.set_tooltip_text(Some(tr("Fine grain like satin-finished glass")));
+    glass_fold.detail.insert_child_after(
+        &slider_row(tr("Grain"), &glass_grain),
+        glass_fold.remove_row.prev_sibling().as_ref(),
+    );
+    // Material: verändert die Oberfläche und wie sie das Licht eines 3D-Effekts zurückwirft
+    let mat_labels: Vec<&str> = crate::model::Material::ALL.iter().map(|a| a.label()).collect();
+    let mat_fold = fx_fold(
+        tr("Material"),
+        &mat_labels,
+        Some(tr("Strength")),
+        None,
+        tr("Remove material"),
+        "win.effect-remove-mat",
+    );
+    let (mat_angle_box, mat_angle) =
+        unit_spin(-180.0, 180.0, 15.0, 0, "°", tr("Direction of the brush strokes"));
+    mat_angle.set_wrap(true);
+    let mat_angle_row = prow(tr("Direction"), &mat_angle_box);
+    mat_fold
+        .detail
+        .insert_child_after(&mat_angle_row, mat_fold.remove_row.prev_sibling().as_ref());
     let art_labels: Vec<&str> = crate::model::Art::ALL.iter().map(|a| a.label()).collect();
     let art_fold = fx_fold(
-        tr("Kunsteffekt"),
+        tr("Artistic effect"),
         &art_labels,
-        Some(tr("Stärke")),
+        Some(tr("Strength")),
         None,
-        tr("Kunsteffekt entfernen"),
+        tr("Remove artistic effect"),
         "win.effect-remove-art",
     );
     let lens_labels: Vec<&str> = crate::model::Lens::ALL.iter().map(|a| a.label()).collect();
     let lens_fold = fx_fold(
-        tr("3D-Effekt"),
+        tr("3D effect"),
         &lens_labels,
-        Some(tr("Tiefe")),
-        Some(tr("Beleuchtung")),
-        tr("3D-Effekt entfernen"),
+        Some(tr("Depth")),
+        Some(tr("Lighting")),
+        tr("Remove 3D effect"),
         "win.effect-remove-lens",
     );
     // Tiefe: −100 % eingedrückt, 0 % Ausgangszustand, 100 % herausgedrückt
     lens_fold.strength.set_range(-100.0, 100.0);
     lens_fold
         .strength
-        .set_tooltip_text(Some(tr("Tiefe: −100 % eingedrückt, 100 % herausgedrückt")));
+        .set_tooltip_text(Some(tr("Depth: −100 % pressed in, 100 % raised")));
     lens_fold
         .strength2
-        .set_tooltip_text(Some(tr("Stärke von Licht und Schatten")));
-    let mirror_fold = fx_fold(
-        tr("Spiegelung"),
-        &[],
-        Some(tr("Stärke")),
-        None,
-        tr("Spiegelung entfernen"),
-        "win.effect-remove-mirror",
+        .set_tooltip_text(Some(tr("Strength of Light and Shadow")));
+    // Rasterpunkte: Abstand und Winkel wie bei einem Muster
+    let (art_size_box, art_size) = unit_spin(1.0, 500.0, 1.0, 0, "px", tr("Spacing of the halftone dots"));
+    let art_size_row = prow(tr("Distance"), &art_size_box);
+    let (art_angle_box, art_angle) = unit_spin(
+        -180.0,
+        180.0,
+        5.0,
+        0,
+        "°",
+        tr("Angle of the halftone screen in degrees"),
     );
+    art_angle.set_wrap(true);
+    let art_angle_row = prow(tr("Angle"), &art_angle_box);
+    for r in [&art_size_row, &art_angle_row] {
+        art_fold
+            .detail
+            .insert_child_after(r, art_fold.remove_row.prev_sibling().as_ref());
+    }
+    // Licht & Schatten: Innenschatten (Deckkraft, Richtung, Abstand, Unschärfe)
+    let inner_strength = new_slider(0.0, 100.0);
+    let (inner_angle_box, inner_angle) =
+        unit_spin(-180.0, 180.0, 15.0, 0, "°", tr("Direction the shadow falls in"));
+    inner_angle.set_wrap(true);
+    let (inner_dist_box, inner_dist) = unit_spin(0.0, 500.0, 1.0, 0, "px", tr("Offset of the shadow"));
+    let (inner_blur_box, inner_blur) = unit_spin(0.0, 500.0, 1.0, 0, "px", tr("Shadow blur"));
+    let inner_box = group_box();
+    inner_box.append(&slider_row(tr("Opacity"), &inner_strength));
+    inner_box.append(&prow(tr("Direction"), &inner_angle_box));
+    inner_box.append(&prow(tr("Distance"), &inner_dist_box));
+    inner_box.append(&prow(tr("Blur"), &inner_blur_box));
+    // Leuchten
+    let glow_strength = new_slider(0.0, 100.0);
+    glow_strength.set_tooltip_text(Some(tr("How far and how brightly the stroke glows")));
+    let glow_box = group_box();
+    glow_box.append(&slider_row(tr("Strength"), &glow_strength));
+    // Spiegelung: Stärke, Länge und Abstand zur Unterkante
+    let mirror_strength = new_slider(0.0, 100.0);
+    let (mirror_len_box, mirror_len) = unit_spin(
+        5.0,
+        300.0,
+        5.0,
+        0,
+        "%",
+        tr("Length of the reflection in % of the object height"),
+    );
+    let (mirror_gap_box, mirror_gap) = unit_spin(
+        -1000.0,
+        1000.0,
+        1.0,
+        0,
+        "px",
+        tr("Gap between the object and its reflection"),
+    );
+    let mirror_box = group_box();
+    mirror_box.append(&slider_row(tr("Strength"), &mirror_strength));
+    mirror_box.append(&prow(tr("Length"), &mirror_len_box));
+    mirror_box.append(&prow(tr("Distance"), &mirror_gap_box));
+    let light_fold = light_fold(vec![
+        (
+            tr("Shadow"),
+            tr("Shadow"),
+            shadow_section.clone().upcast::<gtk::Widget>(),
+        ),
+        (
+            tr("Inner"),
+            tr("Inner shadow"),
+            inner_box.clone().upcast::<gtk::Widget>(),
+        ),
+        (tr("Glow"), tr("Glow"), glow_box.clone().upcast::<gtk::Widget>()),
+        (
+            tr("Reflection"),
+            tr("Reflection"),
+            mirror_box.clone().upcast::<gtk::Widget>(),
+        ),
+    ]);
+    let light_boxes = [shadow_section.clone(), inner_box, glow_box, mirror_box];
     let tint_labels: Vec<&str> = crate::model::ImgFilter::ALL.iter().map(|a| a.label()).collect();
     let tint_fold = fx_fold(
-        tr("Bildfilter"),
+        tr("Image filters"),
         &tint_labels,
         None,
         None,
-        tr("Bildfilter entfernen"),
+        tr("Remove image filter"),
         "win.effect-remove-tint",
     );
     for r in [
@@ -4294,13 +4603,13 @@ fn build_panel() -> (gtk::Box, Panel) {
         &stroke_sw.root,
         &frame_fill_sw.root,
         &frame_stroke_sw.root,
-        &shadow_section,
         &blend_fold.root,
-        &tex_fold.root,
+        &glass_fold.root,
+        &mat_fold.root,
         &art_fold.root,
         &lens_fold.root,
         &tint_fold.root,
-        &mirror_fold.root,
+        &light_fold.root,
     ] {
         appear.append(r);
     }
@@ -4318,29 +4627,29 @@ fn build_panel() -> (gtk::Box, Panel) {
         1.0,
         1,
         "°",
-        tr("Drehwinkel in Grad (gegen den Uhrzeigersinn) – eintippen oder mit − und + ändern"),
+        tr("Rotation in degrees (anticlockwise) – type a value or change it with − and +"),
     );
     angle.set_wrap(true);
-    arrange_card.append(&prow(tr("Drehung"), &angle_row));
+    arrange_card.append(&prow(tr("Rotation"), &angle_row));
     let arr: Vec<gtk::Button> = [
         (
             "object-rotate-left-symbolic",
-            tr("90° nach links drehen"),
+            tr("Rotate 90° left"),
             "win.rotate-left",
         ),
         (
             "object-rotate-right-symbolic",
-            tr("90° nach rechts drehen"),
+            tr("Rotate 90° right"),
             "win.rotate-right",
         ),
         (
             "object-flip-horizontal-symbolic",
-            tr("Horizontal spiegeln (Umschalt H)"),
+            tr("Flip horizontally (Shift H)"),
             "win.flip-h",
         ),
         (
             "object-flip-vertical-symbolic",
-            tr("Vertikal spiegeln (Umschalt V)"),
+            tr("Flip vertically (Shift V)"),
             "win.flip-v",
         ),
     ]
@@ -4358,36 +4667,28 @@ fn build_panel() -> (gtk::Box, Panel) {
     page_rows.set_homogeneous(true);
     for items in [
         [
-            (
-                "mondrian-page-left-symbolic",
-                tr("Links ausrichten"),
-                "win.page-left",
-            ),
+            ("mondrian-page-left-symbolic", tr("Align left"), "win.page-left"),
             (
                 "mondrian-page-hcenter-symbolic",
-                tr("Waagerecht mittig ausrichten"),
+                tr("Centre horizontally"),
                 "win.page-hcenter",
             ),
             (
                 "mondrian-page-right-symbolic",
-                tr("Rechts ausrichten"),
+                tr("Align right"),
                 "win.page-right",
             ),
         ],
         [
-            (
-                "mondrian-page-top-symbolic",
-                tr("Oben ausrichten"),
-                "win.page-top",
-            ),
+            ("mondrian-page-top-symbolic", tr("Align top"), "win.page-top"),
             (
                 "mondrian-page-vcenter-symbolic",
-                tr("Senkrecht mittig ausrichten"),
+                tr("Centre vertically"),
                 "win.page-vcenter",
             ),
             (
                 "mondrian-page-bottom-symbolic",
-                tr("Unten ausrichten"),
+                tr("Align bottom"),
                 "win.page-bottom",
             ),
         ],
@@ -4406,11 +4707,11 @@ fn build_panel() -> (gtk::Box, Panel) {
     arrange_card.append(&wide(&page_rows));
 
     // Bild: zuschneiden, in Rahmen setzen
-    let (image_group, image_card) = section(tr("Bild"));
+    let (image_group, image_card) = section(tr("Image"));
     cards.push(image_card.clone());
-    let image_crop = gtk::Button::with_label(tr("Zuschneiden"));
+    let image_crop = gtk::Button::with_label(tr("Crop"));
     image_crop.set_action_name(Some("win.image-crop"));
-    image_crop.set_tooltip_text(Some(tr("Rahmen um das Bild legen und anpassen")));
+    image_crop.set_tooltip_text(Some(tr("Put a frame around the image and adjust it")));
     image_card.append(&wide(&image_crop));
     let mk_mode = |label: &str, tip: &str| {
         gtk::ToggleButton::builder()
@@ -4419,39 +4720,35 @@ fn build_panel() -> (gtk::Box, Panel) {
             .build()
     };
     let image_modes = [
-        mk_mode(tr("Alles"), tr("Rahmen und Bild gemeinsam bearbeiten")),
-        mk_mode(tr("Rahmen"), tr("Nur den Rahmen ändern (zuschneiden)")),
-        mk_mode(
-            tr("Bild"),
-            tr("Nur das Bild im Rahmen verschieben oder skalieren"),
-        ),
+        mk_mode(tr("Both"), tr("Edit frame and image together")),
+        mk_mode(tr("Frame"), tr("Change only the frame (crop)")),
+        mk_mode(tr("Image"), tr("Only move or scale the image inside the frame")),
     ];
     for b in &image_modes[1..] {
         b.set_group(Some(&image_modes[0]));
     }
     let image_modes_box = linked_box(&[&image_modes[0], &image_modes[1], &image_modes[2]]);
     image_card.append(&wide(&image_modes_box));
-    let image_release = gtk::Button::with_label(tr("Rahmen lösen"));
+    let image_release = gtk::Button::with_label(tr("Release Frame"));
     image_release.set_action_name(Some("win.image-release"));
     image_card.append(&wide(&image_release));
 
     // Textfeld in einer Form: Form wieder lösen
     let (tframe_group, tframe_card) = section("");
     cards.push(tframe_card.clone());
-    let tframe_release = gtk::Button::with_label(tr("Form lösen"));
+    let tframe_release = gtk::Button::with_label(tr("Release Shape"));
     tframe_release.set_action_name(Some("win.text-release"));
     tframe_release.set_tooltip_text(Some(tr(
-        "Text wieder rechteckig umbrechen; die Form bleibt als eigenes Objekt",
+        "Wrap the text in a rectangle again; the shape stays as an object of its own",
     )));
     tframe_card.append(&wide(&tframe_release));
 
     // Hilfslinien
-    let (guide_group, guide_card) = section(tr("Hilfslinien"));
+    let (guide_group, guide_card) = section(tr("Guides"));
     cards.push(guide_card.clone());
-    let (guide_angle_box, guide_angle) =
-        unit_spin(-180.0, 180.0, 1.0, 1, "°", tr("Winkel der Hilfslinie in Grad"));
+    let (guide_angle_box, guide_angle) = unit_spin(-180.0, 180.0, 1.0, 1, "°", tr("Guide angle in degrees"));
     guide_angle.set_wrap(true);
-    let guide_angle_row = prow(tr("Winkel"), &guide_angle_box);
+    let guide_angle_row = prow(tr("Angle"), &guide_angle_box);
     guide_card.append(&guide_angle_row);
     let (guide_pos_box, guide_pos) = unit_spin(
         -100000.0,
@@ -4459,21 +4756,21 @@ fn build_panel() -> (gtk::Box, Panel) {
         1.0,
         1,
         "",
-        tr("Lage der gewählten Hilfslinie"),
+        tr("Position of the selected guide"),
     );
     let guide_pos_label = gtk::Label::new(Some(tr("Position")));
     let guide_pos_row = prow_with(&guide_pos_label, &guide_pos_box);
     guide_card.append(&guide_pos_row);
     let guide_show = gtk::Switch::new();
     // Ein-/Ausblenden geschieht über die Zeile „Hilfslinien“ in der Ebenenliste.
-    let show_row = prow(tr("Anzeigen"), &guide_show);
+    let show_row = prow(tr("Show"), &guide_show);
     show_row.set_visible(false);
     guide_card.append(&show_row);
     let guide_snap = gtk::Switch::new();
-    guide_card.append(&prow(tr("Einrasten"), &guide_snap));
-    let guide_delete = gtk::Button::with_label(tr("Löschen"));
+    guide_card.append(&prow(tr("Snap"), &guide_snap));
+    let guide_delete = gtk::Button::with_label(tr("Delete"));
     guide_delete.set_action_name(Some("win.guide-delete"));
-    let guide_clear = gtk::Button::with_label(tr("Alle löschen"));
+    let guide_clear = gtk::Button::with_label(tr("Delete All"));
     guide_clear.set_action_name(Some("win.guide-clear"));
     let gb = hbox(6);
     gb.set_homogeneous(true);
@@ -4563,11 +4860,28 @@ fn build_panel() -> (gtk::Box, Panel) {
         shadow_box,
         shadow_section,
         blend_fold,
-        tex_fold,
+        glass_fold,
+        glass_grain,
+        mat_fold,
+        mat_angle,
+        mat_angle_row,
         art_fold,
         lens_fold,
         tint_fold,
-        mirror_fold,
+        light_fold,
+        light_boxes,
+        mirror_strength,
+        glow_strength,
+        inner_strength,
+        inner_angle,
+        inner_dist,
+        inner_blur,
+        mirror_len,
+        mirror_gap,
+        art_size,
+        art_size_row,
+        art_angle,
+        art_angle_row,
         image_sw,
         temp,
         stroke_align,
@@ -4638,28 +4952,20 @@ impl Ui {
     pub fn new(app: &adw::Application) -> Rc<Ui> {
         // Kopfleiste: [↶][↷]   Titel   [+][☰]
         let header = adw::HeaderBar::new();
-        let undo_button = action_button(
-            "edit-undo-symbolic",
-            &key_tip(tr("Rückgängig"), "undo"),
-            "win.undo",
-        );
-        let redo_button = action_button(
-            "edit-redo-symbolic",
-            &key_tip(tr("Wiederholen"), "redo"),
-            "win.redo",
-        );
+        let undo_button = action_button("edit-undo-symbolic", &key_tip(tr("Undo"), "undo"), "win.undo");
+        let redo_button = action_button("edit-redo-symbolic", &key_tip(tr("Redo"), "redo"), "win.redo");
         // oben links: Ebenen und Bibliothek – je ein Knopf öffnet die linke Seitenleiste mit
         // diesem Inhalt (ein zweiter Klick schließt sie)
         let lib = build_library_panel();
         let layers_toggle = gtk::ToggleButton::builder()
             .icon_name("mondrian-layers-symbolic")
-            .tooltip_text(key_tip(tr("Ebenen und Zeichenflächen"), "toggle-sidebar"))
+            .tooltip_text(key_tip(tr("Layers and Artboards"), "toggle-sidebar"))
             .build();
         lib.toggle.remove_css_class("flat");
         lib.toggle.set_margin_start(0);
         lib.toggle.set_margin_end(0);
         lib.toggle.set_margin_bottom(0);
-        lib.toggle.set_tooltip_text(Some(tr("Bibliothek")));
+        lib.toggle.set_tooltip_text(Some(tr("Library")));
         // Zustand „linke Seitenleiste offen“ (unsichtbar; F8 und schmale Fenster nutzen ihn)
         let side_toggle = gtk::ToggleButton::new();
         header.pack_start(&layers_toggle);
@@ -4676,27 +4982,27 @@ impl Ui {
 
         let menu_button = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
-            .tooltip_text(tr("Hauptmenü"))
+            .tooltip_text(tr("Main Menu"))
             .menu_model(&main_menu())
             .primary(true)
             .build();
         header.pack_end(&menu_button);
         header.pack_end(&action_button(
             "tab-new-symbolic",
-            &key_tip(tr("Neues Dokument"), "new"),
+            &key_tip(tr("New Document"), "new"),
             "win.new",
         ));
         // oben rechts: Eigenschaften ein-/ausblenden
         let props_toggle = gtk::ToggleButton::builder()
             .icon_name("mondrian-props-symbolic")
-            .tooltip_text(key_tip(tr("Eigenschaften"), "toggle-panel"))
+            .tooltip_text(key_tip(tr("Properties"), "toggle-panel"))
             .active(true)
             .build();
         header.pack_end(&props_toggle);
         // daneben: Informationen zum Dokument (wie in der Bildbetrachtung)
         let info_toggle = gtk::ToggleButton::builder()
             .icon_name("help-about-symbolic")
-            .tooltip_text(tr("Informationen zum Dokument"))
+            .tooltip_text(tr("Document Information"))
             .build();
         header.pack_end(&info_toggle);
         let info = build_info_panel();
@@ -4786,7 +5092,7 @@ impl Ui {
         let zoom_label = gtk::Button::with_label("100 %");
         zoom_label.add_css_class("flat");
         zoom_label.add_css_class("numeric");
-        zoom_label.set_tooltip_text(Some(&key_tip(tr("Originalgröße"), "zoom-100")));
+        zoom_label.set_tooltip_text(Some(&key_tip(tr("Actual Size"), "zoom-100")));
         zoom_label.set_action_name(Some("win.zoom-100"));
         {
             let css = gtk::CssProvider::new();
@@ -4836,6 +5142,7 @@ impl Ui {
                  button.mondrian-layer-trash:hover { color: @destructive_color; background-color: alpha(@destructive_bg_color, 0.12); }\n\
                  .mondrian-tab { border-radius: 0; box-shadow: inset 0 -1px alpha(currentColor, 0.15); }\n\
                  .mondrian-tab:checked { background: none; box-shadow: inset 0 -3px @accent_bg_color; font-weight: bold; }\n\
+                 .mondrian-tab.mondrian-tab-on { color: @accent_color; }\n\
                  .mondrian-hex { border: 1px solid alpha(currentColor, 0.15); border-radius: 8px; padding: 2px 2px 2px 8px; }\n\
                  .mondrian-hex entry { background: none; box-shadow: none; outline: none; }\n\
                  button.mondrian-swatch-add { min-width: 0; min-height: 0; padding: 0; background: none; box-shadow: none; \
@@ -4860,7 +5167,7 @@ impl Ui {
         }
         // Ansicht: schwebende Leiste unten links – Umschalter Zeichenfläche/Notizheft, im
         // Notizheft dazu Blättern mit Seitenanzeige
-        let page_label = gtk::Label::new(Some(tr("Seite 1 von 1")));
+        let page_label = gtk::Label::new(Some(tr("Page 1 of 1")));
         page_label.add_css_class("numeric");
         page_label.set_margin_start(4);
         page_label.set_margin_end(4);
@@ -4868,22 +5175,19 @@ impl Ui {
         page_box.append(&gtk::Separator::new(gtk::Orientation::Vertical));
         page_box.append(&action_button(
             "go-previous-symbolic",
-            tr("Vorige Seite (Bild ↑)"),
+            tr("Previous page (Page ↑)"),
             "win.page-prev",
         ));
         page_box.append(&page_label);
         page_box.append(&action_button(
             "go-next-symbolic",
-            tr("Nächste Seite (Bild ↓)"),
+            tr("Next page (Page ↓)"),
             "win.page-next",
         ));
         page_box.set_visible(false);
         let notebook_btn = gtk::ToggleButton::builder()
             .icon_name("mondrian-notebook-symbolic")
-            .tooltip_text(key_tip(
-                tr("Notizheft: eine Seite nach der anderen"),
-                "view-notebook",
-            ))
+            .tooltip_text(key_tip(tr("Notebook: one page after another"), "view-notebook"))
             .action_name("win.notebook")
             .build();
         notebook_btn.add_css_class("flat");
@@ -4897,18 +5201,18 @@ impl Ui {
         zoom_bar.set_valign(gtk::Align::End);
         zoom_bar.append(&action_button(
             "zoom-out-symbolic",
-            &key_tip(tr("Verkleinern"), "zoom-out"),
+            &key_tip(tr("Zoom Out"), "zoom-out"),
             "win.zoom-out",
         ));
         zoom_bar.append(&zoom_label);
         zoom_bar.append(&action_button(
             "zoom-in-symbolic",
-            &key_tip(tr("Vergrößern"), "zoom-in"),
+            &key_tip(tr("Zoom In"), "zoom-in"),
             "win.zoom-in",
         ));
         zoom_bar.append(&action_button(
             "zoom-fit-best-symbolic",
-            &key_tip(tr("Ganze Seite"), "zoom-fit"),
+            &key_tip(tr("Whole Page"), "zoom-fit"),
             "win.zoom-fit",
         ));
         let overlay = gtk::Overlay::new();
@@ -4969,7 +5273,7 @@ impl Ui {
             .max_content_height(220)
             .child(&artboards_list)
             .build();
-        let layers_title = gtk::Label::builder().label(tr("Ebenen")).xalign(0.0).build();
+        let layers_title = gtk::Label::builder().label(tr("Layers")).xalign(0.0).build();
         layers_title.add_css_class("mondrian-panel-title");
         layers_title.set_margin_top(12);
         layers_title.set_margin_start(12);
@@ -4992,19 +5296,19 @@ impl Ui {
             b
         };
         let new_layer_button = add_button(
-            tr("Neue Ebene"),
+            tr("New Layer"),
             "win.layer-add",
-            tr("Neue Ebene über der aktuellen anlegen"),
+            tr("Add a new layer above the current one"),
         );
         let new_board_button = add_button(
-            tr("Zeichenfläche"),
+            tr("Artboard"),
             "win.artboard-add",
-            tr("Weitere Zeichenfläche rechts daneben anlegen"),
+            tr("Add another artboard to the right"),
         );
         let boards_title = gtk::Label::builder()
-            .label(tr("Zeichenflächen"))
+            .label(tr("Artboards"))
             .xalign(0.0)
-            .tooltip_text(tr("Solange diese Leiste offen ist, lassen sich Zeichenflächen am Namen verschieben und an den Anfassern in der Größe ändern"))
+            .tooltip_text(tr("While this panel is open, artboards can be moved by their name and resized with their handles"))
             .build();
         boards_title.add_css_class("mondrian-panel-title");
         boards_title.set_margin_top(12);
@@ -5149,6 +5453,7 @@ impl Ui {
             artboards_list,
             layer_rows: RefCell::new(Vec::new()),
             panel_width: Cell::new(settings.panel_width),
+            print_settings: RefCell::new(None),
             lib_current: Cell::new(
                 libraries
                     .iter()
@@ -5183,6 +5488,8 @@ impl Ui {
                 color: 0,
                 profile: None,
                 bleed: 0.0,
+                suffix: 1,
+                last_dir: None,
             }),
             scheme: Cell::new(settings.scheme),
             unit: Cell::new(unit),
@@ -5280,6 +5587,12 @@ fn add_doc(ui: &Rc<Ui>, doc: Document, file: Option<PathBuf>) -> Rc<DocTab> {
     canvas.set_vexpand(true);
     canvas.set_focusable(true);
     let mut ed = Editor::new(doc);
+    // globale Farben: Änderungen an Bibliotheksfarben seit dem letzten Speichern übernehmen
+    // (rückgängig machbar, das Dokument gilt danach als geändert)
+    let synced = ed.sync_library_colors(&|id| lib_linked_color(ui, id));
+    if synced > 0 {
+        ui.toast(&trf("{} colours updated from the library", &[&synced]));
+    }
     ed.set_tool(ui.tool.get());
     ed.show_guides = ui.show_guides.get();
     ed.snap_guides = ui.snap_guides.get();
@@ -5462,7 +5775,7 @@ fn read_document(path: &Path) -> Result<(Document, Vec<String>), String> {
     if is_import_file(path) {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         if !ai::looks_like_ai(&bytes) {
-            return Err(tr("Das ist keine Illustrator- oder PDF-Datei").into());
+            return Err(tr("This is not an Illustrator or PDF file").into());
         }
         let known = installed_families();
         let imp = ai::import(&bytes, &|f: &str| known.contains(&f.to_lowercase()))?;
@@ -5481,7 +5794,7 @@ pub fn open_path(ui: &Rc<Ui>, path: &Path) {
     let (doc, notes) = match read_document(path) {
         Ok(r) => r,
         Err(e) => {
-            ui.toast(&trf("Öffnen fehlgeschlagen: {}", &[&(e)]));
+            ui.toast(&trf("Opening failed: {}", &[&(e)]));
             if !path.exists() {
                 remove_recent(path);
                 refresh_starts(ui);
@@ -5514,8 +5827,8 @@ pub fn open_path(ui: &Rc<Ui>, path: &Path) {
         if foreign_svg {
             let list: String = notes.iter().map(|n| format!("\n• {n}")).collect();
             let dialog = adw::AlertDialog::new(
-                Some(tr("Nicht alles wird übernommen")),
-                Some(&trf("Diese SVG-Datei enthält Inhalte, die Stijl nicht darstellen oder bearbeiten kann:\n{}\n\nDamit dabei nichts verloren geht, bleibt die Originaldatei unverändert: Speichern legt eine neue SVG-Datei an.", &[&(list)])),
+                Some(tr("Not everything can be imported")),
+                Some(&trf("This SVG file contains content that Stijl cannot display or edit:\n{}\n\nSo that nothing is lost, the original file stays unchanged: saving creates a new SVG file.", &[&(list)])),
             );
             dialog.add_response("ok", "_OK");
             label_icon_buttons(dialog.upcast_ref());
@@ -5523,12 +5836,12 @@ pub fn open_path(ui: &Rc<Ui>, path: &Path) {
             return;
         }
         let mut msg = String::from(tr(
-            "Datei importiert und als SVG geöffnet. Speichern legt eine neue SVG-Datei an.",
+            "File imported and opened as SVG. Saving creates a new SVG file.",
         ));
         if let Some(first) = notes.first() {
-            msg = trf("Importiert. {}", &[&(first)]);
+            msg = trf("Imported. {}", &[&(first)]);
             if notes.len() > 1 {
-                msg.push_str(&trf(" (+{} weitere Hinweise)", &[&(notes.len() - 1)]));
+                msg.push_str(&trf(" (+{} more notes)", &[&(notes.len() - 1)]));
             }
         }
         ui.toast(&msg);
@@ -5710,7 +6023,7 @@ fn refresh(ui: &Rc<Ui>) {
         .as_ref()
         .map(|p| p.to_string_lossy().to_string())
         .map(|s| s.replace(&glib::home_dir().to_string_lossy().to_string(), "~"));
-    let save_state = place.unwrap_or_else(|| tr("Nicht gespeichert").to_string());
+    let save_state = place.unwrap_or_else(|| tr("Not saved").to_string());
     ui.window.set_title(Some(&trf("{} – Stijl", &[&(shown)])));
     if let Some(p) = d.page.borrow().as_ref() {
         p.set_title(&shown);
@@ -5722,7 +6035,7 @@ fn refresh(ui: &Rc<Ui>) {
         let i = ed.page_index();
         ui.page_box.set_visible(ui.notebook.get());
         ui.page_label
-            .set_label(&trf("Seite {} von {}", &[&(i.unwrap_or(0) + 1), &(n)]));
+            .set_label(&trf("Page {} of {}", &[&(i.unwrap_or(0) + 1), &(n)]));
     }
     {
         let ed = d.ed.borrow();
@@ -5826,7 +6139,7 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
         }
         c.list_on.set_active(pl != ListStyle::None);
         c.list_on
-            .set_tooltip_text(Some(&trf("Aufzählung ({})", &[&(c.list_style.get().label())])));
+            .set_tooltip_text(Some(&trf("List ({})", &[&(c.list_style.get().label())])));
         c.indent_less.set_sensitive(info.para.indent > 0);
         c.indent_more
             .set_sensitive(info.para.indent < crate::model::MAX_INDENT);
@@ -5950,12 +6263,21 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
                 c.blend_fold.choice.set_selected(i as u32);
             }
             let fx = st.fx;
-            c.tex_fold.root.set_visible(fx.tex.is_some());
-            if let Some((t, k)) = fx.tex {
-                c.tex_fold.hint.set_label(&format!("{} · {}", t.label(), pct(k)));
-                c.tex_fold.strength.set_value(k * 100.0);
-                if let Some(i) = crate::model::Texture::ALL.iter().position(|x| *x == t) {
-                    c.tex_fold.choice.set_selected(i as u32);
+            c.glass_fold.root.set_visible(fx.glass.is_some());
+            if let Some(k) = fx.glass {
+                c.glass_fold.hint.set_label(&pct(k));
+                c.glass_fold.strength.set_value(k * 100.0);
+                c.glass_grain.set_value(fx.glass_grain * 100.0);
+            }
+            c.mat_fold.root.set_visible(fx.mat.is_some());
+            c.mat_angle_row
+                .set_visible(fx.mat.is_some_and(|(m, _)| m.has_direction()));
+            c.mat_angle.set_value(fx.mat_angle.round());
+            if let Some((t, k)) = fx.mat {
+                c.mat_fold.hint.set_label(&format!("{} · {}", t.label(), pct(k)));
+                c.mat_fold.strength.set_value(k * 100.0);
+                if let Some(i) = crate::model::Material::ALL.iter().position(|x| *x == t) {
+                    c.mat_fold.choice.set_selected(i as u32);
                 }
             }
             c.art_fold.root.set_visible(fx.art.is_some());
@@ -5984,10 +6306,54 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
                     c.tint_fold.choice.set_selected(i as u32);
                 }
             }
-            c.mirror_fold.root.set_visible(fx.mirror.is_some());
+            // Licht & Schatten: je Effekt ein Schalter, Kopfzeile nennt die eingeschalteten
+            let on = [
+                st.shadow.is_some(),
+                fx.inner.is_some(),
+                fx.glow.is_some(),
+                fx.mirror.is_some(),
+            ];
+            let names = [tr("Shadow"), tr("Inner shadow"), tr("Glow"), tr("Reflection")];
+            let bits = on
+                .iter()
+                .enumerate()
+                .fold(0u8, |b, (i, o)| if *o { b | 1 << i } else { b });
+            let lf = &c.light_fold;
+            lf.root.set_visible(bits != 0);
+            for i in 0..4 {
+                lf.switches[i].set_active(on[i]);
+                c.light_boxes[i].set_visible(on[i]);
+                if on[i] {
+                    lf.tabs[i].add_css_class("mondrian-tab-on");
+                } else {
+                    lf.tabs[i].remove_css_class("mondrian-tab-on");
+                }
+            }
+            let active: Vec<&str> = (0..4).filter(|i| on[*i]).map(|i| names[i]).collect();
+            lf.hint.set_label(&active.join(", "));
+            // neu hinzugekommen (z. B. über das Effektmenü): diesen Reiter zeigen
+            let added = bits & !lf.seen.replace(bits);
+            if added != 0 {
+                lf.tabs[added.trailing_zeros() as usize].set_active(true);
+            }
+            if let Some(k) = fx.glow {
+                c.glow_strength.set_value(k * 100.0);
+            }
+            c.inner_angle.set_value(fx.inner_angle.round());
+            c.inner_dist.set_value(fx.inner_dist.round());
+            c.inner_blur.set_value(fx.inner_blur.round());
+            c.mirror_len.set_value((fx.mirror_len * 100.0).round());
+            c.mirror_gap.set_value(fx.mirror_gap.round());
+            if let Some(k) = fx.inner {
+                c.inner_strength.set_value(k * 100.0);
+            }
+            let patterned = fx.art.is_some_and(|(a, _)| a.has_pattern());
+            c.art_size_row.set_visible(patterned);
+            c.art_angle_row.set_visible(patterned);
+            c.art_size.set_value(fx.art_size.round());
+            c.art_angle.set_value(fx.art_angle.round());
             if let Some(k) = fx.mirror {
-                c.mirror_fold.hint.set_label(&pct(k));
-                c.mirror_fold.strength.set_value(k * 100.0);
+                c.mirror_strength.set_value(k * 100.0);
             }
         }
         {
@@ -6117,15 +6483,13 @@ fn refresh_panel(ui: &Rc<Ui>, d: &DocTab) {
             c.tframe_inset.set_value(f.inset);
             c.tframe_release.set_visible(f.path.is_some());
         }
-        c.fill_sw.title.set_label(if info.is_text {
-            tr("Textfüllung")
-        } else {
-            tr("Füllung")
-        });
+        c.fill_sw
+            .title
+            .set_label(if info.is_text { tr("Text fill") } else { tr("Fill") });
         c.stroke_sw.title.set_label(if info.is_text {
-            tr("Textkontur")
+            tr("Text stroke")
         } else {
-            tr("Kontur")
+            tr("Stroke")
         });
         // Freihand
         // Bild
@@ -6421,7 +6785,7 @@ fn setup_actions(ui: &Rc<Ui>) {
             .website("https://github.com/benhuesing/Stijl")
             .issue_url(ISSUE_URL)
             .comments(tr(
-                "Ein Vektorzeichenprogramm, benannt nach der niederländischen Kunstbewegung De Stijl, der auch Piet Mondrian angehörte.\n\nMit Hilfe von KI (Claude von Anthropic) geschrieben.",
+                "A vector drawing program, named after the Dutch art movement De Stijl, to which Piet Mondrian belonged.\n\nWritten with the help of AI (Claude by Anthropic).",
             ))
             .license_type(gtk::License::Gpl30)
             .application_icon("io.github.benhuesing.Stijl")
@@ -6485,6 +6849,26 @@ fn setup_actions(ui: &Rc<Ui>) {
     edit_action(ui, "join-paths", |e, _| {
         e.join_paths();
     });
+    edit_action(ui, "clip-make", |e, _| {
+        if let Err(msg) = e.make_clip_mask() {
+            e.message = Some(msg);
+        }
+    });
+    edit_action(ui, "clip-release", |e, _| {
+        if !e.release_clip_mask() {
+            e.message = Some(tr("The selection has no clipping mask").into());
+        }
+    });
+    edit_action(ui, "simplify", |e, m| {
+        if e.selection.is_empty() {
+            e.message = Some(tr("Select something first").into());
+        } else if e.simplify_paths(m) == 0 {
+            e.message = Some(tr("Nothing to simplify").into());
+        }
+    });
+    add_action(ui, "offset-path", offset_dialog);
+    add_action(ui, "repeat", repeat_dialog);
+    add_action(ui, "print", print_document);
     edit_action(ui, "bool-union", |e, m| {
         e.boolean(Op::Union, m);
     });
@@ -6762,7 +7146,7 @@ fn setup_canvas(ui: &Rc<Ui>, d: &Rc<DocTab>) {
                 let c = render::sample_color(&d.ed.borrow(), x, y);
                 match c {
                     Some(c) => pipette_pick(&u, c),
-                    None => u.toast(tr("Hier ist keine Farbe – auf die Seite klicken")),
+                    None => u.toast(tr("There is no colour here – click on the page")),
                 }
                 return;
             }
@@ -6931,7 +7315,7 @@ fn setup_canvas(ui: &Rc<Ui>, d: &Rc<DocTab>) {
                         d2.ed.borrow_mut().replace_with_traced(id, layers, w, h);
                     }
                     None => {
-                        d2.ed.borrow_mut().message = Some(tr("Das Bild lässt sich nicht lesen").into());
+                        d2.ed.borrow_mut().message = Some(tr("The image cannot be read").into());
                     }
                 }
             }
@@ -7848,27 +8232,67 @@ fn setup_panel(ui: &Rc<Ui>) {
     }
     {
         let u = ui.clone();
-        c.tex_fold.choice.connect_selected_notify(move |dd| {
-            let t = crate::model::Texture::ALL
-                [(dd.selected() as usize).min(crate::model::Texture::ALL.len() - 1)];
+        c.mat_fold.choice.connect_selected_notify(move |dd| {
+            let t = crate::model::Material::ALL
+                [(dd.selected() as usize).min(crate::model::Material::ALL.len() - 1)];
             with_ed(&u, |e| {
-                e.update_style("tex", move |s| {
-                    let k = s.fx.tex.map(|x| x.1).unwrap_or(t.default_strength());
-                    s.fx.tex = Some((t, k));
+                e.update_style("mat", move |s| {
+                    let k = s.fx.mat.map(|x| x.1).unwrap_or(crate::model::FX_DEFAULT);
+                    s.fx.mat = Some((t, k));
                 });
             });
         });
     }
     {
         let u = ui.clone();
-        c.tex_fold.strength.connect_value_changed(move |sc| {
+        c.mat_fold.strength.connect_value_changed(move |sc| {
             let k = sc.value() / 100.0;
             with_ed(&u, |e| {
-                e.update_style("tex-k", move |s| {
-                    if let Some((t, _)) = s.fx.tex {
-                        s.fx.tex = Some((t, k));
+                e.update_style("mat-k", move |s| {
+                    if let Some((t, _)) = s.fx.mat {
+                        s.fx.mat = Some((t, k));
                     }
                 });
+            });
+        });
+    }
+    {
+        let u = ui.clone();
+        c.mat_angle.connect_value_changed(move |sc| {
+            let v = sc.value();
+            with_ed(&u, |e| {
+                e.update_style("mat-angle", move |s| s.fx.mat_angle = v);
+            });
+        });
+    }
+    // Glas: Unschärfe und Körnung (die Füllung tönt das Glas)
+    for (scale, key) in [
+        (&c.glass_fold.strength, "glass-k"),
+        (&c.glass_grain, "glass-grain"),
+    ] {
+        let u = ui.clone();
+        scale.connect_value_changed(move |sc| {
+            let v = (sc.value() / 100.0).clamp(0.0, 1.0);
+            with_ed(&u, |e| {
+                e.update_style(key, move |s| {
+                    if s.fx.glass.is_none() {
+                        return;
+                    }
+                    match key {
+                        "glass-k" => s.fx.glass = Some(v),
+                        _ => s.fx.glass_grain = v,
+                    }
+                });
+            });
+        });
+    }
+    // Licht & Schatten: Schalter je Effekt
+    for (i, sw) in c.light_fold.switches.iter().enumerate() {
+        let u = ui.clone();
+        sw.connect_active_notify(move |sw| {
+            let on = sw.is_active();
+            with_ed(&u, |e| {
+                e.update_style("light-shadow", move |s| set_light_effect(s, i, on));
             });
         });
     }
@@ -7907,9 +8331,75 @@ fn setup_panel(ui: &Rc<Ui>) {
             });
         });
     }
+    // Innenschatten und Spiegelung: weitere Einstellungen
+    for (spin, key) in [
+        (&c.inner_angle, "inner-angle"),
+        (&c.inner_dist, "inner-dist"),
+        (&c.inner_blur, "inner-blur"),
+        (&c.mirror_len, "mirror-len"),
+        (&c.mirror_gap, "mirror-gap"),
+    ] {
+        let u = ui.clone();
+        spin.connect_value_changed(move |sc| {
+            let v = sc.value();
+            with_ed(&u, |e| {
+                e.update_style(key, move |s| match key {
+                    "inner-angle" => s.fx.inner_angle = v,
+                    "inner-dist" => s.fx.inner_dist = v.max(0.0),
+                    "inner-blur" => s.fx.inner_blur = v.max(0.0),
+                    "mirror-len" => s.fx.mirror_len = (v / 100.0).max(0.05),
+                    _ => s.fx.mirror_gap = v,
+                });
+            });
+        });
+    }
     {
         let u = ui.clone();
-        c.mirror_fold.strength.connect_value_changed(move |sc| {
+        c.inner_strength.connect_value_changed(move |sc| {
+            let k = sc.value() / 100.0;
+            with_ed(&u, |e| {
+                e.update_style("inner-k", move |s| {
+                    if s.fx.inner.is_some() {
+                        s.fx.inner = Some(k);
+                    }
+                });
+            });
+        });
+    }
+    {
+        let u = ui.clone();
+        c.glow_strength.connect_value_changed(move |sc| {
+            let k = sc.value() / 100.0;
+            with_ed(&u, |e| {
+                e.update_style("glow-k", move |s| {
+                    if s.fx.glow.is_some() {
+                        s.fx.glow = Some(k);
+                    }
+                });
+            });
+        });
+    }
+    {
+        let u = ui.clone();
+        c.art_size.connect_value_changed(move |sc| {
+            let v = sc.value().max(1.0);
+            with_ed(&u, |e| {
+                e.update_style("art-size", move |s| s.fx.art_size = v);
+            });
+        });
+    }
+    {
+        let u = ui.clone();
+        c.art_angle.connect_value_changed(move |sc| {
+            let v = sc.value();
+            with_ed(&u, |e| {
+                e.update_style("art-angle", move |s| s.fx.art_angle = v);
+            });
+        });
+    }
+    {
+        let u = ui.clone();
+        c.mirror_strength.connect_value_changed(move |sc| {
             let k = sc.value() / 100.0;
             with_ed(&u, |e| {
                 e.update_style("mirror-k", move |s| {
@@ -8409,14 +8899,16 @@ fn setup_panel(ui: &Rc<Ui>) {
     edit_action(ui, "outline-stroke", |e, m| {
         e.outline_stroke(m);
     });
-    // Effekte: je Kategorie einer; Schatten und Spiegelung schließen sich aus
-    use crate::model::{Art, Lens, Texture, FX_DEFAULT};
+    // Effekte: je Kategorie einer; die vier unter „Licht & Schatten“ lassen sich kombinieren
+    use crate::model::{Art, Lens, Material, FROST_DEFAULT, FX_DEFAULT};
     edit_action(ui, "effect-shadow", |e, _| {
-        e.update_style("shadow", |s| {
-            if s.shadow.is_none() {
-                s.shadow = Some(crate::model::Shadow::default());
+        e.update_style("shadow", |s| set_light_effect(s, LIGHT_SHADOW, true));
+    });
+    edit_action(ui, "effect-remove-light", |e, _| {
+        e.update_style("light-shadow", |s| {
+            for i in 0..4 {
+                set_light_effect(s, i, false);
             }
-            s.fx.mirror = None;
         });
     });
     edit_action(ui, "effect-remove-shadow", |e, _| {
@@ -8426,31 +8918,44 @@ fn setup_panel(ui: &Rc<Ui>) {
         });
     });
     edit_action(ui, "effect-mirror", |e, _| {
-        e.update_style("mirror", |s| {
-            if s.fx.mirror.is_none() {
-                s.fx.mirror = Some(FX_DEFAULT);
-            }
-            s.shadow = None;
-            s.shadow_gradient = None;
-        });
+        e.update_style("mirror", |s| set_light_effect(s, LIGHT_MIRROR, true));
     });
     edit_action(ui, "effect-remove-mirror", |e, _| {
         e.update_style("mirror", |s| s.fx.mirror = None);
     });
-    str_action(ui, "effect-tex", |e, n| {
-        if let Some(t) = Texture::from_name(n) {
-            e.update_style("tex", move |s| {
-                // wählt man dieselbe Textur erneut, bleibt die Stärke
-                let k = match s.fx.tex {
-                    Some((old, k)) if old == t => k,
-                    _ => t.default_strength(),
-                };
-                s.fx.tex = Some((t, k));
+    edit_action(ui, "effect-glow", |e, _| {
+        e.update_style("glow", |s| set_light_effect(s, LIGHT_GLOW, true));
+    });
+    edit_action(ui, "effect-remove-glow", |e, _| {
+        e.update_style("glow", |s| s.fx.glow = None);
+    });
+    edit_action(ui, "effect-inner", |e, _| {
+        e.update_style("inner", |s| set_light_effect(s, LIGHT_INNER, true));
+    });
+    edit_action(ui, "effect-remove-inner", |e, _| {
+        e.update_style("inner", |s| s.fx.inner = None);
+    });
+    str_action(ui, "effect-mat", |e, n| {
+        if let Some(t) = Material::from_name(n) {
+            e.update_style("mat", move |s| {
+                // wählt man ein anderes Material, bleibt die Stärke
+                let k = s.fx.mat.map(|x| x.1).unwrap_or(FX_DEFAULT);
+                s.fx.mat = Some((t, k));
             });
         }
     });
-    edit_action(ui, "effect-remove-tex", |e, _| {
-        e.update_style("tex", |s| s.fx.tex = None);
+    edit_action(ui, "effect-remove-mat", |e, _| {
+        e.update_style("mat", |s| s.fx.mat = None);
+    });
+    edit_action(ui, "effect-glass", |e, _| {
+        e.update_style("glass", |s| {
+            if s.fx.glass.is_none() {
+                s.fx.glass = Some(FROST_DEFAULT);
+            }
+        });
+    });
+    edit_action(ui, "effect-remove-glass", |e, _| {
+        e.update_style("glass", |s| s.fx.glass = None);
     });
     edit_action(ui, "effect-remove-blend", |e, _| {
         e.set_blend(Blend::Normal);
@@ -8831,7 +9336,7 @@ fn layer_pill(
             "changes-allow-symbolic"
         })
         .active(locked)
-        .tooltip_text(tr("Sperren"))
+        .tooltip_text(tr("Lock"))
         .build();
     small(lock.upcast_ref());
     lock.connect_toggled(|b| {
@@ -8847,7 +9352,7 @@ fn layer_pill(
         } else {
             "view-conceal-symbolic"
         })
-        .tooltip_text(tr("Ein-/Ausblenden"))
+        .tooltip_text(tr("Show/Hide"))
         .build();
     small(eye.upcast_ref());
     // Auge: aktiv = sichtbar; hervorgehoben wird nur der Ausnahmezustand „ausgeblendet“
@@ -8868,7 +9373,7 @@ fn layer_pill(
         }
     });
     let del = gtk::Button::from_icon_name("user-trash-symbolic");
-    del.set_tooltip_text(Some(tr("Ebene löschen")));
+    del.set_tooltip_text(Some(tr("Delete Layer")));
     small(del.upcast_ref());
     del.add_css_class("mondrian-layer-trash");
     del.set_sensitive(!single);
@@ -8899,7 +9404,7 @@ fn artboard_row(ui: &Rc<Ui>, idx: usize) -> gtk::ListBoxRow {
             let Some(d) = cur(&u) else { return };
             let dark = adw::StyleManager::default().is_dark();
             let doc = d.ed.borrow().doc.artboard_doc(idx);
-            render::draw_artboard_thumbnail(cr, w as f64, h as f64, &doc, dark);
+            render::draw_document_thumbnail(cr, w as f64, h as f64, &doc, dark);
         });
     }
     {
@@ -8926,9 +9431,9 @@ fn artboard_row(ui: &Rc<Ui>, idx: usize) -> gtk::ListBoxRow {
                 rects.len() > 1,
             )
         })
-        .unwrap_or_else(|| (tr("Zeichenfläche").into(), false));
+        .unwrap_or_else(|| (tr("Artboard").into(), false));
     let label = gtk::Label::builder()
-        .label(if many { name.as_str() } else { tr("Zeichenfläche") })
+        .label(if many { name.as_str() } else { tr("Artboard") })
         .xalign(0.0)
         .hexpand(true)
         .ellipsize(pango::EllipsizeMode::End)
@@ -8937,19 +9442,19 @@ fn artboard_row(ui: &Rc<Ui>, idx: usize) -> gtk::ListBoxRow {
     tools.add_css_class("linked");
     tools.set_valign(gtk::Align::Center);
     let gear = gtk::Button::from_icon_name("emblem-system-symbolic");
-    gear.set_tooltip_text(Some(tr("Zeichenfläche bearbeiten")));
+    gear.set_tooltip_text(Some(tr("Edit Artboard")));
     gear.set_action_name(Some("win.artboard-edit"));
     gear.set_action_target_value(Some(&(idx as u32).to_variant()));
     tools.append(&gear);
     let dup = gtk::Button::from_icon_name("edit-copy-symbolic");
-    dup.set_tooltip_text(Some(tr("Zeichenfläche mit Inhalt duplizieren")));
+    dup.set_tooltip_text(Some(tr("Duplicate Artboard With Its Contents")));
     dup.set_action_name(Some("win.artboard-duplicate"));
     dup.set_action_target_value(Some(&(idx as u32).to_variant()));
     tools.append(&dup);
     // jede Zeichenfläche lässt sich entfernen, solange eine weitere bleibt
     if many {
         let del = gtk::Button::from_icon_name("user-trash-symbolic");
-        del.set_tooltip_text(Some(tr("Zeichenfläche entfernen (die Objekte bleiben)")));
+        del.set_tooltip_text(Some(tr("Remove Artboard (the objects stay)")));
         del.add_css_class("mondrian-layer-delete");
         del.set_action_name(Some("win.artboard-delete"));
         del.set_action_target_value(Some(&(idx as u32).to_variant()));
@@ -9034,7 +9539,7 @@ fn layer_row(ui: &Rc<Ui>, id: u64, name: &str, visible: bool, locked: bool, sing
     ui.thumbs.borrow_mut().push(thumb.clone());
     if has_sel {
         thumb.set_tooltip_text(Some(&trf(
-            "{} – die Auswahl liegt auf dieser Ebene; das Kästchen auf eine andere Ebene ziehen, um sie zu verschieben",
+            "{} – the selection is on this layer; drag the square onto another layer to move it there",
             &[&name],
         )));
         let sel_src = gtk::DragSource::new();
@@ -9076,7 +9581,7 @@ fn layer_row(ui: &Rc<Ui>, id: u64, name: &str, visible: bool, locked: bool, sing
         }
         thumb.add_controller(motion);
     } else {
-        thumb.set_tooltip_text(Some(&trf("{} – Doppelklick zum Umbenennen", &[&(name)])));
+        thumb.set_tooltip_text(Some(&trf("{} – double-click to rename", &[&(name)])));
     }
     // Doppelklick: Namen in einem kleinen Fenster ändern
     {
@@ -9265,12 +9770,12 @@ fn confirm_discard(ui: &Rc<Ui>, d: &Rc<DocTab>, then: Then, cancel: Option<Then>
         return;
     }
     let dialog = adw::AlertDialog::new(
-        Some(&trf("Änderungen an „{}“ speichern?", &[&(d.name())])),
-        Some(tr("Wenn du nicht speicherst, gehen die Änderungen verloren")),
+        Some(&trf("Save changes to “{}”?", &[&(d.name())])),
+        Some(tr("If you don’t save, your changes will be lost")),
     );
-    dialog.add_response("cancel", tr("_Abbrechen"));
-    dialog.add_response("discard", tr("_Verwerfen"));
-    dialog.add_response("save", tr("_Speichern"));
+    dialog.add_response("cancel", tr("_Cancel"));
+    dialog.add_response("discard", tr("_Discard"));
+    dialog.add_response("save", tr("_Save"));
     dialog.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
     dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("save"));
@@ -9373,7 +9878,7 @@ fn autosave_doc(d: &DocTab) {
         .as_ref()
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_string()))
         .or_else(|| d.title.try_borrow().ok().and_then(|t| t.clone()))
-        .unwrap_or_else(|| tr("Unbenannt").into());
+        .unwrap_or_else(|| tr("Untitled").into());
     if crate::fsutil::save_recovery(&recovery_dir(), &d.recovery_id, file.as_deref(), &title, &text).is_ok() {
         d.recovery_edits.set(Some(edits));
     }
@@ -9465,8 +9970,8 @@ fn check_for_updates(ui: &Rc<Ui>, manual: bool) {
         match res {
             Ok(Ok(rel)) if update::is_newer(&rel.version, env!("CARGO_PKG_VERSION")) => {
                 let t = adw::Toast::builder()
-                    .title(trf("Stijl {} ist verfügbar", &[&rel.version]))
-                    .button_label(tr("Herunterladen"))
+                    .title(trf("Stijl {} is available", &[&rel.version]))
+                    .button_label(tr("Download"))
                     .timeout(0)
                     .build();
                 let win = u.window.clone();
@@ -9477,12 +9982,12 @@ fn check_for_updates(ui: &Rc<Ui>, manual: bool) {
             }
             Ok(Ok(_)) => {
                 if manual {
-                    u.toast(tr("Stijl ist auf dem neuesten Stand"));
+                    u.toast(tr("Stijl is up to date"));
                 }
             }
             _ => {
                 if manual {
-                    u.toast(tr("Keine Verbindung zu GitHub"));
+                    u.toast(tr("Could not reach GitHub"));
                 }
             }
         }
@@ -9535,21 +10040,21 @@ fn report_bug(ui: &Rc<Ui>, report: Option<String>) {
     let mut body = String::new();
     match &report {
         Some(r) => {
-            body.push_str(tr("**Was habe ich zuletzt gemacht?**\n\n\n"));
-            body.push_str(tr("**Absturzbericht**\n```\n"));
+            body.push_str(tr("**What was I doing just before?**\n\n\n"));
+            body.push_str(tr("**Crash report**\n```\n"));
             // URLs dürfen nicht beliebig lang werden
             let r: String = r.chars().take(3500).collect();
             body.push_str(&r);
             body.push_str("\n```\n");
         }
         None => {
-            body.push_str(tr("**Was ist passiert?**\n\n\n"));
-            body.push_str(tr("**Was hätte passieren sollen?**\n\n\n"));
-            body.push_str(tr("**Schritte zum Nachstellen**\n1. \n2. \n\n"));
+            body.push_str(tr("**What happened?**\n\n\n"));
+            body.push_str(tr("**What should have happened?**\n\n\n"));
+            body.push_str(tr("**Steps to reproduce**\n1. \n2. \n\n"));
         }
     }
     body.push_str(&format!("---\n{}\n", system_info()));
-    let title = if report.is_some() { tr("Absturz: ") } else { "" };
+    let title = if report.is_some() { tr("Crash: ") } else { "" };
     let url = format!(
         "{ISSUE_URL}?title={}&body={}",
         url_encode(title),
@@ -9598,9 +10103,9 @@ fn offer_crash_report(ui: &Rc<Ui>) {
         return;
     };
     let dialog = adw::AlertDialog::new(
-        Some(tr("Stijl ist abgestürzt")),
+        Some(tr("Stijl crashed")),
         Some(
-            tr("Beim letzten Mal ist ein Fehler aufgetreten. Möchtest du einen Fehlerbericht senden? Er enthält nur technische Angaben (Version, System, Fehlerstelle) – keine Zeichnungen."),
+            tr("An error occurred last time. Would you like to send a problem report? It only contains technical details (version, system, where the error happened) – no drawings."),
         ),
     );
     let view = gtk::TextView::builder()
@@ -9614,12 +10119,12 @@ fn offer_crash_report(ui: &Rc<Ui>) {
         .max_content_height(260)
         .child(&view)
         .build();
-    let expander = gtk::Expander::new(Some(tr("Bericht ansehen")));
+    let expander = gtk::Expander::new(Some(tr("Show report")));
     expander.set_child(Some(&scroll));
     dialog.set_extra_child(Some(&expander));
-    dialog.add_response("no", tr("_Nicht senden"));
-    dialog.add_response("copy", tr("_Kopieren"));
-    dialog.add_response("send", tr("_Senden"));
+    dialog.add_response("no", tr("_Don’t Send"));
+    dialog.add_response("copy", tr("_Copy"));
+    dialog.add_response("send", tr("_Send"));
     dialog.set_response_appearance("send", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("send"));
     dialog.set_close_response("no");
@@ -9629,7 +10134,7 @@ fn offer_crash_report(ui: &Rc<Ui>) {
             "send" => report_bug(&u, Some(report.clone())),
             "copy" => {
                 u.window.clipboard().set_text(&report);
-                u.toast(tr("Bericht in die Zwischenablage kopiert"));
+                u.toast(tr("Report copied to the clipboard"));
             }
             _ => {}
         }
@@ -9662,16 +10167,16 @@ fn copy_as_image(ui: &Rc<Ui>) {
     let png = match export::png_bytes(&doc, 2.0, doc.background) {
         Ok(p) => p,
         Err(e) => {
-            ui.toast(&trf("Kopieren fehlgeschlagen: {}", &[&(e)]));
+            ui.toast(&trf("Copying failed: {}", &[&(e)]));
             return;
         }
     };
     match gdk::Texture::from_bytes(&glib::Bytes::from_owned(png)) {
         Ok(t) => {
             ui.window.clipboard().set_texture(&t);
-            ui.toast(tr("Als Bild kopiert"));
+            ui.toast(tr("Copied as image"));
         }
-        Err(e) => ui.toast(&trf("Kopieren fehlgeschlagen: {}", &[&(e)])),
+        Err(e) => ui.toast(&trf("Copying failed: {}", &[&(e)])),
     }
 }
 
@@ -9684,9 +10189,9 @@ fn offer_recovery(ui: &Rc<Ui>) {
     if list.is_empty() {
         return;
     }
-    let mut body = String::from(
-        tr("Stijl wurde beim letzten Mal nicht richtig beendet. Diese ungespeicherten Dokumente lassen sich wiederherstellen:\n"),
-    );
+    let mut body = String::from(tr(
+        "Stijl was not closed properly last time. These unsaved documents can be recovered:\n",
+    ));
     for r in &list {
         let when = glib::DateTime::from_unix_local(r.time as i64)
             .ok()
@@ -9695,11 +10200,11 @@ fn offer_recovery(ui: &Rc<Ui>) {
             .unwrap_or_default();
         body.push_str(&format!("\n• {} ({when})", r.title));
     }
-    body.push_str(tr("\n\nDie Originaldateien wurden nicht verändert."));
-    let dialog = adw::AlertDialog::new(Some(tr("Dokumente wiederherstellen?")), Some(&body));
-    dialog.add_response("discard", tr("_Verwerfen"));
-    dialog.add_response("later", tr("_Später"));
-    dialog.add_response("restore", tr("_Wiederherstellen"));
+    body.push_str(tr("\n\nThe original files were not changed."));
+    let dialog = adw::AlertDialog::new(Some(tr("Recover documents?")), Some(&body));
+    dialog.add_response("discard", tr("_Discard"));
+    dialog.add_response("later", tr("_Later"));
+    dialog.add_response("restore", tr("_Recover"));
     dialog.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
     dialog.set_response_appearance("restore", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("restore"));
@@ -9731,10 +10236,7 @@ fn restore_recovery(ui: &Rc<Ui>, r: &crate::fsutil::Recovery) {
     let doc = match doc {
         Ok(doc) => doc,
         Err(e) => {
-            ui.toast(&trf(
-                "„{}“ ließ sich nicht wiederherstellen: {}",
-                &[&(r.title), &(e)],
-            ));
+            ui.toast(&trf("“{}” could not be recovered: {}", &[&(r.title), &(e)]));
             return;
         }
     };
@@ -9762,12 +10264,12 @@ fn write_svg(ui: &Rc<Ui>, d: &DocTab, path: PathBuf) -> bool {
             *d.file.borrow_mut() = Some(path);
             d.ed.borrow_mut().dirty = false;
             drop_recovery(d);
-            ui.toast(tr("Gespeichert"));
+            ui.toast(tr("Saved"));
             refresh(ui);
             true
         }
         Err(e) => {
-            ui.toast(&trf("Speichern fehlgeschlagen: {}", &[&(e)]));
+            ui.toast(&trf("Saving failed: {}", &[&(e)]));
             false
         }
     }
@@ -9801,11 +10303,11 @@ fn file_filter(name: &str, patterns: &[&str]) -> gio::ListStore {
 
 fn save_as(ui: &Rc<Ui>, d: &Rc<DocTab>, done: Done) {
     let dialog = gtk::FileDialog::builder()
-        .title(tr("Speichern unter"))
+        .title(tr("Save As"))
         .modal(true)
         .initial_name(format!("{}.svg", d.name()))
         .build();
-    dialog.set_filters(Some(&file_filter(tr("SVG-Dateien"), &["*.svg"])));
+    dialog.set_filters(Some(&file_filter(tr("SVG files"), &["*.svg"])));
     let (u, d) = (ui.clone(), d.clone());
     dialog.save(Some(&ui.window), gio::Cancellable::NONE, move |res| {
         let path = res.ok().and_then(|f| f.path());
@@ -9823,9 +10325,9 @@ fn save_as(ui: &Rc<Ui>, d: &Rc<DocTab>, done: Done) {
 }
 
 fn open_dialog(ui: &Rc<Ui>) {
-    let dialog = gtk::FileDialog::builder().title(tr("Öffnen")).modal(true).build();
+    let dialog = gtk::FileDialog::builder().title(tr("Open")).modal(true).build();
     dialog.set_filters(Some(&file_filter(
-        tr("SVG, Illustrator (.ai) und PDF"),
+        tr("SVG, Illustrator (.ai) and PDF"),
         &["*.svg", "*.SVG", "*.ai", "*.AI", "*.pdf", "*.PDF"],
     )));
     let u = ui.clone();
@@ -9884,28 +10386,28 @@ const fn preset(group: &'static str, name: &'static str, w: f64, h: f64, unit: U
 
 /// Gängige Formate: Druck in Millimetern, Online und Bildschirm in Pixeln.
 const PRESETS: &[Preset] = &[
-    preset("Druck", "A4 Hochformat", 210.0, 297.0, Unit::Mm),
-    preset("Druck", "A4 Querformat", 297.0, 210.0, Unit::Mm),
-    preset("Druck", "A3 Hochformat", 297.0, 420.0, Unit::Mm),
-    preset("Druck", "A5 Hochformat", 148.0, 210.0, Unit::Mm),
-    preset("Druck", "A6 Hochformat", 105.0, 148.0, Unit::Mm),
-    preset("Druck", "US Letter", 216.0, 279.0, Unit::Mm),
-    preset("Druck", "Postkarte", 148.0, 105.0, Unit::Mm),
-    preset("Druck", "Visitenkarte", 85.0, 55.0, Unit::Mm),
-    preset("Druck", "DIN lang (Flyer)", 99.0, 210.0, Unit::Mm),
-    preset("Online", "Instagram Post", 1080.0, 1080.0, Unit::Px),
-    preset("Online", "Instagram Hochformat", 1080.0, 1350.0, Unit::Px),
-    preset("Online", "Instagram Story / Reel", 1080.0, 1920.0, Unit::Px),
-    preset("Online", "Facebook Post", 1200.0, 630.0, Unit::Px),
-    preset("Online", "Facebook Titelbild", 851.0, 315.0, Unit::Px),
-    preset("Online", "X / Twitter Post", 1600.0, 900.0, Unit::Px),
-    preset("Online", "LinkedIn Post", 1200.0, 627.0, Unit::Px),
-    preset("Online", "YouTube Thumbnail", 1280.0, 720.0, Unit::Px),
-    preset("Online", "YouTube Banner", 2560.0, 1440.0, Unit::Px),
-    preset("Online", "Pinterest Pin", 1000.0, 1500.0, Unit::Px),
-    preset("Online", "TikTok Video", 1080.0, 1920.0, Unit::Px),
-    preset("Bildschirm", "Full HD", 1920.0, 1080.0, Unit::Px),
-    preset("Bildschirm", "4K UHD", 3840.0, 2160.0, Unit::Px),
+    preset("Print", "A4 portrait", 210.0, 297.0, Unit::Mm),
+    preset("Print", "A4 landscape", 297.0, 210.0, Unit::Mm),
+    preset("Print", "A3 portrait", 297.0, 420.0, Unit::Mm),
+    preset("Print", "A5 portrait", 148.0, 210.0, Unit::Mm),
+    preset("Print", "A6 portrait", 105.0, 148.0, Unit::Mm),
+    preset("Print", "US Letter", 216.0, 279.0, Unit::Mm),
+    preset("Print", "Postcard", 148.0, 105.0, Unit::Mm),
+    preset("Print", "Business card", 85.0, 55.0, Unit::Mm),
+    preset("Print", "DL (flyer)", 99.0, 210.0, Unit::Mm),
+    preset("Online", "Instagram post", 1080.0, 1080.0, Unit::Px),
+    preset("Online", "Instagram portrait", 1080.0, 1350.0, Unit::Px),
+    preset("Online", "Instagram story / reel", 1080.0, 1920.0, Unit::Px),
+    preset("Online", "Facebook post", 1200.0, 630.0, Unit::Px),
+    preset("Online", "Facebook cover", 851.0, 315.0, Unit::Px),
+    preset("Online", "X / Twitter post", 1600.0, 900.0, Unit::Px),
+    preset("Online", "LinkedIn post", 1200.0, 627.0, Unit::Px),
+    preset("Online", "YouTube thumbnail", 1280.0, 720.0, Unit::Px),
+    preset("Online", "YouTube banner", 2560.0, 1440.0, Unit::Px),
+    preset("Online", "Pinterest pin", 1000.0, 1500.0, Unit::Px),
+    preset("Online", "TikTok video", 1080.0, 1920.0, Unit::Px),
+    preset("Screen", "Full HD", 1920.0, 1080.0, Unit::Px),
+    preset("Screen", "4K UHD", 3840.0, 2160.0, Unit::Px),
 ];
 
 const UNITS: [Unit; 5] = Unit::ALL;
@@ -9953,14 +10455,14 @@ struct SizeEditor {
 impl SizeEditor {
     fn new(w_px: f64, h_px: f64, unit: Unit) -> Rc<SizeEditor> {
         let mut names: Vec<String> = PRESETS.iter().map(|p| p.label()).collect();
-        names.push(tr("Eigene Größe").into());
+        names.push(tr("Custom size").into());
         let names: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
         let format = adw::ComboRow::builder()
             .title(tr("Format"))
             .model(&gtk::StringList::new(&names))
             .build();
         let unit_row = adw::ComboRow::builder()
-            .title(tr("Einheit"))
+            .title(tr("Unit"))
             .model(&gtk::StringList::new(
                 &UNITS.iter().map(|u| u.label()).collect::<Vec<_>>(),
             ))
@@ -9968,7 +10470,7 @@ impl SizeEditor {
         let w = adw::SpinRow::with_range(0.1, 100000.0, 1.0);
         let h = adw::SpinRow::with_range(0.1, 100000.0, 1.0);
         let group = adw::PreferencesGroup::new();
-        group.set_title(tr("Größe"));
+        group.set_title(tr("Size"));
         group.add(&format);
         group.add(&unit_row);
         group.add(&w);
@@ -10056,8 +10558,8 @@ impl SizeEditor {
 
     fn apply_unit_labels(&self) {
         let u = self.unit.get();
-        self.w.set_title(&trf("Breite ({})", &[&(u.name())]));
-        self.h.set_title(&trf("Höhe ({})", &[&(u.name())]));
+        self.w.set_title(&trf("Width ({})", &[&(u.name())]));
+        self.h.set_title(&trf("Height ({})", &[&(u.name())]));
         self.w.set_digits(unit_digits(u));
         self.h.set_digits(unit_digits(u));
     }
@@ -10096,23 +10598,23 @@ fn new_document_dialog(ui: &Rc<Ui>) {
 }
 
 fn new_document_dialog_with(ui: &Rc<Ui>, start: Option<&Preset>) {
-    let (dialog, content) = dialog_shell(tr("Neues Dokument"), 460);
-    let a4 = find_preset("A4 Hochformat").copied().unwrap_or(PRESETS[0]);
+    let (dialog, content) = dialog_shell(tr("New Document"), 460);
+    let a4 = find_preset("A4 portrait").copied().unwrap_or(PRESETS[0]);
     let (w0, h0) = a4.px();
     let size = SizeEditor::new(w0, h0, a4.unit);
     if let Some(p) = start {
         size.select(p);
     }
     let bg = adw::SwitchRow::builder()
-        .title(tr("Weißer Hintergrund"))
-        .subtitle(tr("Ausgeschaltet ist der Hintergrund transparent"))
+        .title(tr("White Background"))
+        .subtitle(tr("When switched off, the background is transparent"))
         .active(true)
         .build();
     let bg_group = adw::PreferencesGroup::new();
     bg_group.add(&bg);
     content.append(&size.group);
     content.append(&bg_group);
-    let create = pill_button(tr("Erstellen"));
+    let create = pill_button(tr("Create"));
     content.append(&create);
     {
         let (u, dlg, size) = (ui.clone(), dialog.clone(), size.clone());
@@ -10219,20 +10721,20 @@ fn build_info_panel() -> InfoWidgets {
         }
         g
     };
-    let folder = prop(tr("Ordner"));
+    let folder = prop(tr("Folder"));
     let folder_open = gtk::Button::from_icon_name("folder-open-symbolic");
-    folder_open.set_tooltip_text(Some(tr("Ordner öffnen")));
+    folder_open.set_tooltip_text(Some(tr("Open Folder")));
     folder_open.set_valign(gtk::Align::Center);
     folder_open.add_css_class("flat");
     folder.add_suffix(&folder_open);
     let format = prop(tr("Format"));
-    let size = prop(tr("Größe"));
-    let artboards = prop(tr("Zeichenflächen"));
-    let layers = prop(tr("Ebenen"));
-    let objects = prop(tr("Objekte"));
-    let file_size = prop(tr("Dateigröße"));
-    let created = prop(tr("Datei erstellt"));
-    let modified = prop(tr("Datei geändert"));
+    let size = prop(tr("Size"));
+    let artboards = prop(tr("Artboards"));
+    let layers = prop(tr("Layers"));
+    let objects = prop(tr("Objects"));
+    let file_size = prop(tr("File Size"));
+    let created = prop(tr("File Created"));
+    let modified = prop(tr("File Modified"));
     let file_group = group(&[&file_size, &created, &modified]);
     let content = vbox(18);
     content.set_margin_top(12);
@@ -10293,7 +10795,7 @@ fn refresh_info(ui: &Ui) {
             w.folder_open.set_visible(true);
         }
         None => {
-            w.folder.set_subtitle(tr("Nicht gespeichert"));
+            w.folder.set_subtitle(tr("Not saved"));
             w.folder.set_tooltip_text(None);
             w.folder_open.set_visible(false);
         }
@@ -10433,7 +10935,7 @@ fn add_start_tab(ui: &Rc<Ui>) {
         });
     }
     let page = ui.tab_view.append(&widget);
-    page.set_title(tr("Start"));
+    page.set_title(tr("Home"));
     ui.starts.borrow_mut().push(StartTab {
         page: page.clone(),
         recent_list,
@@ -10459,13 +10961,11 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
         .margin_bottom(8)
         .accessible_role(gtk::AccessibleRole::Presentation)
         .build();
-    let hello = gtk::Label::new(Some(tr("Willkommen bei Stijl")));
+    let hello = gtk::Label::new(Some(tr("Welcome to Stijl")));
     hello.add_css_class("title-1");
     hello.set_wrap(true);
     hello.set_justify(gtk::Justification::Center);
-    let hello_sub = gtk::Label::new(Some(tr(
-        "Leg ein neues Dokument an oder mach dort weiter, wo du aufgehört hast.",
-    )));
+    let hello_sub = gtk::Label::new(Some(tr("Start a new document or pick up where you left off.")));
     hello_sub.add_css_class("dim-label");
     hello_sub.set_wrap(true);
     hello_sub.set_justify(gtk::Justification::Center);
@@ -10477,7 +10977,7 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
     // Zuletzt geöffnet: eine Reihe Karten, am Ende „Öffnen …“ – im selben Raster wie die
     // Formate darunter, damit alle Karten gleich groß sind
     let recent_title = gtk::Label::builder()
-        .label(tr("Zuletzt geöffnet"))
+        .label(tr("Recently opened"))
         .xalign(0.0)
         .build();
     recent_title.add_css_class("heading");
@@ -10501,7 +11001,7 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
 
     // Formate: Reiter Print / Online, „Eigenes Format“ und Suche
     let formats_title = gtk::Label::builder()
-        .label(tr("Neues Dokument"))
+        .label(tr("New Document"))
         .xalign(0.0)
         .build();
     formats_title.add_css_class("heading");
@@ -10514,7 +11014,7 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
         t.add_css_class("mondrian-tab");
     }
     let search = gtk::SearchEntry::builder()
-        .placeholder_text(tr("Format suchen, z. B. „A5“ oder „Story“"))
+        .placeholder_text(tr("Search formats, e.g. “A5” or “Story”"))
         .hexpand(true)
         .margin_start(14)
         .build();
@@ -10525,7 +11025,7 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
     bar.append(&search);
     let cards = card_grid();
     let empty = gtk::Label::new(Some(tr(
-        "Kein passendes Format – „Eigenes Format …“ legt jede Größe an",
+        "No matching format – “Custom Format …” creates any size",
     )));
     empty.add_css_class("dim-label");
     empty.set_visible(false);
@@ -10546,7 +11046,7 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
             let mut n = 0;
             for p in PRESETS.iter() {
                 let hit = if q.trim().is_empty() {
-                    (p.group == "Druck") == print
+                    (p.group == "Print") == print
                 } else {
                     format!(
                         "{} {} {} {} {}",
@@ -10574,11 +11074,11 @@ fn build_welcome(ui: &Rc<Ui>) -> (gtk::Widget, gtk::FlowBox, gtk::Box) {
             // „Eigenes Format …“ als gestrichelte Kachel am Ende des Rasters
             let custom = dashed_tile(
                 "document-page-setup-symbolic",
-                tr("Eigenes Format …"),
-                Some(tr("Größe frei wählen")),
+                tr("Custom Format …"),
+                Some(tr("Choose any size")),
             );
             custom.set_action_name(Some("win.new-dialog"));
-            custom.set_tooltip_text(Some(tr("Dokument in beliebiger Größe anlegen")));
+            custom.set_tooltip_text(Some(tr("Create a document of any size")));
             cards.insert(&custom, -1);
             empty.set_visible(n == 0);
         })
@@ -10745,7 +11245,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
     let Some(d) = cur(ui) else { return };
     let has_selection = !d.ed.borrow().selection.is_empty();
     if selection_only && !has_selection {
-        ui.toast(tr("Erst etwas auswählen"));
+        ui.toast(tr("Select something first"));
         return;
     }
     let s = ui.export.borrow().clone();
@@ -10758,7 +11258,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
             ed.doc.artboard_rects(),
         )
     };
-    let (dialog, content) = dialog_shell(tr("Exportieren"), 440);
+    let (dialog, content) = dialog_shell(tr("Export"), 440);
     // Mehrere Zeichenflächen: auswählen, welche exportiert werden – als Vorschaubilder
     let board_docs: Vec<crate::model::Document> = {
         let ed = d.ed.borrow();
@@ -10774,7 +11274,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
             area.set_content_height(th);
             area.set_draw_func(move |_, cr, w, h| {
                 let dark = adw::StyleManager::default().is_dark();
-                render::draw_artboard_thumbnail(cr, w as f64, h as f64, &doc, dark);
+                render::draw_document_thumbnail(cr, w as f64, h as f64, &doc, dark);
             });
             let title = gtk::Label::builder()
                 .label(name.as_str())
@@ -10796,7 +11296,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
             let t = gtk::ToggleButton::builder()
                 .child(&card)
                 .active(true)
-                .tooltip_text(tr("Klicken zum Aus- oder Abwählen"))
+                .tooltip_text(tr("Click to Select or Deselect"))
                 .build();
             t.add_css_class("mondrian-pattern-btn");
             t.add_css_class("flat");
@@ -10805,9 +11305,55 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
         .collect();
     // nur die Auswahl exportieren (so groß wie die Auswahl)
     let only_sel = adw::SwitchRow::builder()
-        .title(tr("Nur die Auswahl"))
+        .title(tr("Selection Only"))
         .active(selection_only)
         .build();
+    // Vorschau dessen, was exportiert wird (bei mehreren Zeichenflächen zeigen die Karten
+    // darunter die Vorschau)
+    {
+        let sel_doc: Option<Rc<crate::model::Document>> = if has_selection {
+            d.ed.borrow().selection_doc(&ui.metrics).map(Rc::new)
+        } else {
+            None
+        };
+        let single: Option<Rc<crate::model::Document>> =
+            (boards.len() == 1).then(|| Rc::new(d.ed.borrow().doc.artboard_doc(0)));
+        let area = gtk::DrawingArea::new();
+        area.set_content_height(180);
+        area.set_hexpand(true);
+        {
+            let (only, sel, single) = (only_sel.clone(), sel_doc.clone(), single.clone());
+            area.set_draw_func(move |_, cr, w, h| {
+                let dark = adw::StyleManager::default().is_dark();
+                let doc = if only.is_active() {
+                    sel.as_deref()
+                } else {
+                    single.as_deref()
+                };
+                if let Some(doc) = doc {
+                    render::draw_document_thumbnail(cr, w as f64, h as f64, doc, dark);
+                }
+            });
+        }
+        let frame = vbox(0);
+        frame.add_css_class("card");
+        area.set_margin_top(12);
+        area.set_margin_bottom(12);
+        area.set_margin_start(12);
+        area.set_margin_end(12);
+        frame.append(&area);
+        let show = {
+            let (frame, area, has_sel, one) =
+                (frame.clone(), area.clone(), sel_doc.is_some(), single.is_some());
+            move |only: bool| {
+                frame.set_visible(if only { has_sel } else { one });
+                area.queue_draw();
+            }
+        };
+        show(selection_only);
+        only_sel.connect_active_notify(move |r| show(r.is_active()));
+        content.append(&frame);
+    }
     if has_selection {
         let g = adw::PreferencesGroup::new();
         g.add(&only_sel);
@@ -10820,13 +11366,13 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
             let g = g.clone();
             only_sel.connect_active_notify(move |r| g.set_visible(!r.is_active()));
         }
-        g.set_title(tr("Zeichenflächen"));
+        g.set_title(tr("Artboards"));
         g.set_description(Some(tr(
-            "PDF: eine Seite je Zeichenfläche. Andere Formate: eine Datei je Zeichenfläche.",
+            "PDF: one page per artboard. Other formats: one file per artboard.",
         )));
         // Alle / Keine
-        let all = gtk::Button::with_label(tr("Alle"));
-        let none = gtk::Button::with_label(tr("Keine"));
+        let all = gtk::Button::with_label(tr("All"));
+        let none = gtk::Button::with_label(tr("None"));
         let bx = hbox(0);
         bx.add_css_class("linked");
         bx.set_valign(gtk::Align::Center);
@@ -10869,7 +11415,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
         .build();
     format.set_selected(s.format);
     let bg = adw::SwitchRow::builder()
-        .title(tr("Hintergrund mitspeichern"))
+        .title(tr("Include Background"))
         .active(s.background)
         .build();
     let scale_labels: Vec<String> = (1..=4)
@@ -10883,44 +11429,42 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
         .collect();
     let scale_refs: Vec<&str> = scale_labels.iter().map(String::as_str).collect();
     let scale = adw::ComboRow::builder()
-        .title(tr("Auflösung"))
+        .title(tr("Resolution"))
         .model(&gtk::StringList::new(&scale_refs))
         .build();
     scale.set_selected(s.scale);
     let quality = adw::SpinRow::with_range(10.0, 100.0, 5.0);
-    quality.set_title(tr("JPG-Qualität"));
+    quality.set_title(tr("JPG Quality"));
     quality.set_value(s.quality);
     let embed = adw::SwitchRow::builder()
-        .title(tr("Schriften einbetten"))
-        .subtitle(tr(
-            "Die verwendeten Schriften werden in die SVG-Datei gelegt (größere Datei)",
-        ))
+        .title(tr("Embed Fonts"))
+        .subtitle(tr("The fonts used are stored in the SVG file (larger file)"))
         .active(s.embed_fonts)
         .build();
     let fx_quality = adw::ComboRow::builder()
-        .title(tr("Qualität der Effekte"))
-        .tooltip_text(tr("Auflösung von Schatten, Glas-, 3D- und Kunsteffekten"))
+        .title(tr("Effect Quality"))
+        .tooltip_text(tr("Resolution of shadows, glass, 3D and artistic effects"))
         .model(&gtk::StringList::new(&[
-            tr("Klein (150 dpi)"),
-            tr("Mittel (300 dpi)"),
-            tr("Hoch (600 dpi)"),
+            tr("Low (150 dpi)"),
+            tr("Medium (300 dpi)"),
+            tr("High (600 dpi)"),
         ]))
         .build();
     fx_quality.set_selected(s.effect_quality.min(2));
     let text_mode = adw::ComboRow::builder()
         .title(tr("Text"))
         .model(&gtk::StringList::new(&[
-            tr("Durchsuchbar"),
-            tr("In Umrisse umwandeln"),
+            tr("Searchable"),
+            tr("Convert to outlines"),
         ]))
         .build();
     text_mode.set_selected(if s.pdf_text { 0 } else { 1 });
     let colors = adw::ComboRow::builder()
-        .title(tr("Farben"))
+        .title(tr("Colours"))
         .model(&gtk::StringList::new(&[
-            tr("RGB (Bildschirm)"),
-            tr("CMYK (Druck)"),
-            tr("PDF/X-4 (Druckerei)"),
+            tr("RGB (screen)"),
+            tr("CMYK (print)"),
+            tr("PDF/X-4 (print shop)"),
         ]))
         .build();
     colors.set_selected(s.color.min(2));
@@ -10931,8 +11475,8 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
             .filter(|(p, _)| p.exists())
             .or_else(|| export::find_profiles().into_iter().next()),
     ));
-    let profile_row = adw::ActionRow::builder().title(tr("Farbprofil")).build();
-    let profile_btn = gtk::Button::with_label(tr("Wählen…"));
+    let profile_row = adw::ActionRow::builder().title(tr("Colour Profile")).build();
+    let profile_btn = gtk::Button::with_label(tr("Choose…"));
     profile_btn.set_valign(gtk::Align::Center);
     profile_row.add_suffix(&profile_btn);
     let show_profile = {
@@ -10940,7 +11484,9 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
         move || {
             row.set_subtitle(&match &*profile.borrow() {
                 Some((_, d)) => d.clone(),
-                None => tr("Keins gefunden – z. B. „PSO Coated v3“ von eci.org laden und wählen").to_string(),
+                None => {
+                    tr("None found – e.g. download “PSO Coated v3” from eci.org and choose it").to_string()
+                }
             });
         }
     };
@@ -10949,11 +11495,11 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
         let (u, profile, show) = (ui.clone(), profile.clone(), show_profile.clone());
         profile_btn.connect_clicked(move |b| {
             let fd = gtk::FileDialog::builder()
-                .title(tr("Farbprofil wählen"))
+                .title(tr("Choose Colour Profile"))
                 .modal(true)
                 .build();
             fd.set_filters(Some(&file_filter(
-                tr("ICC-Farbprofile"),
+                tr("ICC colour profiles"),
                 &["*.icc", "*.ICC", "*.icm", "*.ICM"],
             )));
             if let Some(dir) = ["/usr/share/color/icc", "/usr/local/share/color/icc"]
@@ -10983,17 +11529,29 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
                         *profile.borrow_mut() = Some((p, desc));
                         show();
                     }
-                    None => u.toast(tr("Das ist kein CMYK-Druckprofil (ICC)")),
+                    None => u.toast(tr("This is not a CMYK print profile (ICC)")),
                 }
             });
         });
     }
+    // Dateiname: frühere Exporte nicht überschreiben
+    let suffix = adw::ComboRow::builder()
+        .title(tr("File name"))
+        .subtitle(tr("So that an earlier export is not replaced"))
+        .model(&gtk::StringList::new(&[
+            tr("Same as the document"),
+            tr("With a running number"),
+            tr("With date and time"),
+        ]))
+        .build();
+    suffix.set_selected(s.suffix.min(2));
     let bleed = adw::SpinRow::with_range(0.0, 10.0, 0.5);
     bleed.set_digits(1);
-    bleed.set_title(tr("Beschnittzugabe (mm)"));
+    bleed.set_title(tr("Bleed (mm)"));
     bleed.set_value(s.bleed);
     let group = adw::PreferencesGroup::new();
     group.add(&format);
+    group.add(&suffix);
     group.add(&bg);
     group.add(&embed);
     group.add(&scale);
@@ -11007,7 +11565,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
     pdf_group.add(&profile_row);
     pdf_group.add(&bleed);
     content.append(&pdf_group);
-    let button = pill_button(tr("Exportieren…"));
+    let button = pill_button(tr("Export…"));
     content.append(&button);
 
     let update = {
@@ -11032,9 +11590,9 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
             pdf_group.set_visible(f == Format::Pdf);
             profile_row.set_visible(colors.selected() > 0);
             if f == Format::Jpeg && !bg.is_active() {
-                bg.set_subtitle(tr("JPG unterstützt keine Transparenz – es wird Weiß verwendet"));
+                bg.set_subtitle(tr("JPG does not support transparency – white is used instead"));
             } else if !has_bg {
-                bg.set_subtitle(tr("Dieses Dokument hat einen transparenten Hintergrund"));
+                bg.set_subtitle(tr("This document has a transparent background"));
             } else {
                 bg.set_subtitle("");
             }
@@ -11071,9 +11629,11 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
                 color: colors.selected().min(2),
                 profile: profile.borrow().clone(),
                 bleed: bleed.value(),
+                suffix: suffix.selected().min(2),
+                last_dir: u.export.borrow().last_dir.clone(),
             };
             if settings.format == 2 && settings.color == 2 && settings.profile.is_none() {
-                u.toast(tr("Für PDF/X zuerst ein Farbprofil wählen"));
+                u.toast(tr("Choose a colour profile for PDF/X first"));
                 return;
             }
             *u.export.borrow_mut() = settings.clone();
@@ -11089,7 +11649,7 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
                 .map(|(i, _)| i)
                 .collect();
             if picked.is_empty() {
-                u.toast(tr("Mindestens eine Zeichenfläche auswählen"));
+                u.toast(tr("Select at least one artboard"));
                 return;
             }
             dlg.close();
@@ -11098,6 +11658,21 @@ fn export_dialog_with(ui: &Rc<Ui>, selection_only: bool) {
     }
     label_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&ui.window));
+}
+
+/// Dateiname einer Zeichenfläche beim Export in mehrere Dateien: „Name-Zeichenfläche 2.png“.
+fn board_file_name(stem: &str, board: &str, ext: &str) -> String {
+    let clean: String = board
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("{stem}-{}.{ext}", clean.trim())
 }
 
 /// Exportieren in eine Datei: `boards` = gewählte Zeichenflächen, `None` = nur die Auswahl.
@@ -11120,11 +11695,43 @@ fn choose_export_file(ui: &Rc<Ui>, d: &Rc<DocTab>, s: ExportSettings, boards: Op
         bleed_mm: if fmt == Format::Pdf { s.bleed } else { 0.0 },
         title: d.name(),
     };
+    // vorgeschlagener Name: im Ordner des letzten Exports (sonst neben dem Dokument) der
+    // nächste freie, damit nichts überschrieben wird
+    let dir: Option<PathBuf> = s.last_dir.clone().filter(|p| p.is_dir()).or_else(|| {
+        d.file
+            .borrow()
+            .as_ref()
+            .and_then(|f| f.parent().map(Path::to_path_buf))
+    });
+    let board_names: Vec<String> = match &boards {
+        Some(b) if b.len() > 1 && fmt != Format::Pdf => {
+            let rects = d.ed.borrow().doc.artboard_rects();
+            b.iter()
+                .filter_map(|i| rects.get(*i).map(|r| r.0.clone()))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    let stamp = glib::DateTime::now_local()
+        .ok()
+        .and_then(|t| t.format("%Y-%m-%d_%H-%M").ok())
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let stem = crate::fsutil::export_stem(&d.name(), s.suffix, &stamp, |stem| match &dir {
+        Some(dir) if board_names.is_empty() => dir.join(format!("{stem}.{}", fmt.ext())).exists(),
+        Some(dir) => board_names
+            .iter()
+            .any(|n| dir.join(board_file_name(stem, n, fmt.ext())).exists()),
+        None => false,
+    });
     let dialog = gtk::FileDialog::builder()
-        .title(tr("Exportieren"))
+        .title(tr("Export"))
         .modal(true)
-        .initial_name(format!("{}.{}", d.name(), fmt.ext()))
+        .initial_name(format!("{stem}.{}", fmt.ext()))
         .build();
+    if let Some(dir) = &dir {
+        dialog.set_initial_folder(Some(&gio::File::for_path(dir)));
+    }
     dialog.set_filters(Some(&file_filter(fmt.label(), fmt.pattern())));
     let (u, d) = (ui.clone(), d.clone());
     dialog.save(Some(&ui.window), gio::Cancellable::NONE, move |res| {
@@ -11134,6 +11741,7 @@ fn choose_export_file(ui: &Rc<Ui>, d: &Rc<DocTab>, s: ExportSettings, boards: Op
         if path.extension().is_none() {
             path.set_extension(fmt.ext());
         }
+        u.export.borrow_mut().last_dir = path.parent().map(Path::to_path_buf);
         let (docs, names): (Vec<crate::model::Document>, Vec<String>) = {
             let ed = d.ed.borrow();
             match &boards {
@@ -11145,13 +11753,13 @@ fn choose_export_file(ui: &Rc<Ui>, d: &Rc<DocTab>, s: ExportSettings, boards: Op
                         .unzip()
                 }
                 None => match ed.selection_doc(&u.metrics) {
-                    Some(doc) => (vec![doc], vec![tr("Auswahl").to_string()]),
+                    Some(doc) => (vec![doc], vec![tr("Select").to_string()]),
                     None => (Vec::new(), Vec::new()),
                 },
             }
         };
         if docs.is_empty() {
-            u.toast(tr("Erst etwas auswählen"));
+            u.toast(tr("Select something first"));
             return;
         }
         let result = if docs.len() == 1 {
@@ -11167,17 +11775,7 @@ fn choose_export_file(ui: &Rc<Ui>, d: &Rc<DocTab>, s: ExportSettings, boards: Op
             let mut n = 0;
             let mut res = Ok(0);
             for (doc, name) in docs.iter().zip(&names) {
-                let clean: String = name
-                    .chars()
-                    .map(|c| {
-                        if c.is_alphanumeric() || c == ' ' || c == '-' {
-                            c
-                        } else {
-                            '_'
-                        }
-                    })
-                    .collect();
-                let p = path.with_file_name(format!("{stem}-{}.{}", clean.trim(), fmt.ext()));
+                let p = path.with_file_name(board_file_name(&stem, name, fmt.ext()));
                 if let Err(e) = export::export(doc, &p, &opt) {
                     res = Err(e);
                     break;
@@ -11192,10 +11790,10 @@ fn choose_export_file(ui: &Rc<Ui>, d: &Rc<DocTab>, s: ExportSettings, boards: Op
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
-                u.toast(&trf("Exportiert: {}", &[&(name)]));
+                u.toast(&trf("Exported: {}", &[&(name)]));
             }
-            Ok(n) => u.toast(&trf("{} Dateien exportiert", &[&(n)])),
-            Err(e) => u.toast(&trf("Export fehlgeschlagen: {}", &[&(e)])),
+            Ok(n) => u.toast(&trf("{} files exported", &[&(n)])),
+            Err(e) => u.toast(&trf("Export failed: {}", &[&(e)])),
         }
     });
 }
@@ -11206,25 +11804,25 @@ fn choose_export_file(ui: &Rc<Ui>, d: &Rc<DocTab>, s: ExportSettings, boards: Op
 fn scale_dialog(ui: &Rc<Ui>) {
     let Some(d) = cur(ui) else { return };
     if d.ed.borrow().selection.is_empty() {
-        ui.toast(tr("Erst etwas auswählen"));
+        ui.toast(tr("Select something first"));
         return;
     }
-    let (dialog, content) = dialog_shell(tr("Skalieren"), 400);
+    let (dialog, content) = dialog_shell(tr("Scale"), 400);
     let group = adw::PreferencesGroup::new();
     let uniform = adw::SpinRow::with_range(1.0, 10000.0, 1.0);
-    uniform.set_title(tr("Größe (%)"));
+    uniform.set_title(tr("Size (%)"));
     uniform.set_value(100.0);
     let separate = adw::SwitchRow::builder()
-        .title(tr("Breite und Höhe getrennt"))
+        .title(tr("Width and Height Separately"))
         .build();
     let sx = adw::SpinRow::with_range(1.0, 10000.0, 1.0);
-    sx.set_title(tr("Breite (%)"));
+    sx.set_title(tr("Width (%)"));
     sx.set_value(100.0);
     let sy = adw::SpinRow::with_range(1.0, 10000.0, 1.0);
-    sy.set_title(tr("Höhe (%)"));
+    sy.set_title(tr("Height (%)"));
     sy.set_value(100.0);
     let strokes = adw::SwitchRow::builder()
-        .title(tr("Konturen und Schatten mitskalieren"))
+        .title(tr("Scale Strokes and Shadows Too"))
         .active(true)
         .build();
     group.add(&uniform);
@@ -11233,7 +11831,7 @@ fn scale_dialog(ui: &Rc<Ui>) {
     group.add(&sy);
     group.add(&strokes);
     content.append(&group);
-    let button = pill_button(tr("Skalieren"));
+    let button = pill_button(tr("Scale"));
     content.append(&button);
     let sync = {
         let (uniform, sx, sy) = (uniform.clone(), sx.clone(), sy.clone());
@@ -11264,6 +11862,223 @@ fn scale_dialog(ui: &Rc<Ui>) {
     dialog.present(Some(&ui.window));
 }
 
+/// „Kontur versetzen …“: Abstand (in der Einheit des Dokuments) und Ecken.
+fn offset_dialog(ui: &Rc<Ui>) {
+    let Some(d) = cur(ui) else { return };
+    let unit = {
+        let ed = d.ed.borrow();
+        if ed.selection.is_empty() {
+            ui.toast(tr("Select something first"));
+            return;
+        }
+        doc_unit(ui, &ed)
+    };
+    let (dialog, content) = dialog_shell(tr("Offset Path"), 400);
+    let group = adw::PreferencesGroup::new();
+    group.set_description(Some(tr(
+        "Positive values grow the shape, negative values shrink it",
+    )));
+    let step = if unit == Unit::Px || unit == Unit::Pt {
+        1.0
+    } else {
+        0.5
+    };
+    let dist = adw::SpinRow::with_range(-1000.0, 1000.0, step);
+    dist.set_title(&trf("Distance ({})", &[&unit.name()]));
+    dist.set_digits(if step < 1.0 { 2 } else { 1 });
+    dist.set_value((10.0 / unit.px() / step).round() * step);
+    let corners = adw::ComboRow::builder()
+        .title(tr("Corners"))
+        .model(&gtk::StringList::new(&[tr("Round"), tr("Sharp")]))
+        .build();
+    group.add(&dist);
+    group.add(&corners);
+    content.append(&group);
+    let button = pill_button(tr("Offset Path"));
+    content.append(&button);
+    {
+        let (u, dlg) = (ui.clone(), dialog.clone());
+        button.connect_clicked(move |_| {
+            let v = dist.value() * unit.px();
+            let join = if corners.selected() == 0 {
+                crate::model::LineJoin::Round
+            } else {
+                crate::model::LineJoin::Miter
+            };
+            with_ed_m(&u, |e, m| {
+                if e.offset_path(v, join, m) == 0 && e.message.is_none() {
+                    e.message = Some(tr("Nothing left at this distance").into());
+                }
+            });
+            dlg.close();
+        });
+    }
+    label_icon_buttons(dialog.upcast_ref());
+    dialog.present(Some(&ui.window));
+}
+
+/// „Wiederholen …“: Kopien mit gleichem Abstand, gleicher Drehung und Größenänderung.
+fn repeat_dialog(ui: &Rc<Ui>) {
+    let Some(d) = cur(ui) else { return };
+    let unit = {
+        let ed = d.ed.borrow();
+        if ed.selection.is_empty() {
+            ui.toast(tr("Select something first"));
+            return;
+        }
+        doc_unit(ui, &ed)
+    };
+    let (dialog, content) = dialog_shell(tr("Repeat"), 420);
+    let group = adw::PreferencesGroup::new();
+    group.set_description(Some(tr("Each copy moves, turns and scales a step further")));
+    let copies = adw::SpinRow::with_range(1.0, 1000.0, 1.0);
+    copies.set_title(tr("Copies"));
+    copies.set_value(5.0);
+    let step = if unit == Unit::Px || unit == Unit::Pt {
+        1.0
+    } else {
+        0.5
+    };
+    let dx = adw::SpinRow::with_range(-100000.0, 100000.0, step);
+    dx.set_title(&trf("Horizontal Offset ({})", &[&unit.name()]));
+    dx.set_digits(2);
+    dx.set_value((20.0 / unit.px() / step).round() * step);
+    let dy = adw::SpinRow::with_range(-100000.0, 100000.0, step);
+    dy.set_title(&trf("Vertical Offset ({})", &[&unit.name()]));
+    dy.set_digits(2);
+    let angle = adw::SpinRow::with_range(-360.0, 360.0, 1.0);
+    angle.set_title(tr("Rotation (°)"));
+    angle.set_digits(1);
+    let size = adw::SpinRow::with_range(1.0, 1000.0, 1.0);
+    size.set_title(tr("Size (%)"));
+    size.set_value(100.0);
+    let around = adw::ComboRow::builder()
+        .title(tr("Rotate Around"))
+        .model(&gtk::StringList::new(&[
+            tr("Centre of the Selection"),
+            tr("Centre of the Page"),
+        ]))
+        .build();
+    group.add(&copies);
+    group.add(&dx);
+    group.add(&dy);
+    group.add(&angle);
+    group.add(&size);
+    group.add(&around);
+    content.append(&group);
+    let button = pill_button(tr("Repeat"));
+    content.append(&button);
+    {
+        let (u, dlg) = (ui.clone(), dialog.clone());
+        button.connect_clicked(move |_| {
+            let n = copies.value().round().max(1.0) as usize;
+            let (x, y) = (dx.value() * unit.px(), dy.value() * unit.px());
+            let (a, k) = (angle.value(), size.value() / 100.0);
+            let page = around.selected() == 1;
+            with_ed_m(&u, |e, m| {
+                // Mitte der Zeichenfläche, auf der die Auswahl liegt
+                let pivot = page.then(|| {
+                    let rects = e.doc.artboard_rects();
+                    let mid = |r: &crate::geom::Rect| Pt::new((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0);
+                    let c = e.selection_bbox(m).map(|b| mid(&b));
+                    let r = c
+                        .and_then(|c| rects.iter().find(|(_, r)| r.contains(c)))
+                        .unwrap_or(&rects[0])
+                        .1;
+                    mid(&r)
+                });
+                e.repeat_selection(n, x, y, a, k, pivot, m);
+            });
+            dlg.close();
+        });
+    }
+    label_icon_buttons(dialog.upcast_ref());
+    dialog.present(Some(&ui.window));
+}
+
+/// Drucken: eine Seite je Zeichenfläche, in Originalgröße und mittig; zu große
+/// Zeichenflächen werden auf das Blatt verkleinert.
+fn print_document(ui: &Rc<Ui>) {
+    let Some(d) = cur(ui) else { return };
+    let (docs, title) = {
+        let ed = d.ed.borrow();
+        let n = ed.doc.artboard_rects().len();
+        let docs: Vec<crate::model::Document> = (0..n).map(|i| ed.doc.artboard_doc(i)).collect();
+        (Rc::new(docs), d.name())
+    };
+    let op = gtk::PrintOperation::new();
+    op.set_job_name(&title);
+    op.set_n_pages(docs.len() as i32);
+    op.set_unit(gtk::Unit::Points);
+    op.set_embed_page_setup(true);
+    op.set_allow_async(true);
+    if let Some(s) = ui.print_settings.borrow().as_ref() {
+        op.set_print_settings(Some(s));
+    }
+    {
+        // Hoch- oder Querformat je nach Zeichenfläche
+        let docs = docs.clone();
+        op.connect_request_page_setup(move |_, _, page, setup| {
+            if let Some(doc) = docs.get(page.max(0) as usize) {
+                setup.set_orientation(if doc.width > doc.height {
+                    gtk::PageOrientation::Landscape
+                } else {
+                    gtk::PageOrientation::Portrait
+                });
+            }
+        });
+    }
+    let prev_res: Rc<Cell<Option<f64>>> = Rc::new(Cell::new(None));
+    {
+        // Effekte in Druckauflösung (300 dpi)
+        let prev_res = prev_res.clone();
+        op.connect_begin_print(move |_, _| {
+            prev_res.set(Some(crate::render::set_effect_resolution(300.0 / 72.0)));
+        });
+    }
+    op.connect_draw_page(move |_, ctx, page| {
+        let Some(doc) = docs.get(page.max(0) as usize) else {
+            return;
+        };
+        let cr = ctx.cairo_context();
+        // 96 Pixel = 72 Punkte; zu große Zeichenflächen passend verkleinern
+        let k = 72.0 / 96.0;
+        let (pw, ph) = (ctx.width(), ctx.height());
+        let (w, h) = (doc.width * k, doc.height * k);
+        let fit = (pw / w).min(ph / h).min(1.0);
+        let s = if fit.is_finite() && fit > 0.0 { k * fit } else { k };
+        let _ = cr.save();
+        cr.translate((pw - doc.width * s) / 2.0, (ph - doc.height * s) / 2.0);
+        cr.scale(s, s);
+        cr.rectangle(0.0, 0.0, doc.width, doc.height);
+        cr.clip();
+        if let Some(c) = doc.background {
+            cr.set_source_rgba(c.r, c.g, c.b, c.a);
+            let _ = cr.paint();
+        }
+        crate::render::draw_document(&cr, doc);
+        let _ = cr.restore();
+    });
+    let u = ui.clone();
+    op.connect_done(move |op, result| {
+        if let Some(r) = prev_res.take() {
+            crate::render::set_effect_resolution(r);
+        }
+        match result {
+            gtk::PrintOperationResult::Apply => {
+                u.print_settings.replace(op.print_settings());
+            }
+            gtk::PrintOperationResult::Error => {
+                u.toast(tr("Printing failed"));
+            }
+            _ => {}
+        }
+    });
+    if let Err(e) = op.run(gtk::PrintOperationAction::PrintDialog, Some(&ui.window)) {
+        ui.toast(&trf("Printing failed: {}", &[&e]));
+    }
+}
+
 fn artboard_dialog(ui: &Rc<Ui>) {
     artboard_dialog_at(ui, 0);
 }
@@ -11280,19 +12095,13 @@ fn artboard_dialog_at(ui: &Rc<Ui>, idx: usize) {
             n,
             r.width(),
             r.height(),
-            ed.doc.background,
+            // jede Zeichenfläche hat ihren eigenen Hintergrund
+            ed.doc.artboard_backgrounds().get(idx).copied().flatten(),
             doc_unit(ui, &ed),
             rects.len() > 1,
         )
     };
-    let (dialog, content) = dialog_shell(
-        if many {
-            name0.as_str()
-        } else {
-            tr("Zeichenfläche")
-        },
-        460,
-    );
+    let (dialog, content) = dialog_shell(if many { name0.as_str() } else { tr("Artboard") }, 460);
     let size = SizeEditor::new(w0, h0, unit);
     // weitere Zeichenflächen lassen sich umbenennen
     let name_entry = adw::EntryRow::builder().title(tr("Name")).text(&name0).build();
@@ -11303,31 +12112,27 @@ fn artboard_dialog_at(ui: &Rc<Ui>, idx: usize) {
     }
 
     let bg_on = adw::SwitchRow::builder()
-        .title(tr("Hintergrundfarbe"))
-        .subtitle(tr("Ausgeschaltet ist die Zeichenfläche transparent"))
+        .title(tr("Background Colour"))
+        .subtitle(tr("When switched off, the artboard is transparent"))
         .active(bg0.is_some())
         .build();
     let color = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::builder().with_alpha(true).build()));
     color.set_rgba(&to_rgba(bg0.unwrap_or(Color::WHITE)));
     color.set_valign(gtk::Align::Center);
-    let color_row = adw::ActionRow::builder().title(tr("Farbe")).build();
+    let color_row = adw::ActionRow::builder().title(tr("Colour")).build();
     color_row.add_suffix(&color);
     bg_on
         .bind_property("active", &color_row, "sensitive")
         .sync_create()
         .build();
     let bg_group = adw::PreferencesGroup::new();
-    bg_group.set_title(if many {
-        tr("Hintergrund (alle Zeichenflächen)")
-    } else {
-        tr("Hintergrund")
-    });
+    bg_group.set_title(tr("Background"));
     bg_group.add(&bg_on);
     bg_group.add(&color_row);
 
     content.append(&size.group);
     content.append(&bg_group);
-    let apply = pill_button(tr("Übernehmen"));
+    let apply = pill_button(tr("Apply"));
     content.append(&apply);
     {
         let (u, dlg) = (ui.clone(), dialog.clone());
@@ -11340,8 +12145,7 @@ fn artboard_dialog_at(ui: &Rc<Ui>, idx: usize) {
                     ed.set_artboard(w, h, bg);
                 } else {
                     ed.set_artboard_size(idx, w, h);
-                    let (mw, mh) = (ed.doc.width, ed.doc.height);
-                    ed.set_artboard(mw, mh, bg);
+                    ed.set_artboard_background(idx, bg);
                     ed.rename_artboard(idx, &name_entry.text());
                 }
                 ed.doc.unit = size.unit.get().name().into();
@@ -11397,10 +12201,10 @@ fn capture_shortcut(ui: &Rc<Ui>, parent: &impl IsA<gtk::Widget>, id: &'static st
     if let Some(app) = &app {
         clear_accels(app);
     }
-    let info = gtk::Label::new(Some(tr("Jetzt die neue Tastenkombination drücken …")));
+    let info = gtk::Label::new(Some(tr("Now press the new key combination …")));
     info.add_css_class("title-3");
     let hint = gtk::Label::builder()
-        .label(tr("Esc bricht ab, ⌫ entfernt das Kürzel"))
+        .label(tr("Esc cancels, ⌫ removes the shortcut"))
         .wrap(true)
         .build();
     hint.add_css_class("dim-label");
@@ -11449,7 +12253,7 @@ fn capture_shortcut(ui: &Rc<Ui>, parent: &impl IsA<gtk::Widget>, id: &'static st
                 }
                 if let Some(other) = KEYMAP.with(|k| k.borrow().owner(&name, def.id)) {
                     msg.set_label(&trf(
-                        "{} ist schon vergeben für „{}“. Eine andere Kombination wählen oder Esc drücken.",
+                        "{} is already used for “{}”. Choose another combination or press Esc.",
                         &[&(crate::keys::label(&name)), &(tr(other.label))],
                     ));
                     return glib::Propagation::Stop;
@@ -11483,9 +12287,9 @@ fn preferences_dialog(ui: &Rc<Ui>) {
 /// Einstellungen mit der Kategorie `start` (0 Ansicht, 1 Ausrichten, 2 Tastenkürzel).
 fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
     const CATS: [(&str, &str); 3] = [
-        ("Ansicht", "preferences-desktop-appearance-symbolic"),
-        ("Ausrichten", "mondrian-guide-symbolic"),
-        ("Tastenkürzel", "input-keyboard-symbolic"),
+        ("View", "preferences-desktop-appearance-symbolic"),
+        ("Align", "mondrian-guide-symbolic"),
+        ("Keyboard Shortcuts", "input-keyboard-symbolic"),
     ];
     let entries: Rc<RefCell<Vec<PrefEntry>>> = Rc::new(RefCell::new(Vec::new()));
     let groups: Rc<RefCell<Vec<(usize, adw::PreferencesGroup)>>> = Rc::new(RefCell::new(Vec::new()));
@@ -11520,9 +12324,9 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
     };
 
     // ───── Ansicht
-    let (gi, look) = new_group(0, tr("Darstellung"), None);
+    let (gi, look) = new_group(0, tr("Appearance"), None);
     let scheme_row = adw::ComboRow::builder()
-        .title(tr("Farbschema"))
+        .title(tr("Colour Scheme"))
         .model(&gtk::StringList::new(
             &Scheme::ALL.iter().map(|s| s.label()).collect::<Vec<_>>(),
         ))
@@ -11538,38 +12342,42 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         gi,
         &look,
         scheme_row.upcast_ref(),
-        tr("farbschema system hell dunkel darstellung theme design"),
+        tr("colour color scheme system light dark appearance theme design"),
     );
     // Sprache (Sprachnamen in ihrer eigenen Sprache)
-    const LANGS: [&str; 3] = ["system", "de", "en_GB"];
+    let langs: Vec<&str> = std::iter::once("system")
+        .chain(crate::i18n::Lang::ALL.iter().map(|(_, code, _)| *code))
+        .collect();
+    let lang_names: Vec<&str> = std::iter::once(tr("System"))
+        .chain(crate::i18n::Lang::ALL.iter().map(|(_, _, name)| *name))
+        .collect();
     let lang_row = adw::ComboRow::builder()
-        .title(tr("Sprache"))
-        .model(&gtk::StringList::new(&[tr("System"), "Deutsch", "English (UK)"]))
+        .title(tr("Language"))
+        .model(&gtk::StringList::new(&lang_names))
         .build();
-    lang_row.set_selected(
-        LANGS
-            .iter()
-            .position(|l| *l == ui.language.borrow().as_str())
-            .unwrap_or(0) as u32,
-    );
+    {
+        // frühere Versionen speicherten „en_GB“
+        let cur = ui.language.borrow().replace("en_GB", "en");
+        lang_row.set_selected(langs.iter().position(|l| *l == cur).unwrap_or(0) as u32);
+    }
     add_row(
         0,
         gi,
         &look,
         lang_row.upcast_ref(),
-        "sprache language deutsch english englisch",
+        "language sprache idioma langue english deutsch español français",
     );
     {
         let u = ui.clone();
         lang_row.connect_selected_notify(move |r| {
-            let l = LANGS[(r.selected() as usize).min(LANGS.len() - 1)];
+            let l = langs[(r.selected() as usize).min(langs.len() - 1)];
             *u.language.borrow_mut() = l.to_string();
             save_settings(&u);
-            u.toast(tr("Die Sprache wechselt beim nächsten Start von Stijl"));
+            u.toast(tr("The language changes the next time Stijl starts"));
         });
     }
     let backdrop_row = adw::ComboRow::builder()
-        .title(tr("Hintergrund"))
+        .title(tr("Background"))
         .model(&gtk::StringList::new(
             &render::Backdrop::ALL
                 .iter()
@@ -11588,12 +12396,12 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         gi,
         &look,
         backdrop_row.upcast_ref(),
-        tr("hintergrund standard dunkel schachbrett transparent arbeitsbereich"),
+        tr("background default dark chequerboard checkerboard transparent workspace"),
     );
     let view_row = adw::ComboRow::builder()
-        .title(tr("Ansicht"))
-        .tooltip_text(tr("Notizheft: eine Seite nach der anderen, Scrollen blättert um"))
-        .model(&gtk::StringList::new(&[tr("Zeichenfläche"), tr("Notizheft")]))
+        .title(tr("View"))
+        .tooltip_text(tr("Notebook: one page after another, scrolling turns the page"))
+        .model(&gtk::StringList::new(&[tr("Artboard"), tr("Notebook")]))
         .build();
     view_row.set_selected(ui.notebook.get() as u32);
     add_row(
@@ -11601,27 +12409,19 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         gi,
         &look,
         view_row.upcast_ref(),
-        tr("ansicht zeichenfläche notizheft seiten blättern seite canva"),
+        tr("view artboard notebook pages turn page canva"),
     );
     let rulers_row = adw::SwitchRow::builder()
-        .title(tr("Lineale"))
-        .tooltip_text(tr("Ein Klick in die Ecke der Lineale wechselt die Einheit"))
+        .title(tr("Rulers"))
+        .tooltip_text(tr("Clicking the corner of the rulers changes the unit"))
         .active(ui.show_rulers.get())
         .build();
-    add_row(
-        0,
-        gi,
-        &look,
-        rulers_row.upcast_ref(),
-        tr("lineale oben links einheit"),
-    );
+    add_row(0, gi, &look, rulers_row.upcast_ref(), tr("rulers top left unit"));
 
-    let (gi, units) = new_group(0, tr("Maßeinheit"), None);
+    let (gi, units) = new_group(0, tr("Unit of Measurement"), None);
     let unit_row = adw::ComboRow::builder()
-        .title(tr("Einheit"))
-        .tooltip_text(tr(
-            "Voreinstellung; jedes Dokument merkt sich seine eigene Einheit",
-        ))
+        .title(tr("Unit"))
+        .tooltip_text(tr("Default; every document remembers its own unit"))
         .model(&gtk::StringList::new(
             &Unit::ALL.iter().map(|u| u.label()).collect::<Vec<_>>(),
         ))
@@ -11632,19 +12432,19 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         gi,
         &units,
         unit_row.upcast_ref(),
-        tr("maßeinheit einheit pixel px millimeter mm zentimeter cm zoll inch in punkt pt metrisch imperial"),
+        tr("unit of measurement unit pixel px millimetre mm centimetre cm inch in point pt metric imperial"),
     );
 
     // Updates (nicht unter Flatpak/Snap – dort kümmert sich die Paketverwaltung)
     if !crate::update::managed_externally() {
         let (gi, upd) = new_group(0, tr("Updates"), None);
         let upd_row = adw::SwitchRow::builder()
-            .title(tr("Nach neuen Versionen suchen"))
-            .tooltip_text(tr("Einmal am Tag bei GitHub nachsehen"))
+            .title(tr("Check for New Versions"))
+            .tooltip_text(tr("Checks GitHub once a day"))
             .active(ui.updates.get())
             .build();
         let now_btn = gtk::Button::builder()
-            .label(tr("Jetzt suchen"))
+            .label(tr("Check now"))
             .valign(gtk::Align::Center)
             .build();
         now_btn.add_css_class("flat");
@@ -11654,7 +12454,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
             gi,
             &upd,
             upd_row.upcast_ref(),
-            tr("updates aktualisierung neue version github"),
+            tr("updates update new version github"),
         );
         let u = ui.clone();
         upd_row.connect_active_notify(move |r| {
@@ -11666,32 +12466,28 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
     }
 
     // ───── Ausrichten
-    let (gi, snapg) = new_group(1, tr("Einrasten an"), None);
+    let (gi, snapg) = new_group(1, tr("Snap To"), None);
     let switch = |title: &str, on: bool, text: &str| -> adw::SwitchRow {
         let r = adw::SwitchRow::builder().title(title).active(on).build();
-        add_row(1, gi, &snapg, r.upcast_ref(), &trf("einrasten {}", &[&(text)]));
+        add_row(1, gi, &snapg, r.upcast_ref(), &trf("snap {}", &[&(text)]));
         r
     };
-    let guide_snap_row = switch(tr("Hilfslinien"), ui.snap_guides.get(), "hilfslinien");
-    let corners_row = switch(tr("Ecken"), ui.snap_corners.get(), tr("ecken objekte punkte"));
+    let guide_snap_row = switch(tr("Guides"), ui.snap_guides.get(), "hilfslinien");
+    let corners_row = switch(tr("Corners"), ui.snap_corners.get(), tr("corners objects points"));
     let mids_row = switch(
-        tr("Mitten"),
+        tr("Centres"),
         ui.snap_mids.get(),
-        tr("mitten mitte kantenmitten objekte punkte"),
+        tr("centres centre edge centres objects points"),
     );
     let anchors_row = switch(
-        tr("Ankerpunkte"),
+        tr("Anchor points"),
         ui.snap_anchors.get(),
-        tr("ankerpunkte pfade punkte"),
+        tr("anchor points paths points"),
     );
-    let page_row = switch(tr("Seite"), ui.snap_page.get(), tr("seite zeichenfläche rand"));
-    let paths_row = switch(tr("Pfade"), ui.snap_paths.get(), tr("pfade konturen linien"));
-    let spacing_row = switch(
-        tr("Abstände"),
-        ui.snap_spacing.get(),
-        tr("abstände gleiche lücken reihe"),
-    );
-    let grid_row = switch(tr("Raster"), ui.grid_snap.get(), tr("raster gitter"));
+    let page_row = switch(tr("Page"), ui.snap_page.get(), tr("page artboard edge"));
+    let paths_row = switch(tr("Paths"), ui.snap_paths.get(), tr("paths strokes lines"));
+    let spacing_row = switch(tr("Spacing"), ui.snap_spacing.get(), tr("spacing equal gaps row"));
+    let grid_row = switch(tr("Grid"), ui.grid_snap.get(), tr("grid"));
     let snap_rows = vec![
         guide_snap_row.clone(),
         corners_row.clone(),
@@ -11703,8 +12499,8 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         grid_row.clone(),
     ];
     {
-        let all_on = gtk::Button::with_label(tr("Alle an"));
-        let all_off = gtk::Button::with_label(tr("Alle aus"));
+        let all_on = gtk::Button::with_label(tr("All On"));
+        let all_off = gtk::Button::with_label(tr("All Off"));
         let bx = hbox(0);
         bx.add_css_class("linked");
         bx.append(&all_on);
@@ -11720,7 +12516,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         }
     }
     let grid_size_row = adw::SpinRow::with_range(1.0, 1000.0, 1.0);
-    grid_size_row.set_title(tr("Rasterweite (px)"));
+    grid_size_row.set_title(tr("Grid Spacing (px)"));
     grid_size_row.set_value(ui.grid_size.get());
     grid_size_row.set_sensitive(ui.grid_snap.get());
     add_row(
@@ -11728,14 +12524,14 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         gi,
         &snapg,
         grid_size_row.upcast_ref(),
-        tr("rasterweite raster gitter px"),
+        tr("grid spacing grid px"),
     );
-    let (gi, frameg) = new_group(1, tr("Einsetzen in Formen"), None);
+    let (gi, frameg) = new_group(1, tr("Placing in Shapes"), None);
     let dwell_row = adw::SpinRow::with_range(0.1, 5.0, 0.1);
     dwell_row.set_digits(1);
-    dwell_row.set_title(tr("Wartezeit (s)"));
+    dwell_row.set_title(tr("Delay (s)"));
     dwell_row.set_tooltip_text(Some(tr(
-        "So lange ein Bild oder Textfeld über einer Form gehalten werden muss, bis es eingesetzt wird",
+        "How long an image or text box has to be held over a shape before it is placed inside",
     )));
     dwell_row.set_value(ui.frame_dwell.get());
     add_row(
@@ -11743,14 +12539,14 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         gi,
         &frameg,
         dwell_row.upcast_ref(),
-        tr("wartezeit einsetzen formen bild textfeld halten rahmen"),
+        tr("delay place shapes image text box hold frame"),
     );
 
     // ───── Shortcuts
     let (gi, reset_g) = new_group(2, "", None);
-    let reset_all = gtk::Button::with_label(tr("Alle zurücksetzen"));
+    let reset_all = gtk::Button::with_label(tr("Reset All"));
     reset_all.set_valign(gtk::Align::Center);
-    let reset_row = adw::ActionRow::builder().title(tr("Standardbelegung")).build();
+    let reset_row = adw::ActionRow::builder().title(tr("Default Shortcuts")).build();
     reset_row.add_suffix(&reset_all);
     reset_all.set_sensitive(KEYMAP.with(|k| k.borrow().any_custom()));
     add_row(
@@ -11758,7 +12554,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         gi,
         &reset_g,
         reset_row.upcast_ref(),
-        tr("standardbelegung alle zurücksetzen shortcuts tastenkürzel tastenkombination"),
+        tr("default shortcuts reset all keyboard shortcuts key combination"),
     );
     // je Zeile: (Kennung, Beschriftung der Kürzel, Zurücksetzen-Knopf)
     type ShortcutRow = (&'static str, gtk::Label, gtk::Button);
@@ -11781,7 +12577,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
                 for (id, label, reset) in rows.borrow().iter() {
                     let keys = k.keys(id);
                     label.set_label(&if keys.is_empty() {
-                        tr("Nicht belegt").to_string()
+                        tr("Not assigned").to_string()
                     } else {
                         keys.iter()
                             .map(|a| crate::keys::label(a))
@@ -11804,13 +12600,13 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
             let reset = gtk::Button::from_icon_name("edit-undo-symbolic");
             reset.add_css_class("flat");
             reset.set_valign(gtk::Align::Center);
-            reset.set_tooltip_text(Some(tr("Auf den Standard zurücksetzen")));
+            reset.set_tooltip_text(Some(tr("Reset to Default")));
             reset.set_visible(false);
             if d.kind != crate::keys::Kind::Fixed {
                 let edit = gtk::Button::from_icon_name("document-edit-symbolic");
                 edit.add_css_class("flat");
                 edit.set_valign(gtk::Align::Center);
-                edit.set_tooltip_text(Some(tr("Tastenkombination ändern")));
+                edit.set_tooltip_text(Some(tr("Change Key Combination")));
                 row.add_suffix(&reset);
                 row.add_suffix(&edit);
                 row.set_activatable_widget(Some(&edit));
@@ -12010,14 +12806,14 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         side_list.append(&r);
     }
     let search_entry = gtk::SearchEntry::new();
-    search_entry.set_placeholder_text(Some(tr("Einstellung suchen")));
+    search_entry.set_placeholder_text(Some(tr("Search preferences")));
     search_entry.set_hexpand(true);
     let search_bar = gtk::SearchBar::new();
     search_bar.set_child(Some(&search_entry));
     search_bar.connect_entry(&search_entry);
     let search_toggle = gtk::ToggleButton::new();
     search_toggle.set_icon_name("system-search-symbolic");
-    search_toggle.set_tooltip_text(Some(tr("Einstellung suchen")));
+    search_toggle.set_tooltip_text(Some(tr("Search preferences")));
     search_toggle
         .bind_property("active", &search_bar, "search-mode-enabled")
         .bidirectional()
@@ -12025,7 +12821,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         .build();
     let side_header = adw::HeaderBar::new();
     side_header.pack_start(&search_toggle);
-    side_header.set_title_widget(Some(&adw::WindowTitle::new(tr("Einstellungen"), "")));
+    side_header.set_title_widget(Some(&adw::WindowTitle::new(tr("Preferences"), "")));
     let side_scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
@@ -12036,7 +12832,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
     side_view.add_top_bar(&search_bar);
     side_view.set_content(Some(&side_scroll));
     let side_page = adw::NavigationPage::builder()
-        .title(tr("Einstellungen"))
+        .title(tr("Preferences"))
         .child(&side_view)
         .build();
 
@@ -12071,7 +12867,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
                 });
             }
             let name = if searching {
-                tr("Suchergebnisse")
+                tr("Search results")
             } else {
                 tr(CATS[cat.get()].0)
             };
@@ -12117,7 +12913,7 @@ fn preferences_dialog_at(ui: &Rc<Ui>, start: usize) {
         search_entry.connect_stop_search(move |_| t.set_active(false));
     }
 
-    dialog.set_title(tr("Einstellungen"));
+    dialog.set_title(tr("Preferences"));
     dialog.set_content_width(860);
     dialog.set_content_height(620);
     dialog.set_child(Some(&split));
@@ -12130,12 +12926,12 @@ fn insert_image_file(ui: &Rc<Ui>, d: &Rc<DocTab>, path: &Path, at: Option<Pt>) -
     let data = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
-            ui.toast(&trf("Bild konnte nicht gelesen werden: {}", &[&(e)]));
+            ui.toast(&trf("The image could not be read: {}", &[&(e)]));
             return false;
         }
     };
     let Some((w, h)) = render::image_size(&data) else {
-        ui.toast(tr("Dieses Bildformat wird nicht unterstützt"));
+        ui.toast(tr("This image format is not supported"));
         return false;
     };
     let ok = d.ed.borrow_mut().insert_image(Rc::new(data), w, h, at);
@@ -12146,11 +12942,11 @@ fn insert_image_file(ui: &Rc<Ui>, d: &Rc<DocTab>, path: &Path, at: Option<Pt>) -
 fn insert_image_dialog(ui: &Rc<Ui>) {
     let Some(d) = cur(ui) else { return };
     let dialog = gtk::FileDialog::builder()
-        .title(tr("Bild einfügen"))
+        .title(tr("Insert Image"))
         .modal(true)
         .build();
     let f = gtk::FileFilter::new();
-    f.set_name(Some(tr("Bilder")));
+    f.set_name(Some(tr("Images")));
     f.add_pixbuf_formats();
     let store = gio::ListStore::new::<gtk::FileFilter>();
     store.append(&f);
@@ -12220,7 +13016,7 @@ fn fill_recent(ui: &Rc<Ui>, recent_list: &gtk::FlowBox, recent_box: &gtk::Box) {
         remove.set_valign(gtk::Align::Start);
         remove.set_margin_top(4);
         remove.set_margin_end(4);
-        remove.set_tooltip_text(Some(tr("Aus der Liste entfernen")));
+        remove.set_tooltip_text(Some(tr("Remove From the List")));
         {
             let (u, p) = (ui.clone(), path.clone());
             remove.connect_clicked(move |_| {
@@ -12236,9 +13032,9 @@ fn fill_recent(ui: &Rc<Ui>, recent_list: &gtk::FlowBox, recent_box: &gtk::Box) {
         recent_list.insert(&ov, -1);
     }
     // „Öffnen …“ als gestrichelte Kachel in Größe der Karten am Ende der Reihe
-    let open = dashed_tile("folder-open-symbolic", tr("Öffnen …"), None);
+    let open = dashed_tile("folder-open-symbolic", tr("Open …"), None);
     open.set_action_name(Some("win.open"));
-    open.set_tooltip_text(Some(&key_tip(tr("Dokument öffnen"), "open")));
+    open.set_tooltip_text(Some(&key_tip(tr("Open Document"), "open")));
     recent_list.insert(&open, -1);
     fit_recent_row(recent_list);
     recent_box.set_visible(true);
@@ -12291,12 +13087,12 @@ fn libs_dir() -> PathBuf {
         .unwrap_or_else(glib::home_dir)
         .join("Stijl");
     // vorhandenen Ordner behalten, auch wenn inzwischen die Sprache gewechselt wurde
-    for name in ["Bibliotheken", "Libraries"] {
+    for name in ["Libraries", "Bibliotheken", "Bibliotecas", "Bibliothèques"] {
         if base.join(name).is_dir() {
             return base.join(name);
         }
     }
-    base.join(tr("Bibliotheken"))
+    base.join(tr("Libraries"))
 }
 
 /// Einmalig: Bibliotheken aus den früheren (versteckten) Ordnern übernehmen.
@@ -12391,11 +13187,11 @@ fn load_libraries() -> Vec<Library> {
     for l in libs.iter_mut() {
         // eigene Datei mit dem Namen der Standardbibliothek
         if l.name == library::BUILTIN_NAME {
-            l.name = trf("{} (eigene)", &[&(library::BUILTIN_NAME)]);
+            l.name = trf("{} (custom)", &[&(library::BUILTIN_NAME)]);
         }
     }
     if libs.is_empty() {
-        libs.push(Library::new(tr("Meine Bibliothek")));
+        libs.push(Library::new(tr("My Library")));
     }
     // Standardbibliothek immer zuerst
     libs.insert(0, library::builtin());
@@ -12414,7 +13210,7 @@ fn save_library(lib: &Library) {
 fn build_library_panel() -> LibWidgets {
     let toggle = gtk::ToggleButton::builder()
         .icon_name("mondrian-library-symbolic")
-        .tooltip_text(tr("Bibliothek – Farben und Stile sammeln und übernehmen"))
+        .tooltip_text(tr("Library – collect and apply colours and styles"))
         .build();
     toggle.add_css_class("flat");
     toggle.set_margin_start(6);
@@ -12422,27 +13218,27 @@ fn build_library_panel() -> LibWidgets {
     toggle.set_margin_bottom(8);
 
     let title = gtk::Label::builder()
-        .label(tr("Bibliothek"))
+        .label(tr("Library"))
         .xalign(0.0)
         .hexpand(true)
         .build();
     title.add_css_class("mondrian-panel-title");
     let menu = gio::Menu::new();
     let m1 = gio::Menu::new();
-    m1.append(Some(tr("Neue Bibliothek")), Some("win.lib-new"));
-    m1.append(Some(tr("Umbenennen …")), Some("win.lib-rename"));
-    m1.append(Some(tr("Löschen …")), Some("win.lib-delete"));
+    m1.append(Some(tr("New Library")), Some("win.lib-new"));
+    m1.append(Some(tr("Rename …")), Some("win.lib-rename"));
+    m1.append(Some(tr("Delete …")), Some("win.lib-delete"));
     menu.append_section(None, &m1);
     let m2 = gio::Menu::new();
-    m2.append(Some(tr("Importieren …")), Some("win.lib-import"));
-    m2.append(Some(tr("Exportieren …")), Some("win.lib-export"));
-    m2.append(Some(tr("Ordner öffnen")), Some("win.lib-folder"));
-    m2.append(Some(tr("Neu einlesen")), Some("win.lib-reload"));
+    m2.append(Some(tr("Import …")), Some("win.lib-import"));
+    m2.append(Some(tr("Export …")), Some("win.lib-export"));
+    m2.append(Some(tr("Open Folder")), Some("win.lib-folder"));
+    m2.append(Some(tr("Reload")), Some("win.lib-reload"));
     menu.append_section(None, &m2);
     let more = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
         .menu_model(&menu)
-        .tooltip_text(tr("Bibliotheken verwalten"))
+        .tooltip_text(tr("Manage Libraries"))
         .build();
     more.add_css_class("flat");
     let head = hbox(6);
@@ -12450,7 +13246,7 @@ fn build_library_panel() -> LibWidgets {
     head.append(&more);
 
     let dropdown = gtk::DropDown::from_strings(&[]);
-    dropdown.set_tooltip_text(Some(tr("Bibliothek wählen")));
+    dropdown.set_tooltip_text(Some(tr("Choose Library")));
 
     // Abschnitte als aufklappbare Zeilen einer gemeinsamen Karte (wie Füllung und Kontur in
     // den Eigenschaften); anders als dort können mehrere zugleich offen sein, anfangs alle
@@ -12498,11 +13294,11 @@ fn build_library_panel() -> LibWidgets {
         l
     };
     let colors = grid();
-    let colors_empty = empty(tr("Noch keine Farben"));
+    let colors_empty = empty(tr("No colours yet"));
     let styles = grid();
-    let styles_empty = empty(tr("Noch keine Stile"));
+    let styles_empty = empty(tr("No styles yet"));
     let texts = grid();
-    let texts_empty = empty(tr("Noch keine Textstile"));
+    let texts_empty = empty(tr("No text styles yet"));
 
     let inner = vbox(12);
     inner.set_margin_start(12);
@@ -12510,27 +13306,26 @@ fn build_library_panel() -> LibWidgets {
     inner.set_margin_top(4);
     inner.set_margin_bottom(12);
     let locked_note = empty(tr(
-        "Die Standardbibliothek „Stijl“ lässt sich nicht ändern. Für eigene Farben und \
-         Stile über ⋮ eine neue Bibliothek anlegen.",
+        "The default library “Stijl” cannot be changed. For your own colours and styles, create a new library via ⋮.",
     ));
     inner.append(&locked_note);
     let lib_card = card();
     inner.append(&lib_card);
-    let (colors_card, colors_body) = section(tr("Farben"));
+    let (colors_card, colors_body) = section(tr("Colours"));
     colors_body.append(&colors);
     colors_body.append(&colors_empty);
     lib_card.append(&colors_card);
     // (Kopf = ganzer Abschnitt: wird bei der Standardbibliothek ohne Stile ausgeblendet)
-    let (styles_head, styles_body) = section(tr("Stile"));
+    let (styles_head, styles_body) = section(tr("Styles"));
     styles_body.append(&styles);
     styles_body.append(&styles_empty);
     lib_card.append(&styles_head);
-    let (texts_card, texts_body) = section(tr("Textstile"));
+    let (texts_card, texts_body) = section(tr("Text styles"));
     texts_body.append(&texts);
     texts_body.append(&texts_empty);
     lib_card.append(&texts_card);
     let graphics = grid();
-    let (graphics_head, graphics_body) = section(tr("Grafiken"));
+    let (graphics_head, graphics_body) = section(tr("Graphics"));
     graphics_body.append(&graphics);
     lib_card.append(&graphics_head);
     let scroll = gtk::ScrolledWindow::builder()
@@ -12582,7 +13377,7 @@ fn lib_payload(ui: &Ui, s: &str) -> Option<crate::editor::LibPayload> {
         return l
             .colors
             .get(i)
-            .map(|c| crate::editor::LibPayload::Color(*c, l.gradient(i).cloned()));
+            .map(|c| crate::editor::LibPayload::Color(*c, l.gradient(i).cloned(), l.color_link(i)));
     }
     if let Some(i) = s.strip_prefix("mondrian-lib-graphic:") {
         return l
@@ -12701,7 +13496,7 @@ fn lib_add_cell(items: &[(&str, &str)], round: bool, w: i32, h: i32) -> gtk::Wid
     let b = gtk::MenuButton::builder()
         .icon_name("list-add-symbolic")
         .menu_model(&m)
-        .tooltip_text(tr("Hinzufügen"))
+        .tooltip_text(tr("Add"))
         .build();
     b.add_css_class("mondrian-lib-add");
     if round {
@@ -12766,7 +13561,7 @@ fn rebuild_text_styles(ui: &Rc<Ui>, styles: &[crate::library::LibStyle]) {
                 format!("{}: ", st.name)
             };
             area.set_tooltip_text(Some(&trf(
-                "{}{} {} px – Klick übernimmt den Textstil (beim Bearbeiten nur für den markierten Text)",
+                "{}{} {} px – click applies the text style (while editing, only to the selected text)",
                 &[&(name), &(t.family), &(fmt_num(t.size))],
             )));
         }
@@ -12791,7 +13586,7 @@ fn rebuild_text_styles(ui: &Rc<Ui>, styles: &[crate::library::LibStyle]) {
     // „+“ am Ende: Textstil der Auswahl in die Bibliothek (wie bei den Farben)
     let add = gtk::Button::from_icon_name("list-add-symbolic");
     add.set_action_name(Some("win.lib-add-textstyle"));
-    add.set_tooltip_text(Some(tr("Textstil der Auswahl zur Bibliothek hinzufügen")));
+    add.set_tooltip_text(Some(tr("Add the selected text style to the library")));
     add.set_size_request(LIB_TEXT_W - 16, LIB_CARD_H - 8);
     let cell = hbox(0);
     cell.add_css_class("mondrian-lib-add");
@@ -12847,7 +13642,7 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
         sw.set_halign(gtk::Align::Center);
         sw.set_cursor_from_name(Some("pointer"));
         sw.set_tooltip_text(Some(&trf(
-            "{}{} – Klick: Füllung, Umschalt-Klick: Kontur",
+            "{}{} – click: fill, Shift-click: stroke",
             &[
                 &(if name.is_empty() {
                     String::new()
@@ -12855,7 +13650,7 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
                     format!("{name} · ")
                 }),
                 &(if grad.is_some() {
-                    tr("Verlauf").to_string()
+                    tr("Gradient").to_string()
                 } else {
                     c.to_hex()
                 }),
@@ -12874,13 +13669,16 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
             click.connect_released(move |g, _, _, _| {
                 if g.current_button() == gdk::BUTTON_SECONDARY {
                     let menu = gio::Menu::new();
-                    menu.append_item(&lib_item(tr("Als Füllung"), "win.lib-color-fill", i as u32));
-                    menu.append_item(&lib_item(tr("Als Kontur"), "win.lib-color-stroke", i as u32));
+                    menu.append_item(&lib_item(tr("As fill"), "win.lib-color-fill", i as u32));
+                    menu.append_item(&lib_item(tr("As stroke"), "win.lib-color-stroke", i as u32));
                     if !locked {
                         let sec = gio::Menu::new();
-                        sec.append_item(&lib_item(tr("Benennen …"), "win.lib-color-name", i as u32));
+                        if grad.is_none() {
+                            sec.append_item(&lib_item(tr("Edit Colour …"), "win.lib-color-edit", i as u32));
+                        }
+                        sec.append_item(&lib_item(tr("Name …"), "win.lib-color-name", i as u32));
                         sec.append_item(&lib_item(
-                            tr("Aus der Bibliothek entfernen"),
+                            tr("Remove from the library"),
                             "win.lib-color-remove",
                             i as u32,
                         ));
@@ -12891,8 +13689,9 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
                 }
                 let stroke = g.current_event_state().contains(gdk::ModifierType::SHIFT_MASK);
                 let grad = grad.clone();
+                let link = lib_color_at(&u, i).and_then(|(_, _, link)| link);
                 with_ed(&u, |e| {
-                    e.apply_lib_color(c, grad, stroke);
+                    e.apply_lib_color(c, grad, link, stroke);
                 });
             });
         }
@@ -12916,7 +13715,7 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
         };
         area.set_tooltip_text(Some(&match &st.text {
             Some(t) => trf(
-                "{}{} {} px{}{} – Klick übernimmt den Textstil",
+                "{}{} {} px{}{} – click applies the text style",
                 &[
                     &(prefix),
                     &(t.family),
@@ -12925,13 +13724,10 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
                         400 => String::new(),
                         w => format!(", {}", crate::model::weight_name(w)),
                     }),
-                    &(if t.italic { tr(", kursiv") } else { "" }),
+                    &(if t.italic { tr(", italic") } else { "" }),
                 ],
             ),
-            None => trf(
-                "{}Stil – Klick übernimmt Füllung, Kontur, Deckkraft …",
-                &[&(prefix)],
-            ),
+            None => trf("{}Style – click applies fill, stroke, opacity …", &[&(prefix)]),
         }));
         let stc = st.clone();
         area.set_draw_func(move |_, cr, w, h| {
@@ -12949,12 +13745,12 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
             click.connect_released(move |g, _, _, _| {
                 if g.current_button() == gdk::BUTTON_SECONDARY {
                     let menu = gio::Menu::new();
-                    menu.append_item(&lib_item(tr("Übernehmen"), "win.lib-style-apply", i as u32));
+                    menu.append_item(&lib_item(tr("Apply"), "win.lib-style-apply", i as u32));
                     if !locked {
                         let sec = gio::Menu::new();
-                        sec.append_item(&lib_item(tr("Benennen …"), "win.lib-style-name", i as u32));
+                        sec.append_item(&lib_item(tr("Name …"), "win.lib-style-name", i as u32));
                         sec.append_item(&lib_item(
-                            tr("Aus der Bibliothek entfernen"),
+                            tr("Remove from the library"),
                             "win.lib-style-remove",
                             i as u32,
                         ));
@@ -12976,9 +13772,9 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
     if !locked {
         cells[0].push(lib_add_cell(
             &[
-                (tr("Neue Farbe …"), "win.lib-new-color"),
-                (tr("Füllfarbe der Auswahl"), "win.lib-add-fill"),
-                (tr("Konturfarbe der Auswahl"), "win.lib-add-stroke"),
+                (tr("New colour …"), "win.lib-new-color"),
+                (tr("Fill colour of the selection"), "win.lib-add-fill"),
+                (tr("Stroke colour of the selection"), "win.lib-add-stroke"),
             ],
             true,
             LIB_SWATCH,
@@ -12986,8 +13782,8 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
         ));
         cells[1].push(lib_add_cell(
             &[
-                (tr("Neuer Stil …"), "win.lib-new-style"),
-                (tr("Stil der Auswahl"), "win.lib-add-style"),
+                (tr("New style …"), "win.lib-new-style"),
+                (tr("Style of the selection"), "win.lib-add-style"),
             ],
             true,
             LIB_STYLE_W,
@@ -12995,8 +13791,8 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
         ));
         cells[2].push(lib_add_cell(
             &[
-                (tr("Neuer Textstil …"), "win.lib-new-textstyle"),
-                (tr("Textstil der Auswahl"), "win.lib-add-textstyle"),
+                (tr("New text style …"), "win.lib-new-textstyle"),
+                (tr("Text style of the selection"), "win.lib-add-textstyle"),
             ],
             false,
             LIB_TEXT_W,
@@ -13010,7 +13806,7 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
         area.set_content_height(LIB_GRAPHIC_W);
         area.set_cursor_from_name(Some("pointer"));
         area.set_tooltip_text(Some(&trf(
-            "{} – Klick fügt ein, oder ins Dokument ziehen",
+            "{} – click to insert, or drag into the document",
             &[&(g.name)],
         )));
         let objs = g.objects.clone();
@@ -13026,12 +13822,12 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
             click.connect_released(move |g, _, _, _| {
                 if g.current_button() == gdk::BUTTON_SECONDARY {
                     let menu = gio::Menu::new();
-                    menu.append_item(&lib_item(tr("Einfügen"), "win.lib-graphic-insert", i as u32));
+                    menu.append_item(&lib_item(tr("Paste"), "win.lib-graphic-insert", i as u32));
                     if !locked {
                         let sec = gio::Menu::new();
-                        sec.append_item(&lib_item(tr("Benennen …"), "win.lib-graphic-name", i as u32));
+                        sec.append_item(&lib_item(tr("Name …"), "win.lib-graphic-name", i as u32));
                         sec.append_item(&lib_item(
-                            tr("Aus der Bibliothek entfernen"),
+                            tr("Remove from the library"),
                             "win.lib-graphic-remove",
                             i as u32,
                         ));
@@ -13052,7 +13848,7 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
     }
     if !locked {
         cells[3].push(lib_add_cell(
-            &[(tr("Auswahl als Grafik …"), "win.lib-add-graphic")],
+            &[(tr("Selection as graphic …"), "win.lib-add-graphic")],
             false,
             LIB_GRAPHIC_W,
             LIB_GRAPHIC_W,
@@ -13067,7 +13863,7 @@ fn rebuild_library_content(ui: &Rc<Ui>) {
 /// Aktuelle Bibliothek ändern, speichern und neu anzeigen.
 fn with_library(ui: &Rc<Ui>, f: impl FnOnce(&mut Library) -> bool) -> bool {
     if lib_locked(ui) {
-        ui.toast(tr("Die Standardbibliothek „Stijl“ lässt sich nicht ändern"));
+        ui.toast(tr("The default library “Stijl” cannot be changed"));
         return false;
     }
     let changed = {
@@ -13086,20 +13882,79 @@ fn with_library(ui: &Rc<Ui>, f: impl FnOnce(&mut Library) -> bool) -> bool {
     changed
 }
 
+/// Farbe `i` der aktuellen Bibliothek mit Verlauf und Kennung (für globale Farben).
+fn lib_color_at(u: &Rc<Ui>, i: usize) -> Option<(Color, Option<Gradient>, Option<String>)> {
+    u.libraries
+        .borrow()
+        .get(u.lib_current.get())
+        .and_then(|l| Some((*l.colors.get(i)?, l.gradient(i).cloned(), l.color_link(i))))
+}
+
+/// Aktuelle Farbe zur Kennung einer Bibliotheksfarbe (in allen Bibliotheken).
+fn lib_linked_color(u: &Ui, id: &str) -> Option<Color> {
+    u.libraries.borrow().iter().find_map(|l| l.linked_color(id))
+}
+
+/// Globale Farbe ändern: die Farbe in der Bibliothek und in allen offenen Dokumenten jedes
+/// damit verknüpfte Objekt (rückgängig machbar je Dokument).
+fn lib_edit_color_dialog(ui: &Rc<Ui>, i: usize, c: Color) {
+    let picker = ColorPicker::new();
+    picker.show(c);
+    picker.root.set_size_request(260, -1);
+    let dlg = adw::AlertDialog::new(
+        Some(tr("Edit Colour")),
+        Some(tr("Objects that use this colour change with it")),
+    );
+    dlg.set_extra_child(Some(&picker.root));
+    dlg.add_response("cancel", tr("_Cancel"));
+    dlg.add_response("ok", tr("_Apply"));
+    dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    dlg.set_default_response(Some("ok"));
+    dlg.set_close_response("cancel");
+    let u = ui.clone();
+    dlg.connect_response(None, move |_, r| {
+        if r != "ok" {
+            return;
+        }
+        let new = picker.color();
+        let mut changed: Option<String> = None;
+        with_library(&u, |l| match l.set_color(i, new) {
+            Some((id, _)) => {
+                changed = Some(id);
+                true
+            }
+            None => false,
+        });
+        let Some(id) = changed else { return };
+        let mut n = 0;
+        for d in u.docs.borrow().iter() {
+            n +=
+                d.ed.borrow_mut()
+                    .sync_library_colors(&|k| (k == id).then_some(new));
+            d.canvas.queue_draw();
+        }
+        refresh(&u);
+        if n > 0 {
+            u.toast(&trf("{} colours updated", &[&n]));
+        }
+    });
+    dlg.present(Some(&ui.window));
+}
+
 /// Name für eine Farbe oder einen Stil abfragen (leer = ohne Namen).
 fn lib_name_dialog(ui: &Rc<Ui>, title: &str, old: &str, set: impl Fn(&mut Library, &str) -> bool + 'static) {
     let entry = gtk::Entry::builder()
         .text(old)
-        .placeholder_text(tr("ohne Namen"))
+        .placeholder_text(tr("unnamed"))
         .activates_default(true)
         .build();
     let dlg = adw::AlertDialog::new(
         Some(title),
-        Some(tr("Der Name ist freiwillig und erscheint unter dem Feld")),
+        Some(tr("The name is optional and appears below the swatch")),
     );
     dlg.set_extra_child(Some(&entry));
-    dlg.add_response("cancel", tr("_Abbrechen"));
-    dlg.add_response("ok", tr("_Übernehmen"));
+    dlg.add_response("cancel", tr("_Cancel"));
+    dlg.add_response("ok", tr("_Apply"));
     dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
     dlg.set_default_response(Some("ok"));
     dlg.set_close_response("cancel");
@@ -13133,7 +13988,7 @@ fn with_library_add(ui: &Rc<Ui>, f: impl FnOnce(&mut Library) -> bool) -> bool {
             match libs.iter().position(|l| !l.locked) {
                 Some(i) => i,
                 None => {
-                    libs.push(Library::new(tr("Meine Bibliothek")));
+                    libs.push(Library::new(tr("My Library")));
                     libs.len() - 1
                 }
             }
@@ -13153,10 +14008,10 @@ fn lib_added(ui: &Rc<Ui>, added: bool, what: &str) {
         .map(|l| l.name.clone())
         .unwrap_or_default();
     if added {
-        ui.toast(&trf("{} zu „{}“ hinzugefügt", &[&(what), &(name)]));
+        ui.toast(&trf("{} added to “{}”", &[&(what), &(name)]));
         show_library(&ui);
     } else {
-        ui.toast(&trf("{} ist schon in „{}“", &[&(what), &(name)]));
+        ui.toast(&trf("{} is already in “{}”", &[&(what), &(name)]));
     }
 }
 
@@ -13261,8 +14116,8 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 }
             });
         }
-        form.append(&form_row(tr("Schrift"), &font));
-        let size = spin(1.0, 2000.0, 1.0, 0, tr("Schriftgröße in px"));
+        form.append(&form_row(tr("Font"), &font));
+        let size = spin(1.0, 2000.0, 1.0, 0, tr("Font size in px"));
         size.set_value(t.size);
         {
             let ch = changed.clone();
@@ -13275,7 +14130,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 });
             });
         }
-        form.append(&form_row(tr("Größe (px)"), &size));
+        form.append(&form_row(tr("Size (px)"), &size));
         // Schnitt der Familie (Light, Regular, Bold Italic …)
         let faces = Rc::new(RefCell::new(font_faces(&t.family)));
         let face = gtk::DropDown::new(Some(faces_model(&faces.borrow())), None::<gtk::Expression>);
@@ -13314,9 +14169,8 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 face.set_selected(idx);
             });
         }
-        form.append(&form_row(tr("Schnitt"), &face));
-        let align =
-            gtk::DropDown::from_strings(&[tr("Links"), tr("Zentriert"), tr("Rechts"), tr("Blocksatz")]);
+        form.append(&form_row(tr("Font style"), &face));
+        let align = gtk::DropDown::from_strings(&[tr("Left"), tr("Centred"), tr("Right"), tr("Justify")]);
         align.set_selected(match t.fmt.align {
             Align::Left => 0,
             Align::Center => 1,
@@ -13335,14 +14189,8 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 });
             });
         }
-        form.append(&form_row(tr("Ausrichtung"), &align));
-        let line = spin(
-            0.5,
-            5.0,
-            0.1,
-            2,
-            tr("Zeilenabstand (Vielfaches der Schriftgröße)"),
-        );
+        form.append(&form_row(tr("Alignment"), &align));
+        let line = spin(0.5, 5.0, 0.1, 2, tr("Line spacing (multiple of the font size)"));
         line.set_value(t.fmt.line);
         {
             let ch = changed.clone();
@@ -13355,8 +14203,8 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 });
             });
         }
-        form.append(&form_row(tr("Zeilenabstand"), &line));
-        let tracking = spin(-300.0, 2000.0, 10.0, 0, tr("Zeichenabstand in 1/1000 Geviert"));
+        form.append(&form_row(tr("Line spacing"), &line));
+        let tracking = spin(-300.0, 2000.0, 10.0, 0, tr("Letter spacing in 1/1000 em"));
         tracking.set_value(t.fmt.tracking);
         {
             let ch = changed.clone();
@@ -13369,9 +14217,9 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 });
             });
         }
-        form.append(&form_row(tr("Zeichenabstand"), &tracking));
+        form.append(&form_row(tr("Letter spacing"), &tracking));
         // Textfarbe mit derselben Farbwahl wie in den Eigenschaften
-        form.append(&sub_heading(tr("Textfarbe")));
+        form.append(&sub_heading(tr("Text Colour")));
         let picker = ColorPicker::new();
         picker.show(start.style.fill.unwrap_or(Color::BLACK));
         {
@@ -13386,8 +14234,8 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
         form.append(&picker.root);
     } else {
         // Füllung und Kontur: Reiter wie in den Eigenschaften, darunter die Farbwahl
-        let fill_tab = gtk::ToggleButton::with_label(tr("Füllung"));
-        let stroke_tab = gtk::ToggleButton::with_label(tr("Kontur"));
+        let fill_tab = gtk::ToggleButton::with_label(tr("Fill"));
+        let stroke_tab = gtk::ToggleButton::with_label(tr("Stroke"));
         stroke_tab.set_group(Some(&fill_tab));
         fill_tab.set_active(true);
         let tabs = hbox(0);
@@ -13398,7 +14246,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
             tabs.append(b);
         }
         form.append(&tabs);
-        let none = gtk::CheckButton::with_label(tr("Keine Farbe"));
+        let none = gtk::CheckButton::with_label(tr("No Colour"));
         let picker = ColorPicker::new();
         let editing_stroke = Rc::new(Cell::new(false));
         let syncing = Rc::new(Cell::new(false));
@@ -13480,7 +14328,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
         }
         form.append(&none);
         form.append(&picker.root);
-        let width = spin(0.0, 500.0, 0.5, 1, tr("Linienstärke in px"));
+        let width = spin(0.0, 500.0, 0.5, 1, tr("Stroke width in px"));
         width.set_value(start.style.width);
         {
             let ch = changed.clone();
@@ -13489,7 +14337,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 ch(&|s: &mut library::LibStyle| s.style.width = v);
             });
         }
-        form.append(&form_row(tr("Linienstärke"), &width));
+        form.append(&form_row(tr("Stroke width"), &width));
         let joins: Vec<&str> = LineJoin::ALL.iter().map(|j| j.label()).collect();
         let join = gtk::DropDown::from_strings(&joins);
         join.set_selected(
@@ -13505,7 +14353,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 ch(&|s: &mut library::LibStyle| s.style.join = j);
             });
         }
-        form.append(&form_row(tr("Ecken"), &join));
+        form.append(&form_row(tr("Corners"), &join));
         let caps: Vec<&str> = LineCap::ALL.iter().map(|c| c.label()).collect();
         let cap = gtk::DropDown::from_strings(&caps);
         cap.set_selected(
@@ -13521,10 +14369,10 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
                 ch(&|s: &mut library::LibStyle| s.style.cap = c);
             });
         }
-        form.append(&form_row(tr("Enden"), &cap));
+        form.append(&form_row(tr("Ends"), &cap));
     }
     // Deckkraft und Mischmodus für beide
-    let opacity = spin(0.0, 100.0, 5.0, 0, tr("Deckkraft in Prozent"));
+    let opacity = spin(0.0, 100.0, 5.0, 0, tr("Opacity in per cent"));
     opacity.set_value((start.style.opacity * 100.0).round());
     {
         let ch = changed.clone();
@@ -13533,7 +14381,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
             ch(&|s: &mut library::LibStyle| s.style.opacity = v);
         });
     }
-    form.append(&form_row(tr("Deckkraft (%)"), &opacity));
+    form.append(&form_row(tr("Opacity (%)"), &opacity));
     let blend_names: Vec<&str> = Blend::SIMPLE.iter().map(|b| b.label()).collect();
     let blend = gtk::DropDown::from_strings(&blend_names);
     blend.set_selected(
@@ -13552,13 +14400,13 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
             ch(&|s: &mut library::LibStyle| s.style.blend = b);
         });
     }
-    form.append(&form_row(tr("Farbüberlagerung"), &blend));
+    form.append(&form_row(tr("Colour overlay"), &blend));
 
     let dlg = adw::AlertDialog::new(
         Some(if text {
-            tr("Neuer Textstil")
+            tr("New Text Style")
         } else {
-            tr("Neuer Stil")
+            tr("New Style")
         }),
         None,
     );
@@ -13570,8 +14418,8 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
         .child(&form)
         .build();
     dlg.set_extra_child(Some(&scroll));
-    dlg.add_response("cancel", tr("_Abbrechen"));
-    dlg.add_response("add", tr("_Hinzufügen"));
+    dlg.add_response("cancel", tr("_Cancel"));
+    dlg.add_response("add", tr("_Add"));
     dlg.set_response_appearance("add", adw::ResponseAppearance::Suggested);
     dlg.set_default_response(Some("add"));
     dlg.set_close_response("cancel");
@@ -13582,7 +14430,7 @@ fn new_style_dialog(ui: &Rc<Ui>, text: bool) {
         }
         let st = state.borrow().clone();
         let added = with_library_add(&u, |l| l.add_style(st));
-        lib_added(&u, added, if text { tr("Textstil") } else { tr("Stil") });
+        lib_added(&u, added, if text { tr("Text style") } else { tr("Style") });
     });
     label_icon_buttons(dlg.upcast_ref());
     dlg.present(Some(&ui.window));
@@ -13878,11 +14726,11 @@ fn setup_library(ui: &Rc<Ui>) {
             return;
         };
         let dialog = gtk::FileDialog::builder()
-            .title(tr("Bibliothek exportieren"))
+            .title(tr("Export Library"))
             .modal(true)
             .initial_name(library::file_name(&lib.name))
             .build();
-        dialog.set_filters(Some(&file_filter(tr("Stijl-Bibliothek (SVG)"), &["*.svg"])));
+        dialog.set_filters(Some(&file_filter(tr("Stijl library (SVG)"), &["*.svg"])));
         let u2 = u.clone();
         dialog.save(Some(&u.window), gio::Cancellable::NONE, move |res| {
             if let Some(mut p) = res.ok().and_then(|f| f.path()) {
@@ -13890,21 +14738,18 @@ fn setup_library(ui: &Rc<Ui>) {
                     p.set_extension("svg");
                 }
                 match crate::fsutil::write_atomic(&p, lib.to_svg().as_bytes()) {
-                    Ok(()) => u2.toast(&trf("„{}“ exportiert", &[&(lib.name)])),
-                    Err(e) => u2.toast(&trf("Exportieren fehlgeschlagen: {}", &[&(e)])),
+                    Ok(()) => u2.toast(&trf("“{}” exported", &[&(lib.name)])),
+                    Err(e) => u2.toast(&trf("Export failed: {}", &[&(e)])),
                 }
             }
         });
     });
     add_action(ui, "lib-import", |u| {
         let dialog = gtk::FileDialog::builder()
-            .title(tr("Bibliothek importieren"))
+            .title(tr("Import Library"))
             .modal(true)
             .build();
-        dialog.set_filters(Some(&file_filter(
-            tr("Stijl-Bibliothek (SVG)"),
-            &["*.svg", "*.SVG"],
-        )));
+        dialog.set_filters(Some(&file_filter(tr("Stijl library (SVG)"), &["*.svg", "*.SVG"])));
         let u2 = u.clone();
         dialog.open(Some(&u.window), gio::Cancellable::NONE, move |res| {
             let Some(p) = res.ok().and_then(|f| f.path()) else {
@@ -13913,18 +14758,18 @@ fn setup_library(ui: &Rc<Ui>) {
             let base = p
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| tr("Bibliothek").into());
+                .unwrap_or_else(|| tr("Library").into());
             let lib = std::fs::read_to_string(&p)
                 .map_err(|e| e.to_string())
                 .and_then(|t| Library::from_svg(&base, &t));
             let mut lib = match lib {
                 Ok(l) if !l.colors.is_empty() || !l.styles.is_empty() => l,
                 Ok(_) => {
-                    u2.toast(tr("In dieser Datei ist keine Bibliothek"));
+                    u2.toast(tr("There is no library in this file"));
                     return;
                 }
                 Err(e) => {
-                    u2.toast(&trf("Importieren fehlgeschlagen: {}", &[&(e)]));
+                    u2.toast(&trf("Import failed: {}", &[&(e)]));
                     return;
                 }
             };
@@ -13952,7 +14797,7 @@ fn setup_library(ui: &Rc<Ui>) {
             save_settings(&u2);
             rebuild_library(&u2);
             show_library(&u2);
-            u2.toast(&trf("„{}“ importiert", &[&(name)]));
+            u2.toast(&trf("“{}” imported", &[&(name)]));
         });
     });
     {
@@ -14039,10 +14884,10 @@ fn setup_library(ui: &Rc<Ui>) {
                     PaintTarget::Fill
                 };
                 let Some((c, g)) = cur(u).and_then(|d| d.ed.borrow().selected_paint(t)) else {
-                    u.toast(tr("Erst ein Objekt mit dieser Farbe auswählen"));
+                    u.toast(tr("Select an object with this colour first"));
                     return;
                 };
-                let what = if g.is_some() { tr("Verlauf") } else { tr("Farbe") };
+                let what = if g.is_some() { tr("Gradient") } else { tr("Colour") };
                 let added = with_library_add(u, |l| l.add_paint(c, g));
                 lib_added(u, added, what);
             },
@@ -14059,14 +14904,14 @@ fn setup_library(ui: &Rc<Ui>) {
             move |u| {
                 let Some(st) = cur(u).and_then(|d| d.ed.borrow().selected_lib_style(text)) else {
                     u.toast(if text {
-                        tr("Erst einen Text auswählen")
+                        tr("Select a text first")
                     } else {
-                        tr("Erst eine Form oder einen Pfad auswählen")
+                        tr("Select a shape or path first")
                     });
                     return;
                 };
                 let added = with_library_add(u, |l| l.add_style(st));
-                lib_added(u, added, if text { tr("Textstil") } else { tr("Stil") });
+                lib_added(u, added, if text { tr("Text style") } else { tr("Style") });
             },
         );
         add_action(
@@ -14097,24 +14942,23 @@ fn setup_library(ui: &Rc<Ui>) {
         });
         ui.window.add_action(&a);
     };
-    fn color_at(u: &Rc<Ui>, i: usize) -> Option<(Color, Option<Gradient>)> {
-        u.libraries
-            .borrow()
-            .get(u.lib_current.get())
-            .and_then(|l| Some((*l.colors.get(i)?, l.gradient(i).cloned())))
-    }
     indexed("lib-color-fill", |u, i| {
-        if let Some((c, g)) = color_at(u, i) {
+        if let Some((c, g, link)) = lib_color_at(u, i) {
             with_ed(u, |e| {
-                e.apply_lib_color(c, g, false);
+                e.apply_lib_color(c, g, link, false);
             });
         }
     });
     indexed("lib-color-stroke", |u, i| {
-        if let Some((c, g)) = color_at(u, i) {
+        if let Some((c, g, link)) = lib_color_at(u, i) {
             with_ed(u, |e| {
-                e.apply_lib_color(c, g, true);
+                e.apply_lib_color(c, g, link, true);
             });
+        }
+    });
+    indexed("lib-color-edit", |u, i| {
+        if let Some((c, None, _)) = lib_color_at(u, i) {
+            lib_edit_color_dialog(u, i, c);
         }
     });
     indexed("lib-graphic-insert", |u, i| {
@@ -14144,7 +14988,7 @@ fn setup_library(ui: &Rc<Ui>) {
             .and_then(|l| l.graphics.get(i))
             .map(|g| g.name.clone())
             .unwrap_or_default();
-        lib_name_dialog(u, tr("Grafik benennen"), &old, move |l, name| {
+        lib_name_dialog(u, tr("Name graphic"), &old, move |l, name| {
             match l.graphics.get_mut(i) {
                 Some(g) if g.name != name && !name.is_empty() => {
                     g.name = name.to_string();
@@ -14172,11 +15016,11 @@ fn setup_library(ui: &Rc<Ui>) {
             .map(|d| d.ed.borrow().selected_graphic())
             .unwrap_or_default();
         if objs.is_empty() {
-            u.toast(tr("Erst die Objekte der Grafik auswählen"));
+            u.toast(tr("Select the objects of the graphic first"));
             return;
         }
         let entry = gtk::Entry::builder()
-            .placeholder_text(tr("Name, z. B. Logo"))
+            .placeholder_text(tr("Name, e.g. Logo"))
             .activates_default(true)
             .build();
         let preview = gtk::DrawingArea::new();
@@ -14195,14 +15039,14 @@ fn setup_library(ui: &Rc<Ui>) {
         form.append(&preview);
         form.append(&entry);
         let dlg = adw::AlertDialog::new(
-            Some(tr("Als Grafik in die Bibliothek")),
+            Some(tr("Add to Library as Graphic")),
             Some(tr(
-                "Die ausgewählten Objekte lassen sich später per Ziehen in jedes Dokument kopieren",
+                "The selected objects can later be copied into any document by dragging",
             )),
         );
         dlg.set_extra_child(Some(&form));
-        dlg.add_response("cancel", tr("_Abbrechen"));
-        dlg.add_response("add", tr("_Hinzufügen"));
+        dlg.add_response("cancel", tr("_Cancel"));
+        dlg.add_response("add", tr("_Add"));
         dlg.set_response_appearance("add", adw::ResponseAppearance::Suggested);
         dlg.set_default_response(Some("add"));
         dlg.set_close_response("cancel");
@@ -14214,7 +15058,7 @@ fn setup_library(ui: &Rc<Ui>) {
             let name = entry.text().to_string();
             let objs = objs.clone();
             let added = with_library_add(&u2, move |l| l.add_graphic(&name, objs));
-            lib_added(&u2, added, tr("Grafik"));
+            lib_added(&u2, added, tr("Graphic"));
         });
         label_icon_buttons(dlg.upcast_ref());
         dlg.present(Some(&u.window));
@@ -14226,7 +15070,7 @@ fn setup_library(ui: &Rc<Ui>) {
             .get(u.lib_current.get())
             .map(|l| l.color_name(i).to_string())
             .unwrap_or_default();
-        lib_name_dialog(u, tr("Farbe benennen"), &old, move |l, name| {
+        lib_name_dialog(u, tr("Name colour"), &old, move |l, name| {
             l.set_color_name(i, name)
         });
     });
@@ -14239,9 +15083,9 @@ fn setup_library(ui: &Rc<Ui>) {
             .map(|s| (s.name.clone(), s.text.is_some()))
             .unwrap_or_default();
         let title = if text {
-            tr("Textstil benennen")
+            tr("Name text style")
         } else {
-            tr("Stil benennen")
+            tr("Name style")
         };
         lib_name_dialog(u, title, &old, move |l, name| l.set_style_name(i, name));
     });
@@ -14286,10 +15130,10 @@ fn setup_library(ui: &Rc<Ui>) {
         let name = {
             let libs = u.libraries.borrow();
             let mut k = libs.len() + 1;
-            let mut name = trf("Bibliothek {}", &[&(k)]);
+            let mut name = trf("Library {}", &[&(k)]);
             while libs.iter().any(|l| l.name == name) {
                 k += 1;
-                name = trf("Bibliothek {}", &[&(k)]);
+                name = trf("Library {}", &[&(k)]);
             }
             name
         };
@@ -14307,7 +15151,7 @@ fn setup_library(ui: &Rc<Ui>) {
     });
     add_action(ui, "lib-rename", |u| {
         if lib_locked(u) {
-            u.toast(tr("Die Standardbibliothek „Stijl“ lässt sich nicht umbenennen"));
+            u.toast(tr("The default library “Stijl” cannot be renamed"));
             return;
         }
         let old = u
@@ -14317,10 +15161,10 @@ fn setup_library(ui: &Rc<Ui>) {
             .map(|l| l.name.clone())
             .unwrap_or_default();
         let entry = gtk::Entry::builder().text(&old).activates_default(true).build();
-        let dlg = adw::AlertDialog::new(Some(tr("Bibliothek umbenennen")), None);
+        let dlg = adw::AlertDialog::new(Some(tr("Rename Library")), None);
         dlg.set_extra_child(Some(&entry));
-        dlg.add_response("cancel", tr("_Abbrechen"));
-        dlg.add_response("ok", tr("_Umbenennen"));
+        dlg.add_response("cancel", tr("_Cancel"));
+        dlg.add_response("ok", tr("_Rename"));
         dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
         dlg.set_default_response(Some("ok"));
         dlg.set_close_response("cancel");
@@ -14334,7 +15178,7 @@ fn setup_library(ui: &Rc<Ui>) {
                 return;
             }
             if u2.libraries.borrow().iter().any(|l| l.name == name) {
-                u2.toast(tr("Eine Bibliothek mit diesem Namen gibt es schon"));
+                u2.toast(tr("A library with this name already exists"));
                 return;
             }
             let _ = std::fs::remove_file(libs_dir().join(library::file_name(&old)));
@@ -14353,7 +15197,7 @@ fn setup_library(ui: &Rc<Ui>) {
     });
     add_action(ui, "lib-delete", |u| {
         if lib_locked(u) {
-            u.toast(tr("Die Standardbibliothek „Stijl“ lässt sich nicht löschen"));
+            u.toast(tr("The default library “Stijl” cannot be deleted"));
             return;
         }
         let name = u
@@ -14363,11 +15207,14 @@ fn setup_library(ui: &Rc<Ui>) {
             .map(|l| l.name.clone())
             .unwrap_or_default();
         let dlg = adw::AlertDialog::new(
-            Some(tr("Bibliothek löschen?")),
-            Some(&trf("„{}“ mit allen Farben und Stilen wird gelöscht", &[&(name)])),
+            Some(tr("Delete library?")),
+            Some(&trf(
+                "“{}” and all its colours and styles will be deleted",
+                &[&(name)],
+            )),
         );
-        dlg.add_response("cancel", tr("_Abbrechen"));
-        dlg.add_response("delete", tr("_Löschen"));
+        dlg.add_response("cancel", tr("_Cancel"));
+        dlg.add_response("delete", tr("_Delete"));
         dlg.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
         dlg.set_close_response("cancel");
         let u2 = u.clone();
@@ -14383,7 +15230,7 @@ fn setup_library(ui: &Rc<Ui>) {
                     libs.remove(i);
                 }
                 if libs.is_empty() {
-                    libs.push(Library::new(tr("Meine Bibliothek")));
+                    libs.push(Library::new(tr("My Library")));
                 }
             }
             u2.lib_current.set(0);

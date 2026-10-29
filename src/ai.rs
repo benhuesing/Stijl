@@ -13,7 +13,7 @@
 //! Farbräume (Gray, RGB, CMYK, ICC, Lab, Indexed, Separation, DeviceN).
 //! Nicht unterstützt: Deckkraftmasken, Strichelungen, Muster, Verlaufsgitter, CMYK-JPEG.
 
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
@@ -36,6 +36,9 @@ pub fn looks_like_ai(data: &[u8]) -> bool {
 }
 
 const MAX_PAGES: usize = 24;
+/// Höchstens so viele Bilddaten (Bytes, wie sie ins Dokument kommen) je Import – eine
+/// präparierte Datei könnte sonst mit wenigen Bytes ein riesiges Bild vielfach zeichnen.
+const MAX_IMAGE_BYTES: usize = 400 << 20;
 const PAGE_GAP: f64 = 40.0;
 
 // ───────────────────────────── Hilfsfunktionen ─────────────────────────────
@@ -77,8 +80,8 @@ fn glyph_char(name: &str) -> Option<char> {
         return Some(c);
     }
     if let Some(h) = name.strip_prefix("uni") {
-        if h.len() >= 4 {
-            return u32::from_str_radix(&h[..4], 16).ok().and_then(char::from_u32);
+        if let Some(h4) = h.get(..4) {
+            return u32::from_str_radix(h4, 16).ok().and_then(char::from_u32);
         }
     }
     let c = match name {
@@ -194,7 +197,7 @@ fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(&crc32(&body).to_be_bytes());
 }
 
-/// PNG mit unkomprimierten Deflate-Blöcken. `ch`: 1 Grau, 3 RGB, 4 RGBA.
+/// PNG (mit Deflate gepackt). `ch`: 1 Grau, 3 RGB, 4 RGBA.
 pub fn png_encode(w: u32, h: u32, ch: usize, pixels: &[u8]) -> Vec<u8> {
     let color = match ch {
         1 => 0,
@@ -207,23 +210,7 @@ pub fn png_encode(w: u32, h: u32, ch: usize, pixels: &[u8]) -> Vec<u8> {
         raw.push(0);
         raw.extend_from_slice(&pixels[y * row..(y + 1) * row]);
     }
-    let mut z = vec![0x78, 0x01];
-    let mut chunks = raw.chunks(65535).peekable();
-    if raw.is_empty() {
-        z.extend_from_slice(&[1, 0, 0, 0xFF, 0xFF]);
-    }
-    while let Some(c) = chunks.next() {
-        z.push(if chunks.peek().is_none() { 1 } else { 0 });
-        z.extend_from_slice(&(c.len() as u16).to_le_bytes());
-        z.extend_from_slice(&(!(c.len() as u16)).to_le_bytes());
-        z.extend_from_slice(c);
-    }
-    let (mut a, mut b) = (1u32, 0u32);
-    for &v in &raw {
-        a = (a + v as u32) % 65521;
-        b = (b + a) % 65521;
-    }
-    z.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let z = crate::pdfx::zlib_encode(&raw);
     let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
     let mut ihdr = Vec::new();
     ihdr.extend_from_slice(&w.to_be_bytes());
@@ -672,6 +659,10 @@ struct Interp<'a> {
     depth: usize,
     fonts: HashMap<u32, Rc<Font>>,
     ops: usize,
+    /// schon umgewandelte Bilder (je Bildobjekt der Datei): Dateityp und Base64-Daten
+    images: HashMap<usize, Rc<(&'static str, String)>>,
+    /// bisher übernommene Bilddaten (Bytes)
+    image_bytes: usize,
 }
 
 fn rect_of(a: Pt, b: Pt) -> Rect {
@@ -800,6 +791,8 @@ impl<'a> Interp<'a> {
             depth: 0,
             fonts: HashMap::new(),
             ops: 0,
+            images: HashMap::new(),
+            image_bytes: 0,
         }
     }
 
@@ -820,7 +813,7 @@ impl<'a> Interp<'a> {
     fn target(&mut self) -> usize {
         match self.cur {
             Some(i) => i,
-            None => self.layer_for("Ebene 1", false),
+            None => self.layer_for(tr("Layer 1"), false),
         }
     }
 
@@ -853,7 +846,7 @@ impl<'a> Interp<'a> {
                 Tok::Kw(k) => {
                     self.ops += 1;
                     if self.ops > 20_000_000 {
-                        self.note(tr("Die Datei ist sehr groß; es wurde nur ein Teil gelesen"));
+                        self.note(tr("The file is very large; only part of it was read"));
                         break;
                     }
                     if k == "BI" {
@@ -944,7 +937,7 @@ impl<'a> Interp<'a> {
                     }
                     if let Some(sm) = d.get("SMask") {
                         if pdf.res(sm).dict().is_some() {
-                            self.note(tr("Deckkraftmasken wurden nicht übernommen"));
+                            self.note(tr("Opacity masks were not imported"));
                         }
                     }
                     if let Obj::Arr(f) = pdf.get(d, "Font") {
@@ -1168,7 +1161,7 @@ impl<'a> Interp<'a> {
                             .string()
                             .map(utf16_or_latin)
                             .filter(|s| !s.trim().is_empty())
-                            .unwrap_or_else(|| "Ebene".to_string());
+                            .unwrap_or_else(|| tr("Layer").to_string());
                         let hidden = num.map(|r| self.off.contains(&r)).unwrap_or(false);
                         self.cur = Some(self.layer_for(&name, hidden));
                         self.oc_depth = 1;
@@ -1252,7 +1245,7 @@ impl<'a> Interp<'a> {
                 return Paint::Grad(Rc::new(sh));
             }
         }
-        self.note(tr("Muster- und Netzfüllungen wurden vereinfacht"));
+        self.note(tr("Pattern and mesh fills were simplified"));
         Paint::Solid([0.6; 3])
     }
 
@@ -1261,7 +1254,7 @@ impl<'a> Interp<'a> {
         let d = sh.dict()?;
         let kind = pdf.num(d, "ShadingType")? as i32;
         if kind != 2 && kind != 3 {
-            self.note(tr("Muster- und Netzfüllungen wurden vereinfacht"));
+            self.note(tr("Pattern and mesh fills were simplified"));
             return None;
         }
         let coords = pdf.nums(pdf.get(d, "Coords"));
@@ -1605,8 +1598,10 @@ impl<'a> Interp<'a> {
         match pdf.get(&s.dict, "Subtype").name() {
             Some("Image") => {
                 self.flush_text();
+                // dasselbe Bildobjekt nur einmal umwandeln
+                let key = xo as *const Obj as usize;
                 let s = s.clone();
-                self.draw_image(&s.dict, &s.data, res, true);
+                self.draw_image(&s.dict, &s.data, res, Some(key));
             }
             Some("Form") => {
                 if self.depth >= 12 {
@@ -1719,10 +1714,10 @@ impl<'a> Interp<'a> {
         lex.pos = (end + 2).min(d.len());
         let data = d[start..end.max(start)].to_vec();
         self.flush_text();
-        self.draw_image(&dict, &data, res, false);
+        self.draw_image(&dict, &data, res, None);
     }
 
-    fn draw_image(&mut self, dict: &Dict, raw: &[u8], res: &Dict, _xobj: bool) {
+    fn draw_image(&mut self, dict: &Dict, raw: &[u8], res: &Dict, key: Option<usize>) {
         let pdf = self.pdf;
         let strm = Strm {
             dict: dict.clone(),
@@ -1764,39 +1759,37 @@ impl<'a> Interp<'a> {
             }
         };
         let is_mask = matches!(pdf.get(dict, "ImageMask"), Obj::Bool(true));
-        let (data, rest) = pdf.stream_data(&strm);
-        let (mime, bytes): (&str, Vec<u8>) = if let Some(f) = rest {
-            if (f == "DCTDecode" || f == "DCT") && !is_mask {
-                match jpeg_components(&data) {
-                    Some(1) | Some(3) => ("image/jpeg", data),
-                    _ => {
-                        self.note(tr("CMYK-JPEG-Bilder wurden übersprungen"));
-                        return;
-                    }
+        // Bildmasken nehmen die aktuelle Füllfarbe an und werden daher nicht wiederverwendet
+        let cached = key
+            .filter(|_| !is_mask)
+            .and_then(|k| self.images.get(&k).cloned());
+        let img = match cached {
+            Some(c) => c,
+            None => {
+                let Some(c) = self.convert_image(dict, &strm, w, h, res, is_mask) else {
+                    return;
+                };
+                let c = Rc::new(c);
+                if let Some(k) = key.filter(|_| !is_mask) {
+                    self.images.insert(k, c.clone());
                 }
-            } else {
-                self.note(tr(
-                    "Bilder mit besonderer Kompression (JPEG 2000, JBIG2, CCITT) wurden übersprungen",
-                ));
-                return;
-            }
-        } else {
-            let fill_rgb = self.gs.fill.flat();
-            match self.decode_pixels(dict, &data, w, h, res, is_mask, fill_rgb) {
-                Some(png) => ("image/png", png),
-                None => return,
+                c
             }
         };
-        if mime == "image/jpeg" && dict.contains_key("SMask") {
-            self.note(tr("Transparenz von JPEG-Bildern wurde nicht übernommen"));
+        let (mime, b64) = (img.0, &img.1);
+        if self.image_bytes + b64.len() > MAX_IMAGE_BYTES {
+            self.note(tr(
+                "Some images were left out because there is too much image data",
+            ));
+            return;
         }
+        self.image_bytes += b64.len();
         let blend = self.blend_attr();
         let op = if self.gs.fa < 0.999 {
             format!(" opacity=\"{}\"", num(self.gs.fa))
         } else {
             String::new()
         };
-        let b64 = base64_encode(&bytes);
         let geom = if m.b.abs() < 1e-9 && m.c.abs() < 1e-9 && m.a > 0.0 && m.d > 0.0 {
             format!(
                 "x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"",
@@ -1819,6 +1812,47 @@ impl<'a> Interp<'a> {
         self.emit(&format!(
             "<image {geom} preserveAspectRatio=\"none\"{op}{blend}{clip_attr} href=\"data:{mime};base64,{b64}\"/>"
         ));
+    }
+
+    /// Bilddaten der Datei in eine eingebettete Bilddatei umwandeln (JPEG bleibt, sonst PNG):
+    /// Dateityp und Base64-Daten.
+    fn convert_image(
+        &mut self,
+        dict: &Dict,
+        strm: &Strm,
+        w: u32,
+        h: u32,
+        res: &Dict,
+        is_mask: bool,
+    ) -> Option<(&'static str, String)> {
+        let pdf = self.pdf;
+        let (data, rest) = pdf.stream_data(strm);
+        let (mime, bytes): (&'static str, Vec<u8>) = if let Some(f) = rest {
+            if (f == "DCTDecode" || f == "DCT") && !is_mask {
+                match jpeg_components(&data) {
+                    Some(1) | Some(3) => ("image/jpeg", data),
+                    _ => {
+                        self.note(tr("CMYK JPEG images were skipped"));
+                        return None;
+                    }
+                }
+            } else {
+                self.note(tr(
+                    "Images with special compression (JPEG 2000, JBIG2, CCITT) were skipped",
+                ));
+                return None;
+            }
+        } else {
+            let fill_rgb = self.gs.fill.flat();
+            (
+                "image/png",
+                self.decode_pixels(dict, &data, w, h, res, is_mask, fill_rgb)?,
+            )
+        };
+        if mime == "image/jpeg" && dict.contains_key("SMask") {
+            self.note(tr("Transparency of JPEG images was not imported"));
+        }
+        Some((mime, base64_encode(&bytes)))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2093,9 +2127,7 @@ impl<'a> Interp<'a> {
             }
         }
         if undecodable {
-            self.note(tr(
-                "Text mit unbekannter Zeichenkodierung wurde teilweise übersprungen",
-            ));
+            self.note(tr("Text with an unknown character encoding was partly skipped"));
         }
         if self.gs.tr == 3 || text.trim().is_empty() || self.gs.fs.abs() < 1e-9 {
             return;
@@ -2103,7 +2135,9 @@ impl<'a> Interp<'a> {
         if self.gs.tr >= 4 {
             return;
         }
-        self.note(tr("Schriften werden durch installierte Schriften ersetzt; Zeilenumbrüche bleiben einzelne Textzeilen"));
+        self.note(tr(
+            "Fonts are replaced by installed fonts; line breaks stay as separate lines of text",
+        ));
         let gm = self.glyph_matrix(&start_tm);
         let s = (gm.a * gm.a + gm.b * gm.b).sqrt();
         if s < 0.05 {
@@ -2236,7 +2270,7 @@ pub fn import(data: &[u8], exists: &dyn Fn(&str) -> bool) -> Result<Import, Stri
     let pdf = Pdf::load(data)?;
     let pages = pdf.pages();
     if pages.is_empty() {
-        return Err(tr("Die Datei enthält keine Seiten").into());
+        return Err(tr("The file contains no pages").into());
     }
     let mut ix = Interp::new(&pdf, exists);
     // ausgeblendete Ebenen
@@ -2336,12 +2370,12 @@ xmlns:mondrian=\"https://mondrian.invalid/ns\" width=\"{w}\" height=\"{h}\" view
     if boards.len() > 1 {
         for (i, (x, y, w, h)) in boards.iter().enumerate() {
             o.push_str(&format!(
-                "  <mondrian:artboard x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" name=\"Zeichenfläche {}\"/>\n",
+                "  <mondrian:artboard x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" name=\"{}\"/>\n",
                 num(*x),
                 num(*y),
                 num(*w),
                 num(*h),
-                i + 1
+                crate::xml::escape(&trf("Artboard {}", &[&(i + 1)]))
             ));
         }
     }
@@ -2359,11 +2393,11 @@ xmlns:mondrian=\"https://mondrian.invalid/ns\" width=\"{w}\" height=\"{h}\" view
     o.push_str("</svg>\n");
     if count == 0 {
         ix.notes
-            .insert(tr("Auf der ersten Seite wurden keine darstellbaren Inhalte gefunden").into());
+            .insert(tr("No displayable content was found on the first page").into());
     }
     if pages.len() > MAX_PAGES {
         ix.notes
-            .insert(format!("Es wurden nur die ersten {MAX_PAGES} Seiten gelesen."));
+            .insert(trf("Only the first {} pages were read.", &[&MAX_PAGES]));
     }
     Ok(Import {
         svg: o,
@@ -2418,7 +2452,7 @@ trailer\n<< /Root 1 0 R >>\n%%EOF\n",
         let want = "hello hello hello hello, Mondrian! ".repeat(3);
         assert_eq!(crate::pdf::zlib_decode(&fixed), want.as_bytes());
         let stored = png_encode(2, 1, 3, &[1, 2, 3, 4, 5, 6]);
-        // IDAT enthält unkomprimierte Blöcke
+        // IDAT ist gültiges zlib
         let pos = stored.windows(4).position(|w| w == b"IDAT").unwrap();
         let len = u32::from_be_bytes(stored[pos - 4..pos].try_into().unwrap()) as usize;
         let z = &stored[pos + 4..pos + 4 + len];
@@ -2559,6 +2593,87 @@ trailer\n<< /Root 1 0 R >>\n%%EOF\n",
         assert!(crate::svg::read(&svg).is_ok());
     }
 
+    /// Kleines PDF aus Objekten (ab Nummer 4; 1 Katalog, 2 Seitenbaum, 3 Seite mit dem
+    /// Inhalt `content` und den Ressourcen /Im 5 0 R und /Fx 6 0 R).
+    fn tiny_pdf(objs: &[Vec<u8>], content: &[u8], kids: &str) -> Vec<u8> {
+        let mut all: Vec<Vec<u8>> = vec![
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            format!("<< /Type /Pages /Kids [{kids}] /Count 1 >>").into_bytes(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /XObject << /Im 5 0 R /Fx 6 0 R >> >> >>".to_vec(),
+            [format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(), content, b"\nendstream"].concat(),
+        ];
+        all.extend(objs.iter().cloned());
+        let mut out = b"%PDF-1.4\n".to_vec();
+        let mut offs = Vec::new();
+        for (i, o) in all.iter().enumerate() {
+            offs.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+            out.extend_from_slice(o);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let x = out.len();
+        out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", all.len() + 1).as_bytes());
+        for o in offs {
+            out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n",
+                all.len() + 1
+            )
+            .as_bytes(),
+        );
+        out
+    }
+
+    /// Präparierte Dateien: Endlosschleifen, Selbstbezüge und Speicherfresser dürfen weder
+    /// hängen noch abstürzen.
+    #[test]
+    fn hostile_pdfs_are_harmless() {
+        let form = b"<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Length 3 >>\nstream\nq Q\nendstream"
+            .to_vec();
+        // ein großes Bild (wenige Bytes) sehr oft gezeichnet: nur einmal umgewandelt
+        let px = crate::pdfx::zlib_encode(&[0u8; 64]);
+        let img = [
+            format!("<< /Type /XObject /Subtype /Image /Width 1000 /Height 1000 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length {} >>\nstream\n", px.len()).as_bytes(),
+            &px,
+            b"\nendstream",
+        ]
+        .concat();
+        let content = b"q 100 0 0 100 0 0 cm /Im Do Q\n".repeat(300);
+        let t = std::time::Instant::now();
+        let r = import(
+            &tiny_pdf(&[img.clone(), form.clone()], &content, "3 0 R"),
+            &|_| false,
+        )
+        .unwrap();
+        assert_eq!(r.svg.matches("<image").count(), 300);
+        assert!(r.svg.len() < MAX_IMAGE_BYTES + 1_000_000);
+        assert!(t.elapsed().as_secs() < 60, "{:?}", t.elapsed());
+        // eine Form, die sich selbst zeichnet
+        let selfform = b"<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << /XObject << /Fx 6 0 R >> >> /Length 14 >>\nstream\n/Fx Do /Fx Do\nendstream".to_vec();
+        assert!(
+            import(&tiny_pdf(&[img.clone(), selfform], b"/Fx Do\n", "3 0 R"), &|_| {
+                false
+            })
+            .is_ok()
+        );
+        // Seitenbaum, der sich selbst enthält
+        let _ = import(
+            &tiny_pdf(&[img.clone(), form.clone()], b"0 0 m 9 9 l S\n", "3 0 R 2 0 R"),
+            &|_| false,
+        );
+        // tief verschachtelte Felder
+        let deep = [b"[".repeat(100_000), b"]".repeat(100_000)].concat();
+        let _ = import(&tiny_pdf(&[deep, form.clone()], b"", "3 0 R"), &|_| false);
+        // riesige und ungültige Zahlen
+        let nums = b"1e308 0 0 1e308 0 0 cm 0 0 m 1e308 1e308 l 1e308 w [1e-300 1e-300] 0 d S NaN NaN m\n";
+        if let Ok(r) = import(&tiny_pdf(&[img, form], nums, "3 0 R"), &|_| false) {
+            let (d, _) = crate::svg::read_with(&r.svg, None).unwrap();
+            assert!(d.width.is_finite() && d.height.is_finite());
+        }
+    }
+
     #[test]
     fn broken_input_is_an_error_not_a_panic() {
         assert!(import(b"hallo", &|_| false).is_err());
@@ -2566,7 +2681,7 @@ trailer\n<< /Root 1 0 R >>\n%%EOF\n",
         let enc =
             b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R /Encrypt 9 0 R >>\n";
         let e = import(enc, &|_| false).err().unwrap();
-        assert!(e.contains("verschlüsselt"));
+        assert!(e.contains("encrypted"));
     }
 
     #[test]

@@ -31,7 +31,7 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     };
     let name = target
         .file_name()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, tr("kein Dateiname")))?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, tr("no file name")))?
         .to_string_lossy()
         .to_string();
     let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
@@ -149,17 +149,52 @@ pub fn foreign_recoveries(dir: &Path) -> Vec<Recovery> {
             }
         }
         if r.title.is_empty() {
-            r.title = "Unbenannt".into();
+            r.title = tr("Untitled").into();
         }
         out.push(r);
     }
-    out.sort_by(|a, b| b.time.cmp(&a.time));
+    out.sort_by_key(|b| std::cmp::Reverse(b.time));
     out
+}
+
+/// Dateiname (ohne Endung) für einen Export, der frühere Exporte nicht überschreibt.
+/// `mode`: 0 = wie angegeben, 1 = fortlaufende Nummer („Name-2“, „Name-3“ … sobald
+/// „Name“ vergeben ist), 2 = mit Zeitstempel `stamp` (bei Gleichstand ebenfalls nummeriert).
+/// `taken` prüft, ob ein Name schon vergeben ist.
+pub fn export_stem(base: &str, mode: u32, stamp: &str, taken: impl Fn(&str) -> bool) -> String {
+    let first = if mode == 2 && !stamp.is_empty() {
+        format!("{base}-{stamp}")
+    } else {
+        base.to_string()
+    };
+    if mode == 0 || !taken(&first) {
+        return first;
+    }
+    (2..100_000)
+        .map(|n| format!("{first}-{n}"))
+        .find(|c| !taken(c))
+        .unwrap_or(first)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_names_do_not_overwrite() {
+        let taken = |s: &str| ["Poster", "Poster-2", "Poster-2026-10-26_17-46"].contains(&s);
+        assert_eq!(export_stem("Poster", 0, "", taken), "Poster");
+        assert_eq!(export_stem("Poster", 1, "", taken), "Poster-3");
+        assert_eq!(export_stem("Flyer", 1, "", taken), "Flyer");
+        assert_eq!(
+            export_stem("Poster", 2, "2026-10-26_17-46", taken),
+            "Poster-2026-10-26_17-46-2"
+        );
+        assert_eq!(
+            export_stem("Poster", 2, "2026-10-26_17-50", taken),
+            "Poster-2026-10-26_17-50"
+        );
+    }
 
     fn tmpdir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("mondrian-test-{name}-{}", std::process::id()));

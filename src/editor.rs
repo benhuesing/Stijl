@@ -646,6 +646,104 @@ pub fn word_at(t: &str, i: usize) -> (usize, usize) {
 pub const LOREM: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.";
 
 /// Glatte Kurve durch Punkte wie beim Kurvenzeichner; `true` markiert Eckpunkte.
+/// Einen Teilpfad vereinfachen (Abweichung höchstens etwa `eps`): die Kurve wird
+/// abgetastet, Ecken (Knicke von mehr als 35°) bleiben fest, dazwischen bleiben nur die
+/// nötigen Punkte, durch die eine glatte Kurve gelegt wird.
+pub fn simplify_subpath(sp: &SubPath, eps: f64) -> SubPath {
+    let n = sp.nodes.len();
+    if n < 3 {
+        return sp.clone();
+    }
+    let segs = if sp.closed { n } else { n - 1 };
+    let node = |i: usize| &sp.nodes[i % n];
+    // Richtung, in der die Kurve einen Knoten verlässt bzw. erreicht
+    let out_dir = |i: usize| {
+        let a = node(i);
+        let h = if a.h_out.dist(a.p) > 1e-9 {
+            a.h_out
+        } else {
+            node(i + 1).p
+        };
+        h - a.p
+    };
+    let in_dir = |i: usize| {
+        let a = node(i);
+        let h = if a.h_in.dist(a.p) > 1e-9 {
+            a.h_in
+        } else {
+            node(i + n - 1).p
+        };
+        a.p - h
+    };
+    let is_corner = |i: usize| {
+        if !sp.closed && (i == 0 || i == n - 1) {
+            return true;
+        }
+        let (u, v) = (in_dir(i), out_dir(i));
+        let (lu, lv) = (u.len(), v.len());
+        if lu < 1e-9 || lv < 1e-9 {
+            return true;
+        }
+        let cos = (u.x * v.x + u.y * v.y) / (lu * lv);
+        cos < 35f64.to_radians().cos()
+    };
+    // abtasten: Punkte mit Eck-Kennzeichen
+    let mut pts: Vec<(Pt, bool)> = Vec::new();
+    for i in 0..segs {
+        let (a, b) = (node(i), node(i + 1));
+        pts.push((a.p, is_corner(i)));
+        for k in 1..16 {
+            let t = k as f64 / 16.0;
+            let u = 1.0 - t;
+            let p = a.p * (u * u * u)
+                + a.h_out * (3.0 * u * u * t)
+                + b.h_in * (3.0 * u * t * t)
+                + b.p * (t * t * t);
+            pts.push((p, false));
+        }
+    }
+    if !sp.closed {
+        pts.push((node(n - 1).p, true));
+    }
+    // zwischen festen Punkten vereinfachen
+    let fixed: Vec<usize> = (0..pts.len()).filter(|i| pts[*i].1).collect();
+    let mut keep: Vec<(Pt, bool)> = Vec::new();
+    let run = |from: usize, to: usize, keep: &mut Vec<(Pt, bool)>| {
+        let line: Vec<Pt> = (from..=to).map(|i| pts[i % pts.len()].0).collect();
+        let s = crate::geom::simplify(&line, eps);
+        for (j, p) in s.iter().enumerate() {
+            if j + 1 < s.len() {
+                keep.push((*p, j == 0 && pts[from % pts.len()].1));
+            }
+        }
+    };
+    if fixed.is_empty() {
+        // geschlossen ohne Ecken: von Punkt 0 ringsum
+        run(0, pts.len(), &mut keep);
+    } else {
+        for (k, &f) in fixed.iter().enumerate() {
+            let to = match fixed.get(k + 1) {
+                Some(t) => *t,
+                None if sp.closed => fixed[0] + pts.len(),
+                None => f,
+            };
+            if to > f {
+                run(f, to, &mut keep);
+            }
+        }
+        if !sp.closed {
+            keep.push((pts[pts.len() - 1].0, true));
+        }
+    }
+    if keep.len() < 2 || keep.len() >= n {
+        return sp.clone();
+    }
+    SubPath {
+        nodes: curvature_nodes(&keep, sp.closed),
+        closed: sp.closed,
+    }
+}
+
 pub fn curvature_nodes(pts: &[(Pt, bool)], closed: bool) -> Vec<Node> {
     let n = pts.len();
     (0..n)
@@ -1130,9 +1228,10 @@ impl Editor {
                 return Some(r);
             }
         }
+        let masks = self.doc.masks();
         self.selected_objects()
             .into_iter()
-            .filter_map(|o| m.bbox(o))
+            .filter_map(|o| self.visible_bbox(o, &masks, m))
             .reduce(|a, b| a.union(&b))
     }
 
@@ -1165,16 +1264,7 @@ impl Editor {
             let mut c = ob.clone();
             c.id = self.doc.alloc_id();
             c.locked = false;
-            if c.group != 0 {
-                c.group = match regroup.iter().find(|(old, _)| *old == c.group) {
-                    Some((_, new)) => *new,
-                    None => {
-                        next_group += 1;
-                        regroup.push((c.group, next_group));
-                        next_group
-                    }
-                };
-            }
+            crate::model::regroup_ids(&mut c, &mut regroup, &mut next_group);
             ids.push(c.id);
             self.doc.layers[li].objects.insert(oi, c);
         }
@@ -1278,8 +1368,12 @@ impl Editor {
         for (k, o) in objs[..objs.len() - 1].iter().enumerate() {
             self.doc.layers[li].objects.insert(pos + k, o.clone());
         }
+        // vorhandene Gruppen werden zu Untergruppen der neuen
         for o in self.doc.layers[li].objects.iter_mut() {
             if objs.iter().any(|x| x.id == o.id) {
+                if o.group != 0 {
+                    o.sub.insert(0, o.group);
+                }
                 o.group = gid;
             }
         }
@@ -1287,7 +1381,8 @@ impl Editor {
         true
     }
 
-    /// Gruppen der Auswahl auflösen (die Objekte bleiben ausgewählt).
+    /// Gruppen der Auswahl um eine Ebene auflösen: die äußerste Gruppe verschwindet, ihre
+    /// Untergruppen bleiben als eigene Gruppen erhalten (die Objekte bleiben ausgewählt).
     pub fn ungroup_selection(&mut self) -> bool {
         if !self.selected_objects().iter().any(|o| o.group != 0) {
             return false;
@@ -1295,10 +1390,69 @@ impl Editor {
         self.checkpoint(None);
         for id in self.selection.clone() {
             if let Some(o) = self.doc.object_mut(id) {
-                o.group = 0;
+                // eine Schnittmaske hängt an ihrer Gruppe; löst man die äußerste Gruppe
+                // der Maske auf, wird sie wieder ein gewöhnliches Objekt
+                if o.mask && o.sub.is_empty() {
+                    o.mask = false;
+                }
+                o.group = if o.sub.is_empty() { 0 } else { o.sub.remove(0) };
             }
         }
+        self.doc.tidy_groups();
         true
+    }
+
+    /// Schnittmaske erstellen: das oberste ausgewählte Objekt begrenzt alle anderen; alle
+    /// zusammen werden eine Gruppe (vorhandene Gruppen werden Untergruppen). Das oberste
+    /// muss ein einzelnes Objekt sein (keine Gruppe, kein Bild).
+    pub fn make_clip_mask(&mut self) -> Result<(), String> {
+        self.expand_groups();
+        let objs = self.selected_in_order();
+        let Some(top) = objs.last().cloned() else {
+            return Err(tr("Select at least two objects for this").into());
+        };
+        if objs.len() < 2 {
+            return Err(tr("Select at least two objects for this").into());
+        }
+        if top.group != 0 || matches!(top.shape, Shape::Image { .. }) || top.mask {
+            return Err(tr("The top object must be a single shape, path or text").into());
+        }
+        if !self.group_selection() {
+            return Err(tr("Select at least two objects for this").into());
+        }
+        if let Some(o) = self.doc.object_mut(top.id) {
+            o.mask = true;
+        }
+        self.layers_version += 1;
+        Ok(())
+    }
+
+    /// Schnittmasken der Auswahl lösen: die Masken werden wieder gewöhnliche Objekte, ihre
+    /// Gruppe wird aufgelöst.
+    pub fn release_clip_mask(&mut self) -> bool {
+        let masks: Vec<(u64, u64)> = self
+            .selected_objects()
+            .iter()
+            .filter(|o| o.mask)
+            .map(|o| (o.id, o.inner_group()))
+            .collect();
+        if masks.is_empty() {
+            return false;
+        }
+        self.checkpoint(None);
+        for (id, g) in masks {
+            if let Some(o) = self.doc.object_mut(id) {
+                o.mask = false;
+            }
+            self.doc.remove_group_level(g);
+        }
+        self.layers_version += 1;
+        true
+    }
+
+    /// Enthält die Auswahl eine Schnittmaske?
+    pub fn selection_has_mask(&self) -> bool {
+        self.selected_objects().iter().any(|o| o.mask)
     }
 
     /// Oberstes bearbeitbares Objekt unter `p`.
@@ -1308,14 +1462,43 @@ impl Editor {
             return None;
         }
         let tol = 4.0 / self.view.zoom;
+        let masks = self.doc.masks();
         for l in self.doc.layers.iter().rev().filter(|l| l.editable()) {
             for o in l.objects.iter().rev() {
-                if m.hit(o, p, tol) {
+                // Schnittmasken sind unsichtbar; begrenzte Objekte treffen nur, wo man sie sieht
+                if o.mask {
+                    continue;
+                }
+                if m.hit(o, p, tol) && crate::model::clips_of(o, &masks).iter().all(|c| m.hit(c, p, 0.0)) {
                     return Some(o.id);
                 }
             }
         }
         None
+    }
+
+    /// Sichtbarer Rahmen eines Objekts: bei begrenzten Objekten höchstens der Rahmen der
+    /// Schnittmaske.
+    pub fn visible_bbox(
+        &self,
+        o: &Object,
+        masks: &std::collections::HashMap<u64, Object>,
+        m: &dyn Metrics,
+    ) -> Option<Rect> {
+        let mut b = m.bbox(o)?;
+        for c in crate::model::clips_of(o, masks) {
+            let cb = m.bbox(c)?;
+            b = Rect {
+                x0: b.x0.max(cb.x0),
+                y0: b.y0.max(cb.y0),
+                x1: b.x1.min(cb.x1),
+                y1: b.y1.min(cb.y1),
+            };
+            if b.x0 > b.x1 || b.y0 > b.y1 {
+                return None;
+            }
+        }
+        Some(b)
     }
 
     /// Bildschirmpositionen der 8 Skalierungsanfasser (oben links, im Uhrzeigersinn).
@@ -1474,11 +1657,11 @@ impl Editor {
         })?;
         let l = &self.doc.layers[idx];
         if !l.visible {
-            self.message = Some(trf("Die Ebene „{}“ ist ausgeblendet", &[&(l.name)]));
+            self.message = Some(trf("The layer “{}” is hidden", &[&(l.name)]));
             return None;
         }
         if l.locked {
-            self.message = Some(trf("Die Ebene „{}“ ist gesperrt", &[&(l.name)]));
+            self.message = Some(trf("The layer “{}” is locked", &[&(l.name)]));
             return None;
         }
         Some(idx)
@@ -1488,6 +1671,8 @@ impl Editor {
         let id = self.doc.alloc_id();
         self.doc.layers[li].objects.push(Object {
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
             id,
@@ -1527,6 +1712,13 @@ impl Editor {
             stroke_align: crate::model::StrokeAlign::Center,
             dash: d.dash,
             fx: d.fx,
+            fill_link: None,
+            // die Kontur kommt aus der Kontur oder der Füllung der Vorgabe
+            stroke_link: if d.stroke.is_some() {
+                d.stroke_link.clone()
+            } else {
+                d.fill_link.clone()
+            },
         }
     }
 
@@ -2721,7 +2913,11 @@ impl Editor {
             } => {
                 let rotated = !frame.is_identity();
                 // im System des Rahmens skalieren, dann zurückdrehen
-                let q = if rotated { frame.apply(p) } else { self.snap(p) };
+                let q = if rotated {
+                    frame.apply(p)
+                } else {
+                    self.snap_scale(handle, &bbox, p, mods, uniform, &orig)
+                };
                 let local = scale_affine(handle, &bbox, q, mods, uniform);
                 let a = frame.invert().then_before(&local).then_before(&frame);
                 self.touch();
@@ -2915,7 +3111,7 @@ impl Editor {
                     self.hints.borrow_mut().push(SnapHint {
                         a: q,
                         b: q,
-                        label: Some(tr("Hilfslinie")),
+                        label: Some(tr("Guide")),
                     });
                 }
                 let p = along.unwrap_or(p);
@@ -3680,6 +3876,8 @@ impl Editor {
             y: 0.0,
             w: self.doc.width,
             h: self.doc.height,
+            // wie die erste Zeichenfläche; lässt sich danach einzeln ändern
+            background: self.doc.background,
         });
         // Notizheft: gleich auf die neue Seite blättern
         if self.notebook.is_some() {
@@ -3701,7 +3899,7 @@ impl Editor {
         self.checkpoint(None);
         // Name „… (Kopie)“, bei Bedarf mit Nummer
         let names: Vec<String> = rects.iter().map(|(n, _)| n.clone()).collect();
-        let base = trf("{} (Kopie)", &[&name]);
+        let base = trf("{} (copy)", &[&name]);
         let mut new_name = base.clone();
         let mut k = 2;
         while names.contains(&new_name) {
@@ -3714,6 +3912,7 @@ impl Editor {
             y: r.y0,
             w: r.width(),
             h: r.height(),
+            background: self.doc.artboard_backgrounds().get(i).copied().flatten(),
         });
         // Objekte jeweils auf ihrer Ebene kopieren; Gruppen bekommen neue Nummern
         let mut next_group = self.doc.max_group();
@@ -3729,16 +3928,7 @@ impl Editor {
         let mut ids = Vec::new();
         for (li, mut o) in copies {
             o.id = self.doc.alloc_id();
-            if o.group != 0 {
-                o.group = match regroup.iter().find(|(old, _)| *old == o.group) {
-                    Some((_, new)) => *new,
-                    None => {
-                        next_group += 1;
-                        regroup.push((o.group, next_group));
-                        next_group
-                    }
-                };
-            }
+            crate::model::regroup_ids(&mut o, &mut regroup, &mut next_group);
             o.shape.translate(offset);
             ids.push(o.id);
             self.doc.layers[li].objects.push(o);
@@ -3766,6 +3956,7 @@ impl Editor {
             let t = Pt::new(-a.x, -a.y);
             self.doc.width = a.w;
             self.doc.height = a.h;
+            self.doc.background = a.background;
             if t.x != 0.0 || t.y != 0.0 {
                 for l in &mut self.doc.layers {
                     for o in &mut l.objects {
@@ -3905,13 +4096,13 @@ impl Editor {
         if matches!(handle, 0 | 6 | 7) {
             x0 = q.x.min(x1 - 1.0);
         }
-        if matches!(handle, 2 | 3 | 4) {
+        if matches!(handle, 2..=4) {
             x1 = q.x.max(x0 + 1.0);
         }
-        if matches!(handle, 0 | 1 | 2) {
+        if matches!(handle, 0..=2) {
             y0 = q.y.min(y1 - 1.0);
         }
-        if matches!(handle, 4 | 5 | 6) {
+        if matches!(handle, 4..=6) {
             y1 = q.y.max(y0 + 1.0);
         }
         let mut doc = orig.clone();
@@ -4009,7 +4200,7 @@ impl Editor {
     /// Schatten mitskalieren.
     pub fn scale_selection(&mut self, sx: f64, sy: f64, strokes: bool, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         if sx <= 0.0 || sy <= 0.0 || ((sx - 1.0).abs() < 1e-9 && (sy - 1.0).abs() < 1e-9) {
@@ -4068,7 +4259,7 @@ impl Editor {
             return false;
         }
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht löschen").into());
+            self.message = Some(tr("Locked objects cannot be deleted").into());
             return false;
         }
         self.checkpoint(None);
@@ -4108,16 +4299,7 @@ impl Editor {
         for mut o in objs {
             o.id = self.doc.alloc_id();
             o.locked = false;
-            if o.group != 0 {
-                o.group = match regroup.iter().find(|(old, _)| *old == o.group) {
-                    Some((_, new)) => *new,
-                    None => {
-                        next_group += 1;
-                        regroup.push((o.group, next_group));
-                        next_group
-                    }
-                };
-            }
+            crate::model::regroup_ids(&mut o, &mut regroup, &mut next_group);
             o.shape.translate(Pt::new(offset, offset));
             ids.push(o.id);
             self.doc.layers[li].objects.push(o);
@@ -4139,7 +4321,7 @@ impl Editor {
 
     pub fn nudge(&mut self, dx: f64, dy: f64) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         if self.selection.is_empty() {
@@ -4191,7 +4373,7 @@ impl Editor {
 
     pub fn convert_to_path(&mut self, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         // je Objekt die Teile; Texte werden in einzelne Buchstaben zerlegt
@@ -4233,16 +4415,27 @@ impl Editor {
                 selection.push(id);
                 continue;
             }
+            // Schnittmaske aus Text: bleibt ein einziges Objekt (ein zusammengesetzter Pfad)
+            if self.doc.object(id).is_some_and(|o| o.mask) {
+                if let Some(o) = self.doc.object_mut(id) {
+                    o.shape = path(parts.concat());
+                }
+                selection.push(id);
+                continue;
+            }
             // mehrere Buchstaben: je ein Pfad, als Gruppe an der Stelle des Textes
             let Some((li, oi)) = self.doc.locate(id) else {
                 continue;
             };
             let orig = self.doc.layers[li].objects[oi].clone();
-            let group = if orig.group != 0 {
-                orig.group
+            // die Buchstaben bilden eine eigene Gruppe (in einer Gruppe als Untergruppe)
+            next_group += 1;
+            let (group, sub) = if orig.group != 0 {
+                let mut sub = orig.sub.clone();
+                sub.push(next_group);
+                (orig.group, sub)
             } else {
-                next_group += 1;
-                next_group
+                (next_group, Vec::new())
             };
             let mut objs = Vec::new();
             for (k, subs) in parts.into_iter().enumerate() {
@@ -4252,6 +4445,7 @@ impl Editor {
                 }
                 o.shape = path(subs);
                 o.group = group;
+                o.sub = sub.clone();
                 selection.push(o.id);
                 objs.push(o);
             }
@@ -4267,7 +4461,7 @@ impl Editor {
 
     fn transform_selection(&mut self, m: &dyn Metrics, f: impl Fn(Pt) -> Affine) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         let Some(b) = self.selection_bbox(m) else {
@@ -4315,7 +4509,7 @@ impl Editor {
     /// Auswahl auf einen bestimmten Drehwinkel bringen (Grad, gegen den Uhrzeigersinn).
     pub fn set_rotation(&mut self, deg: f64, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         let Some(cur) = self.selected_objects().first().map(|o| o.angle) else {
@@ -4358,7 +4552,7 @@ impl Editor {
     /// Pfadoperation auf alle ausgewählten Objekte.
     pub fn boolean(&mut self, op: Op, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         let mut items: Vec<(usize, usize, u64)> = self
@@ -4367,7 +4561,7 @@ impl Editor {
             .filter_map(|id| self.doc.locate(*id).map(|(l, o)| (l, o, *id)))
             .collect();
         if items.len() < 2 {
-            self.message = Some(tr("Dafür mindestens zwei Objekte auswählen").into());
+            self.message = Some(tr("Select at least two objects for this").into());
             return false;
         }
         items.sort();
@@ -4381,7 +4575,7 @@ impl Editor {
         let tol = (0.15 / self.view.zoom).clamp(0.02, 0.5);
         let result = boolean::apply_many(&shapes, op, tol);
         if result.is_empty() {
-            self.message = Some(tr("Das Ergebnis wäre leer").into());
+            self.message = Some(tr("The result would be empty").into());
             return false;
         }
         let (bottom_l, bottom_o, bottom_id) = items[0];
@@ -4403,6 +4597,8 @@ impl Editor {
             pos,
             Object {
                 group: 0,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: String::new(),
                 id,
@@ -4799,7 +4995,7 @@ impl Editor {
         };
         if !self.doc.layers[ti].editable() {
             self.message = Some(trf(
-                "Die Ebene „{}“ ist gesperrt oder ausgeblendet",
+                "The layer “{}” is locked or hidden",
                 &[&(self.doc.layers[ti].name)],
             ));
             return false;
@@ -4843,8 +5039,7 @@ impl Editor {
 
     fn textpath_press(&mut self, p: Pt, m: &dyn Metrics) {
         let Some(id) = self.hit(p, m) else {
-            self.message =
-                Some(tr("Klicke auf einen Pfad oder eine Form, um Text daran auszurichten").into());
+            self.message = Some(tr("Click a path or shape to align text along it").into());
             return;
         };
         let Some(obj) = self.doc.object(id) else { return };
@@ -4853,7 +5048,7 @@ impl Editor {
                 self.text_click(p, m);
             }
             Shape::Image { .. } => {
-                self.message = Some(tr("Text lässt sich nicht an einem Bild ausrichten").into());
+                self.message = Some(tr("Text cannot be aligned along an image").into());
             }
             shape => {
                 let Some(Shape::Path { subpaths, .. }) = shape.to_path() else {
@@ -4862,7 +5057,7 @@ impl Editor {
                 let t = self.text_defaults.clone();
                 let new_shape = Shape::TextPath {
                     path: subpaths,
-                    text: tr("Text auf Pfad").into(),
+                    text: tr("Text on Path").into(),
                     family: t.family,
                     size: t.size,
                     bold: t.bold,
@@ -4942,6 +5137,17 @@ impl Editor {
         true
     }
 
+    /// Hintergrund einer einzelnen Zeichenfläche ändern (0 = erste).
+    pub fn set_artboard_background(&mut self, i: usize, bg: Option<Color>) -> bool {
+        if self.doc.artboard_backgrounds().get(i).copied() == Some(bg) || i > self.doc.artboards.len() {
+            return false;
+        }
+        self.checkpoint(None);
+        self.doc.set_artboard_background(i, bg);
+        self.layers_version += 1;
+        true
+    }
+
     /// Größe und Hintergrund der Zeichenfläche ändern.
     pub fn set_artboard(&mut self, w: f64, h: f64, background: Option<Color>) {
         if self.doc.width == w && self.doc.height == h && self.doc.background == background {
@@ -4960,11 +5166,11 @@ impl Editor {
     pub fn add_layer(&mut self) {
         self.checkpoint(None);
         let n = self.doc.layers.len() + 1;
-        let mut name = trf("Ebene {}", &[&(n)]);
+        let mut name = trf("Layer {}", &[&(n)]);
         let mut k = n;
         while self.doc.layers.iter().any(|l| l.name == name) {
             k += 1;
-            name = trf("Ebene {}", &[&(k)]);
+            name = trf("Layer {}", &[&(k)]);
         }
         let id = self.doc.alloc_id();
         let pos = self
@@ -4989,7 +5195,7 @@ impl Editor {
 
     pub fn delete_layer(&mut self) -> bool {
         if self.doc.layers.len() <= 1 {
-            self.message = Some(tr("Die letzte Ebene kann nicht gelöscht werden").into());
+            self.message = Some(tr("The last layer cannot be deleted").into());
             return false;
         }
         let Some(i) = self.doc.layer_index(self.active_layer) else {
@@ -5207,25 +5413,25 @@ impl Editor {
             },
             title: match sel.len() {
                 0 => match self.tool {
-                    Tool::Select => tr("Auswahl").into(),
-                    Tool::Node => tr("Knoten bearbeiten").into(),
-                    Tool::Shape => tr("Neue Form").into(),
-                    Tool::Pen => tr("Zeichenstift").into(),
-                    Tool::Pencil => tr("Freihand").into(),
-                    Tool::Text => tr("Neuer Text").into(),
-                    Tool::TextPath => tr("Text auf Pfad").into(),
-                    Tool::TextArea => tr("Neues Textfeld").into(),
-                    Tool::Curvature => tr("Kurvenzeichner").into(),
-                    Tool::Guide => tr("Hilfslinien").into(),
-                    Tool::Eraser => tr("Radierer").into(),
-                    Tool::Scissors => tr("Schere").into(),
-                    Tool::Builder => tr("Formerstellung").into(),
+                    Tool::Select => tr("Select").into(),
+                    Tool::Node => tr("Edit Nodes").into(),
+                    Tool::Shape => tr("New Shape").into(),
+                    Tool::Pen => tr("Pen").into(),
+                    Tool::Pencil => tr("Freehand").into(),
+                    Tool::Text => tr("New Text").into(),
+                    Tool::TextPath => tr("Text on Path").into(),
+                    Tool::TextArea => tr("New Text Box").into(),
+                    Tool::Curvature => tr("Curvature Pen").into(),
+                    Tool::Guide => tr("Guides").into(),
+                    Tool::Eraser => tr("Eraser").into(),
+                    Tool::Scissors => tr("Scissors").into(),
+                    Tool::Builder => tr("Shape Builder").into(),
                 },
                 1 => match &sel[0].shape {
-                    Shape::Image { clip: Some(_), .. } => tr("Bild mit Rahmen").into(),
+                    Shape::Image { clip: Some(_), .. } => tr("Framed Image").into(),
                     s => s.kind_name().into(),
                 },
-                n => trf("{} Objekte", &[&(n)]),
+                n => trf("{} objects", &[&(n)]),
             },
         }
     }
@@ -5324,7 +5530,7 @@ impl Editor {
         th: usize,
     ) -> bool {
         if layers.is_empty() || tw == 0 || th == 0 {
-            self.message = Some(tr("Im Bild wurden keine Flächen gefunden").into());
+            self.message = Some(tr("No areas were found in the image").into());
             return false;
         }
         let Some(img) = self.doc.object(id).cloned() else {
@@ -5389,9 +5595,11 @@ impl Editor {
                     style: st,
                     angle: 0.0,
                     group: gid,
+                    sub: Vec::new(),
+                    mask: false,
                     locked: false,
                     name: if n == 0 {
-                        tr("Nachgezeichnet").into()
+                        tr("Traced").into()
                     } else {
                         String::new()
                     },
@@ -5598,6 +5806,8 @@ impl Editor {
             pos,
             Object {
                 group: 0,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: String::new(),
                 id,
@@ -5619,7 +5829,7 @@ impl Editor {
         let arr = self.build_arrangement(m);
         let hits: Vec<usize> = hits.iter().copied().filter(|i| *i < arr.faces.len()).collect();
         let Some(&first) = hits.first() else {
-            self.message = Some(tr("Hier ist keine geschlossene Fläche").into());
+            self.message = Some(tr("There is no closed area here").into());
             return false;
         };
         let probe = |i: usize| crate::shapeops::interior_point(&arr.faces[i].poly);
@@ -5719,6 +5929,8 @@ impl Editor {
                 *pos,
                 Object {
                     group: 0,
+                    sub: Vec::new(),
+                    mask: false,
                     locked: false,
                     name: String::new(),
                     id,
@@ -5965,7 +6177,7 @@ impl Editor {
     /// entsteht ein gerades Stück. Ein einzelner offener Pfad wird geschlossen.
     pub fn join_paths(&mut self) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         // beteiligte Objekte in Stapelreihenfolge (das unterste bestimmt den Stil)
@@ -6184,20 +6396,12 @@ impl Editor {
             let mut c = o.clone();
             c.id = self.doc.alloc_id();
             c.locked = false;
-            c.group = if whole != 0 {
-                whole
-            } else if c.group != 0 {
-                match regroup.iter().find(|(old, _)| *old == c.group) {
-                    Some((_, n)) => *n,
-                    None => {
-                        next += 1;
-                        regroup.push((c.group, next));
-                        next
-                    }
-                }
+            if whole != 0 {
+                c.group = whole;
+                c.sub.clear();
             } else {
-                0
-            };
+                crate::model::regroup_ids(&mut c, &mut regroup, &mut next);
+            }
             c.shape.translate(d);
             ids.push(c.id);
             self.doc.layers[li].objects.push(c);
@@ -6239,14 +6443,43 @@ impl Editor {
         })
     }
 
-    /// Farbe aus der Bibliothek als Füllung oder Kontur übernehmen.
-    pub fn apply_lib_color(&mut self, c: Color, g: Option<Gradient>, stroke: bool) -> bool {
+    /// Farbe aus der Bibliothek als Füllung oder Kontur übernehmen. Mit `link` (Kennung der
+    /// Bibliotheksfarbe) bleibt das Objekt mit ihr verknüpft (globale Farbe).
+    pub fn apply_lib_color(
+        &mut self,
+        c: Color,
+        g: Option<Gradient>,
+        link: Option<String>,
+        stroke: bool,
+    ) -> bool {
         let t = if stroke {
             PaintTarget::Stroke
         } else {
             PaintTarget::Fill
         };
-        self.update_style("lib-color", move |st| st.set_paint(t, Some(c), g.clone()))
+        let link = link
+            .filter(|_| g.is_none())
+            .map(|id| crate::model::ColorLink { id, color: c });
+        self.update_style("lib-color", move |st| {
+            st.set_paint(t, Some(c), g.clone());
+            if stroke {
+                st.stroke_link = link.clone();
+            } else {
+                st.fill_link = link.clone();
+            }
+        })
+    }
+
+    /// Globale Farben: verknüpfte Farben auf den Stand der Bibliotheken bringen (`lookup`:
+    /// Kennung → aktuelle Farbe). Rückgängig machbar; liefert die Zahl geänderter Farben.
+    pub fn sync_library_colors(&mut self, lookup: &dyn Fn(&str) -> Option<Color>) -> usize {
+        let mut d = self.doc.clone();
+        let n = d.sync_linked_colors(lookup);
+        if n > 0 {
+            self.checkpoint(None);
+            self.doc = d;
+        }
+        n
     }
 
     /// Gespeicherten Stil übernehmen: Darstellung komplett, bei Texten auch die Schrift.
@@ -6609,9 +6842,9 @@ fn fillet_factor(theta: f64) -> f64 {
 /// Skalierungsmatrix für das Ziehen an Anfasser `handle` (0 = oben links, im Uhrzeigersinn).
 pub fn scale_affine(handle: usize, b: &Rect, p: Pt, mods: Mods, uniform: bool) -> Affine {
     let left = matches!(handle, 0 | 6 | 7);
-    let right = matches!(handle, 2 | 3 | 4);
-    let top = matches!(handle, 0 | 1 | 2);
-    let bottom = matches!(handle, 4 | 5 | 6);
+    let right = matches!(handle, 2..=4);
+    let top = matches!(handle, 0..=2);
+    let bottom = matches!(handle, 4..=6);
     let (w, h) = (b.width(), b.height());
     let mut sx = 1.0;
     let mut sy = 1.0;
@@ -6683,6 +6916,7 @@ pub fn scale_affine(handle: usize, b: &Rect, p: Pt, mods: Mods, uniform: bool) -
 /// * die Lücke zum linken und zum rechten Nachbarn gleich groß ist, oder
 /// * die Lücke zu einem Nachbarn so groß ist wie eine Lücke zwischen zwei anderen Objekten
 ///   der Reihe (eine gleichmäßige Reihe lässt sich so fortsetzen).
+///
 /// Zurück kommen die Korrektur und die Lücken zum Anzeigen als (Anfang, Ende, Lage auf der
 /// anderen Achse).
 fn equal_gap_snap(
@@ -6810,7 +7044,7 @@ impl Editor {
                 if mids {
                     c.points.push((Pt::new(cx, cy), mid));
                     for (x, y) in [(cx, b.y0), (b.x1, cy), (cx, b.y1), (b.x0, cy)] {
-                        c.points.push((Pt::new(x, y), tr("Kantenmitte")));
+                        c.points.push((Pt::new(x, y), tr("Edge centre")));
                     }
                     c.xs.push((cx, Pt::new(cx, cy)));
                     c.ys.push((cy, Pt::new(cx, cy)));
@@ -6827,8 +7061,8 @@ impl Editor {
                 add_box(
                     &mut c,
                     b,
-                    tr("Ecke"),
-                    tr("Mitte"),
+                    tr("Corner"),
+                    tr("Centre"),
                     self.snap_corners,
                     self.snap_mids,
                 );
@@ -6838,7 +7072,7 @@ impl Editor {
                 if let (true, Shape::Path { subpaths, .. }) = (self.snap_anchors, &o.shape) {
                     for sp in subpaths {
                         for n in &sp.nodes {
-                            c.points.push((n.p, tr("Ankerpunkt")));
+                            c.points.push((n.p, tr("Anchor point")));
                         }
                     }
                 }
@@ -6872,7 +7106,7 @@ impl Editor {
                 if skip_board == Some(i) {
                     continue;
                 }
-                add_box(&mut c, r, tr("Seitenecke"), tr("Seitenmitte"), true, true);
+                add_box(&mut c, r, tr("Page corner"), tr("Page centre"), true, true);
                 // andere Zeichenflächen zählen auch für gleiche Abstände
                 if skip_board.is_some() {
                     c.boxes.push(r);
@@ -6928,7 +7162,7 @@ impl Editor {
             hints.push(SnapHint {
                 a: q,
                 b: q,
-                label: Some(tr("Hilfslinie")),
+                label: Some(tr("Guide")),
             });
             return q;
         }
@@ -6972,7 +7206,7 @@ impl Editor {
                 hints.push(SnapHint {
                     a: q,
                     b: q,
-                    label: Some(tr("Pfad")),
+                    label: Some(tr("Path")),
                 });
                 return q;
             }
@@ -7060,6 +7294,116 @@ impl Editor {
     /// Verschiebung so anpassen, dass Kanten oder Mitte der Auswahl an Hilfslinien,
     /// anderen Objekten, der Seite oder am Raster einrasten.
     /// Ankerpunkte der verschobenen Objekte (für das Einrasten von Pfaden).
+    /// Zeiger beim Skalieren einrasten: zuerst der gezogene Anfasser selbst (Ecke/Kante an
+    /// Punkten, Kanten, Hilfslinien); sonst Ankerpunkte der Auswahl, die beim Skalieren
+    /// mitwandern, an Punkten oder Kanten/Mitten anderer Objekte.
+    fn snap_scale(
+        &self,
+        handle: usize,
+        b: &Rect,
+        p: Pt,
+        mods: Mods,
+        uniform: bool,
+        orig: &[(u64, Object)],
+    ) -> Pt {
+        let q = self.snap(p);
+        if q.dist(p) > 1e-9 {
+            return q;
+        }
+        let Some(c) = self.snap_ctx.as_ref().filter(|_| self.smart_snap) else {
+            return p;
+        };
+        let tol = self.snap_tol();
+        let anchors = Self::anchor_points(orig);
+        if anchors.is_empty() {
+            return p;
+        }
+        // Lage der Ankerpunkte hängt je Achse linear vom Zeiger ab: Steigung ausmessen
+        let a0 = scale_affine(handle, b, p, mods, uniform);
+        let ax = scale_affine(handle, b, p + Pt::new(1.0, 0.0), mods, uniform);
+        let ay = scale_affine(handle, b, p + Pt::new(0.0, 1.0), mods, uniform);
+        let moved: Vec<(Pt, f64, f64)> = anchors
+            .iter()
+            .map(|a| {
+                let m = a0.apply(*a);
+                (m, ax.apply(*a).x - m.x, ay.apply(*a).y - m.y)
+            })
+            .collect();
+        let mut out = p;
+        let mut hints = self.hints.borrow_mut();
+        // markante Punkte (beide Achsen)
+        let mut best_pt: Option<(f64, Pt, Pt)> = None;
+        for (m, kx, ky) in &moved {
+            if kx.abs() < 1e-6 && ky.abs() < 1e-6 {
+                continue;
+            }
+            for (t, _) in &c.points {
+                let d = t.dist(*m);
+                if d <= tol && best_pt.map(|x| d < x.0).unwrap_or(true) {
+                    // Achsen, die sich nicht bewegen, müssen schon passen
+                    let okx = kx.abs() > 1e-6 || (t.x - m.x).abs() < 1e-6;
+                    let oky = ky.abs() > 1e-6 || (t.y - m.y).abs() < 1e-6;
+                    if okx && oky {
+                        best_pt = Some((d, *t, *m));
+                    }
+                }
+            }
+        }
+        if let Some((_, t, m)) = best_pt {
+            let (kx, ky) = moved
+                .iter()
+                .find(|x| x.0 == m)
+                .map(|x| (x.1, x.2))
+                .unwrap_or((0.0, 0.0));
+            if kx.abs() > 1e-6 {
+                out.x += (t.x - m.x) / kx;
+            }
+            if ky.abs() > 1e-6 {
+                out.y += (t.y - m.y) / ky;
+            }
+            hints.push(SnapHint {
+                a: t,
+                b: t,
+                label: Some(tr("Anchor point")),
+            });
+            return out;
+        }
+        // Kanten und Mitten anderer Objekte, je Achse
+        let axis = |vals: &[(f64, Pt)], x: bool| {
+            let mut r: Option<(f64, f64, f64, Pt, Pt)> = None;
+            for (m, kx, ky) in &moved {
+                let (v, k) = if x { (m.x, *kx) } else { (m.y, *ky) };
+                if k.abs() < 1e-6 {
+                    continue;
+                }
+                for (t, refp) in vals {
+                    let corr = t - v;
+                    if corr.abs() <= tol && r.map(|o| corr.abs() < o.0.abs()).unwrap_or(true) {
+                        r = Some((corr, k, *t, *refp, *m));
+                    }
+                }
+            }
+            r
+        };
+        if let Some((corr, k, t, refp, m)) = axis(&c.xs, true) {
+            out.x += corr / k;
+            hints.push(SnapHint {
+                a: refp,
+                b: Pt::new(t, m.y),
+                label: None,
+            });
+        }
+        if let Some((corr, k, t, refp, m)) = axis(&c.ys, false) {
+            out.y += corr / k;
+            hints.push(SnapHint {
+                a: refp,
+                b: Pt::new(m.x, t),
+                label: None,
+            });
+        }
+        out
+    }
+
     fn anchor_points(orig: &[(u64, Object)]) -> Vec<Pt> {
         let mut v = Vec::new();
         for (_, o) in orig {
@@ -7154,7 +7498,7 @@ impl Editor {
                 hints.push(SnapHint {
                     a: q,
                     b: q,
-                    label: Some(tr("Hilfslinie")),
+                    label: Some(tr("Guide")),
                 });
             }
         }
@@ -7287,7 +7631,7 @@ impl Editor {
                 .map(|l| l.locked)
                 .unwrap_or(false)
         {
-            self.message = Some(tr("Die aktuelle Ebene ist gesperrt").into());
+            self.message = Some(tr("The current layer is locked").into());
             return;
         }
         let _ = mods;
@@ -7458,6 +7802,198 @@ impl Editor {
 
     /// Kontur in eine eigene Fläche umwandeln (lässt sich dann wie jede Form bearbeiten).
     /// Ecken, Enden, Strichmuster und Linienenden sehen danach genauso aus wie vorher.
+    /// Kontur versetzen: um jede ausgewählte Form eine neue Fläche im Abstand `d`
+    /// (positiv: nach außen, negativ: nach innen) mit dem Stil des Originals. Nach außen
+    /// liegt sie unter dem Original (z. B. als Rand eines Aufklebers), nach innen darüber.
+    /// Offene Pfade werden zu einer Fläche der Breite 2·d. Liefert die Zahl neuer Objekte.
+    pub fn offset_path(&mut self, d: f64, join: crate::model::LineJoin, m: &dyn Metrics) -> usize {
+        if d.abs() < 1e-6 || !d.is_finite() {
+            return 0;
+        }
+        let items: Vec<Object> = self
+            .selected_objects()
+            .into_iter()
+            .filter(|o| !o.mask && !matches!(o.shape, Shape::Image { .. }))
+            .cloned()
+            .collect();
+        let mut made: Vec<(u64, Object)> = Vec::new();
+        for o in &items {
+            let Some(subs) = Self::outline_of(o, m) else {
+                continue;
+            };
+            let subs = crate::model::effective_subpaths(&subs);
+            let closed: Vec<SubPath> = subs.iter().filter(|s| s.closed).cloned().collect();
+            let open: Vec<SubPath> = subs.iter().filter(|s| !s.closed).cloned().collect();
+            let st = crate::stroker::StrokeStyle {
+                width: 2.0 * d.abs(),
+                join,
+                cap: crate::model::LineCap::Round,
+                dash: Vec::new(),
+            };
+            let tol = 0.25;
+            let mut region: Vec<boolean::Ring> = Vec::new();
+            if !closed.is_empty() {
+                let fill = boolean::to_rings(&closed, tol);
+                let band = crate::stroker::stroke_area(&closed, &st);
+                region = boolean::rings_op(&fill, &band, if d > 0.0 { Op::Union } else { Op::Difference });
+            }
+            if d > 0.0 && !open.is_empty() {
+                let band = crate::stroker::stroke_area(&open, &st);
+                region = if region.is_empty() {
+                    band
+                } else {
+                    boolean::rings_op(&region, &band, Op::Union)
+                };
+            }
+            if region.is_empty() {
+                continue;
+            }
+            let mut style = o.style.clone();
+            if open.len() == subs.len() {
+                // aus einer Linie wird eine Fläche in der Farbe der Linie
+                style.fill = o.style.stroke.or(o.style.fill);
+                style.stroke = None;
+            }
+            style.marker = crate::model::Marker::None;
+            made.push((
+                o.id,
+                Object {
+                    id: 0,
+                    shape: Shape::Path {
+                        subpaths: boolean::rings_to_paths(region),
+                        evenodd: true,
+                    },
+                    style,
+                    angle: o.angle,
+                    group: o.group,
+                    sub: o.sub.clone(),
+                    mask: false,
+                    locked: false,
+                    name: String::new(),
+                },
+            ));
+        }
+        if made.is_empty() {
+            return 0;
+        }
+        self.checkpoint(None);
+        let mut sel = Vec::new();
+        for (id, mut obj) in made {
+            let Some((li, oi)) = self.doc.locate(id) else {
+                continue;
+            };
+            obj.id = self.doc.alloc_id();
+            sel.push(obj.id);
+            let at = if d > 0.0 { oi } else { oi + 1 };
+            self.doc.layers[li].objects.insert(at, obj);
+        }
+        let n = sel.len();
+        self.selection = sel;
+        self.node_sel.clear();
+        self.layers_version += 1;
+        n
+    }
+
+    /// Pfade vereinfachen: weniger Knoten bei fast gleicher Form; Ecken bleiben Ecken.
+    /// Mehrmals angewendet wird weiter vereinfacht. Liefert die Zahl gesparter Knoten.
+    pub fn simplify_paths(&mut self, m: &dyn Metrics) -> usize {
+        if self.selection_locked() {
+            self.message = Some(tr("Locked objects cannot be changed").into());
+            return 0;
+        }
+        let mut changes: Vec<(u64, Vec<SubPath>, usize)> = Vec::new();
+        for o in self.selected_objects() {
+            let Shape::Path { subpaths, .. } = &o.shape else {
+                continue;
+            };
+            let Some(b) = m.bbox(o) else { continue };
+            let eps = (b.width().hypot(b.height()) * 0.003).max(0.2);
+            let before: usize = subpaths.iter().map(|s| s.nodes.len()).sum();
+            let eff = crate::model::effective_subpaths(subpaths);
+            let new: Vec<SubPath> = eff.iter().map(|sp| simplify_subpath(sp, eps)).collect();
+            let after: usize = new.iter().map(|s| s.nodes.len()).sum();
+            if after < before {
+                changes.push((o.id, new, before - after));
+            }
+        }
+        if changes.is_empty() {
+            return 0;
+        }
+        self.checkpoint(None);
+        let mut saved = 0;
+        for (id, new, n) in changes {
+            if let Some(Object {
+                shape: Shape::Path { subpaths, .. },
+                ..
+            }) = self.doc.object_mut(id)
+            {
+                *subpaths = new;
+                saved += n;
+            }
+        }
+        self.node_sel.clear();
+        saved
+    }
+
+    /// Auswahl wiederholen: `count` Kopien, jede gegenüber der vorigen um (dx, dy) verschoben,
+    /// um `angle` Grad (gegen den Uhrzeigersinn) gedreht und mit `scale` skaliert – um die
+    /// Mitte der Auswahl oder um `pivot`. Original und Kopien werden eine Gruppe.
+    #[allow(clippy::too_many_arguments)]
+    pub fn repeat_selection(
+        &mut self,
+        count: usize,
+        dx: f64,
+        dy: f64,
+        angle: f64,
+        scale: f64,
+        pivot: Option<Pt>,
+        m: &dyn Metrics,
+    ) -> bool {
+        if count == 0 || self.selection.is_empty() || !scale.is_finite() || scale <= 0.0 {
+            return false;
+        }
+        if self.selection_locked() {
+            self.message = Some(tr("Locked objects cannot be changed").into());
+            return false;
+        }
+        self.expand_groups();
+        let Some(b) = self.selection_bbox(m) else {
+            return false;
+        };
+        let c = pivot.unwrap_or(Pt::new((b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0));
+        let step = Affine::translate(dx, dy)
+            .then_before(&Affine::rotate_about(-angle, c))
+            .then_before(&Affine::scale_about(scale, scale, c));
+        let originals = self.selected_in_order();
+        let count = count.min(1000);
+        self.checkpoint(None);
+        let mut all: Vec<u64> = originals.iter().map(|o| o.id).collect();
+        let mut t = Affine::IDENTITY;
+        let mut regroup: Vec<(u64, u64)> = Vec::new();
+        let mut next = self.doc.max_group();
+        for _ in 0..count {
+            t = step.then_before(&t);
+            regroup.clear();
+            for o in &originals {
+                let Some((li, _)) = self.doc.locate(o.id) else {
+                    continue;
+                };
+                let mut c = o.clone();
+                c.id = self.doc.alloc_id();
+                c.locked = false;
+                crate::model::regroup_ids(&mut c, &mut regroup, &mut next);
+                let id = c.id;
+                self.doc.layers[li].objects.push(c);
+                self.transform_object(id, &t, m);
+                all.push(id);
+            }
+        }
+        self.selection = all;
+        self.group_selection();
+        self.layers_version += 1;
+        true
+    }
+
     pub fn outline_stroke(&mut self, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
             return false;
@@ -7561,6 +8097,8 @@ impl Editor {
                 Object {
                     id: 0,
                     group: o.group,
+                    sub: o.sub.clone(),
+                    mask: o.mask,
                     locked: false,
                     name: String::new(),
                     shape,
@@ -7989,6 +8527,8 @@ impl Editor {
                 oi,
                 Object {
                     group: 0,
+                    sub: Vec::new(),
+                    mask: false,
                     locked: false,
                     name: String::new(),
                     id: nid,
@@ -8066,6 +8606,8 @@ impl Editor {
                 oi,
                 Object {
                     group: 0,
+                    sub: Vec::new(),
+                    mask: false,
                     locked: false,
                     name: String::new(),
                     id: nid,
@@ -8106,8 +8648,11 @@ impl Editor {
                 };
                 r = r.union(&moved);
             }
+            if let Some(g) = st.fx.glow {
+                r = r.inflate(crate::model::glow_radius(g));
+            }
             if st.fx.mirror.is_some() {
-                r.y1 += b.height();
+                r.y1 += b.height() * st.fx.mirror_len + st.fx.mirror_gap.max(0.0);
             }
             bounds = Some(match bounds {
                 Some(a) => a.union(&r),
@@ -8145,11 +8690,12 @@ impl Editor {
     /// Einheiten der Auswahl (Gruppen als Ganzes): (Gruppe, Objekte, Rahmen).
     pub fn selection_units(&self, m: &dyn Metrics) -> Vec<(u64, Vec<u64>, Rect)> {
         let mut units: Vec<(u64, Vec<u64>, Rect)> = Vec::new();
+        let masks = self.doc.masks();
         for id in self.selection.clone() {
             let Some(o) = self.doc.object(id) else {
                 continue;
             };
-            let Some(b) = m.bbox(o) else {
+            let Some(b) = self.visible_bbox(o, &masks, m) else {
                 continue;
             };
             let g = o.group;
@@ -8179,7 +8725,7 @@ impl Editor {
     /// obere/mittlere/untere) Kante des gemeinsamen Rahmens.
     pub fn align_to_selection(&mut self, h: Option<i8>, v: Option<i8>, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         let units = self.selection_units(m);
@@ -8220,7 +8766,7 @@ impl Editor {
     /// Auswahl an der Seite ausrichten: `h`/`v` = −1 (links/oben), 0 (Mitte), 1 (rechts/unten).
     pub fn align_to_page(&mut self, h: Option<i8>, v: Option<i8>, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         let Some(b) = self.selection_bbox(m) else {
@@ -8256,7 +8802,7 @@ impl Editor {
     /// Einheiten bleiben stehen, die übrigen rücken so, dass alle Lücken gleich groß sind.
     pub fn distribute(&mut self, horizontal: bool, m: &dyn Metrics) -> bool {
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         let mut units = self.selection_units(m);
@@ -8319,15 +8865,14 @@ impl Editor {
             return false;
         }
         if self.selection_locked() {
-            self.message = Some(tr("Gesperrte Objekte lassen sich nicht verändern").into());
+            self.message = Some(tr("Locked objects cannot be changed").into());
             return false;
         }
         let objs = self.selected_in_order();
         let (a, b) = (&objs[0], &objs[1]);
         let (Some(pa), Some(pb)) = (blend_outline(&a.shape), blend_outline(&b.shape)) else {
-            self.message = Some(
-                tr("Ein Übergang geht nur zwischen Formen und Pfaden, nicht mit Text oder Bildern").into(),
-            );
+            self.message =
+                Some(tr("A blend only works between shapes and paths, not with text or images").into());
             return false;
         };
         let (pa, pb) = blend_paths(&pa, &pb);
@@ -8369,6 +8914,8 @@ impl Editor {
                 style: st,
                 angle: 0.0,
                 group: gid,
+                sub: Vec::new(),
+                mask: false,
                 locked: false,
                 name: String::new(),
             };
@@ -8379,6 +8926,9 @@ impl Editor {
         if same_layer {
             for o in self.doc.layers[lb].objects.iter_mut() {
                 if o.id == a.id || o.id == b.id {
+                    if o.group != 0 {
+                        o.sub.insert(0, o.group);
+                    }
                     o.group = gid;
                 }
             }
@@ -8593,9 +9143,10 @@ struct BucketCache {
 
 /// Was aus der Bibliothek übertragen wird.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum LibPayload {
-    /// Farbe, ggf. mit Verlauf
-    Color(Color, Option<Gradient>),
+    /// Farbe, ggf. mit Verlauf, und Kennung der Bibliotheksfarbe (globale Farben)
+    Color(Color, Option<Gradient>, Option<String>),
     /// Grafik (Objekte), wird als Kopie eingefügt
     Graphic(Vec<Object>),
     Style(crate::library::LibStyle),
@@ -8609,9 +9160,12 @@ fn restyle(o: &mut Object, p: &LibPayload) -> bool {
     }
     let is_text = o.shape.is_text();
     match p {
-        LibPayload::Color(c, g) => {
-            o.style.fill = Some(*c);
-            o.style.gradient = g.clone();
+        LibPayload::Color(c, g, link) => {
+            o.style.set_paint(PaintTarget::Fill, Some(*c), g.clone());
+            o.style.fill_link = link
+                .as_ref()
+                .filter(|_| g.is_none())
+                .map(|id| crate::model::ColorLink::new(id, *c));
         }
         LibPayload::Graphic(_) => return false,
         LibPayload::Style(s) => {
@@ -8733,6 +9287,8 @@ mod tests {
             style: Style::default(),
             angle: 0.0,
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
         });
@@ -9907,7 +10463,7 @@ mod tests {
             Shape::Image { clip: Some(c), .. } => assert!((c[0].nodes[0].r - 30.0).abs() < 1e-9),
             other => panic!("{other:?}"),
         }
-        assert_eq!(e.context_info().title, "Bild mit Rahmen");
+        assert_eq!(e.context_info().title, "Framed Image");
         assert!(e.context_info().show_stroke && !e.context_info().show_fill);
     }
     #[test]
@@ -10119,10 +10675,253 @@ mod tests {
             style: Style::default(),
             angle: 0.0,
             group: 0,
+            sub: Vec::new(),
+            mask: false,
             locked: false,
             name: String::new(),
         });
         id
+    }
+
+    #[test]
+    fn nested_groups_and_clip_masks() {
+        let mut e = editor();
+        let a = rect_at(&mut e, 0.0, 0.0, 10.0, 10.0);
+        let b = rect_at(&mut e, 20.0, 0.0, 10.0, 10.0);
+        let c = rect_at(&mut e, 40.0, 0.0, 10.0, 10.0);
+        e.selection = vec![a, b];
+        assert!(e.group_selection());
+        let g1 = e.doc.object(a).unwrap().group;
+        // Gruppe in einer Gruppe
+        e.selection = vec![a, b, c];
+        assert!(e.group_selection());
+        let g2 = e.doc.object(c).unwrap().group;
+        assert_ne!(g1, g2);
+        assert_eq!(
+            (e.doc.object(a).unwrap().group, &e.doc.object(a).unwrap().sub),
+            (g2, &vec![g1])
+        );
+        assert_eq!(e.doc.group_members(c).len(), 3);
+        // Speichern und Öffnen behält die Verschachtelung
+        let back = crate::svg::read(&crate::svg::write(&e.doc, true)).unwrap();
+        let o = &back.layers[0].objects;
+        assert!(o[0].group != 0 && o[0].group == o[2].group);
+        assert_eq!(o[0].sub.len(), 1);
+        assert_eq!(o[0].sub, o[1].sub);
+        assert!(o[2].sub.is_empty());
+        // Kopien bekommen auf allen Ebenen neue Nummern
+        e.selection = vec![a, b, c];
+        assert!(e.duplicate());
+        let copy = e.doc.object(e.selection[0]).unwrap().clone();
+        assert!(copy.group != g2 && copy.sub.len() == 1 && copy.sub[0] != g1);
+        e.delete_selection();
+        // Aufheben nimmt eine Ebene weg
+        e.selection = vec![a, b, c];
+        assert!(e.ungroup_selection());
+        assert_eq!(e.doc.object(a).unwrap().group, g1);
+        assert_eq!(e.doc.object(b).unwrap().group, g1);
+        assert_eq!(e.doc.object(c).unwrap().group, 0);
+
+        // Schnittmaske: das oberste Objekt begrenzt die übrigen
+        let m = rect_at(&mut e, 5.0, 0.0, 30.0, 10.0);
+        e.selection = vec![a, m];
+        e.make_clip_mask().unwrap();
+        let om = e.doc.object(m).unwrap().clone();
+        assert!(om.mask);
+        assert_eq!(e.doc.object(b).unwrap().group, om.group);
+        assert_eq!(e.doc.object(a).unwrap().sub, vec![g1]);
+        // nur der sichtbare Teil trifft, die Maske selbst nie
+        e.selection.clear();
+        assert_eq!(e.hit(Pt::new(2.0, 5.0), &M), None);
+        assert_eq!(e.hit(Pt::new(7.0, 5.0), &M), Some(a));
+        assert_eq!(e.hit(Pt::new(34.5, 5.0), &M), None);
+        // Auswahlrahmen: höchstens die Maske
+        e.selection = e.doc.group_members(a);
+        let bb = e.selection_bbox(&M).unwrap();
+        assert!(
+            (bb.x0 - 5.0).abs() < 1e-9 && (bb.x1 - 35.0).abs() < 1e-9,
+            "{bb:?}"
+        );
+        // Speichern: clipPath für andere Programme, die Maske kommt zurück
+        let text = crate::svg::write(&e.doc, true);
+        assert!(
+            text.contains("<clipPath id=\"mask") && text.contains("clip-path=\"url(#mask"),
+            "{text}"
+        );
+        let back = crate::svg::read(&text).unwrap();
+        let o = &back.layers[0].objects;
+        let bm = o.iter().find(|x| x.mask).expect("Maske");
+        assert!(o.iter().filter(|x| !x.mask && x.group == bm.group).count() == 2);
+        let clipped = o.iter().find(|x| !x.mask && x.group == bm.group).unwrap();
+        assert_eq!(crate::model::clips_of(clipped, &back.masks()).len(), 1);
+        assert!(crate::model::clips_of(&o[0], &back.masks()).is_empty());
+        // Lösen: die Maske wird wieder sichtbar, die Gruppe darum verschwindet
+        e.selection = vec![m];
+        assert!(e.release_clip_mask());
+        assert!(!e.doc.object(m).unwrap().mask);
+        assert_eq!(e.doc.object(m).unwrap().group, 0);
+        assert_eq!(e.doc.object(a).unwrap().group, g1);
+        // eine Gruppe als oberstes Objekt geht nicht
+        e.selection = vec![c, a, b];
+        assert!(e.make_clip_mask().is_err() || !e.doc.object(b).unwrap().mask);
+    }
+
+    #[test]
+    fn global_colors_follow_the_library() {
+        let mut lib = crate::library::Library::new("Test");
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        assert!(lib.add_paint(blue, None));
+        let id = lib.color_link(0).unwrap();
+        let mut e = editor();
+        let a = rect_at(&mut e, 0.0, 0.0, 10.0, 10.0);
+        let b = rect_at(&mut e, 20.0, 0.0, 10.0, 10.0);
+        let c = rect_at(&mut e, 40.0, 0.0, 10.0, 10.0);
+        e.selection = vec![a, b, c];
+        assert!(e.apply_lib_color(blue, None, Some(id.clone()), false));
+        // b bekommt eine eigene Deckkraft (bleibt verknüpft), c eine andere Farbe von Hand
+        e.selection = vec![b];
+        e.update_style("alpha", |st| st.set_paint_alpha(PaintTarget::Fill, 0.5));
+        e.doc.object_mut(c).unwrap().style.fill = Some(Color::rgb(0.0, 1.0, 0.0));
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let (lid, _) = lib.set_color(0, red).unwrap();
+        assert_eq!(lid, id);
+        let n = e.sync_library_colors(&|k| lib.linked_color(k));
+        assert_eq!(n, 2);
+        let fill = |e: &Editor, id| e.doc.object(id).unwrap().style.fill.unwrap();
+        assert_eq!(fill(&e, a), red);
+        assert!((fill(&e, b).r - 1.0).abs() < 1e-9 && (fill(&e, b).a - 0.5).abs() < 1e-9);
+        assert_eq!(fill(&e, c), Color::rgb(0.0, 1.0, 0.0));
+        assert!(e.doc.object(c).unwrap().style.fill_link.is_none());
+        assert!(e.undo());
+        assert_eq!(fill(&e, a), blue);
+        // eine von Hand gewählte Farbe löst die Verknüpfung
+        e.redo();
+        e.selection = vec![a];
+        e.update_style("fill", |st| st.set_paint(PaintTarget::Fill, Some(blue), None));
+        assert!(e.doc.object(a).unwrap().style.fill_link.is_none());
+        // Verläufe werden nicht verknüpft
+        let lp = LibPayload::Color(red, Some(Gradient::new(red, blue)), Some(id.clone()));
+        let mut o = e.doc.object(b).unwrap().clone();
+        assert!(restyle(&mut o, &lp));
+        assert!(o.style.fill_link.is_none());
+        // die Kennung überlebt das Speichern der Bibliothek und das Speichern des Dokuments
+        let back = crate::library::Library::from_document("Test", &lib.to_document());
+        assert_eq!(back.color_link(0).as_deref(), Some(id.as_str()));
+        let d2 = crate::svg::read(&crate::svg::write(&e.doc, false)).unwrap();
+        let o2 = d2.layers.iter().flat_map(|l| &l.objects).nth(1).unwrap();
+        assert_eq!(o2.style.fill_link.as_ref().map(|l| l.id.clone()), Some(id));
+        assert!(d2
+            .layers
+            .iter()
+            .flat_map(|l| &l.objects)
+            .nth(2)
+            .unwrap()
+            .style
+            .fill_link
+            .is_none());
+    }
+
+    #[test]
+    fn offset_simplify_and_repeat() {
+        use crate::model::LineJoin;
+        let mut e = editor();
+        let a = rect_at(&mut e, 10.0, 10.0, 40.0, 20.0);
+        // nach außen: neue Fläche darunter, 5 größer
+        e.selection = vec![a];
+        assert_eq!(e.offset_path(5.0, LineJoin::Miter, &M), 1);
+        let out = e.doc.object(e.selection[0]).unwrap().clone();
+        let b = out.shape.geom_bbox().unwrap();
+        assert!(
+            (b.x0 - 5.0).abs() < 0.3 && (b.x1 - 55.0).abs() < 0.3 && (b.y0 - 5.0).abs() < 0.3,
+            "{b:?}"
+        );
+        let order: Vec<u64> = e.doc.layers[0].objects.iter().map(|o| o.id).collect();
+        assert_eq!(order, vec![out.id, a]);
+        // nach innen: darüber, kleiner; zu weit nach innen: nichts
+        e.selection = vec![a];
+        assert_eq!(e.offset_path(-4.0, LineJoin::Round, &M), 1);
+        let inn = e.doc.object(e.selection[0]).unwrap().shape.geom_bbox().unwrap();
+        assert!(
+            (inn.x0 - 14.0).abs() < 0.3 && (inn.y1 - 26.0).abs() < 0.3,
+            "{inn:?}"
+        );
+        e.selection = vec![a];
+        assert_eq!(e.offset_path(-30.0, LineJoin::Round, &M), 0);
+
+        // Vereinfachen: ein Kreis aus 200 Eckpunkten wird zu wenigen glatten Knoten
+        let pts: Vec<Node> = (0..200)
+            .map(|i| {
+                let t = i as f64 / 200.0 * std::f64::consts::TAU;
+                Node::corner(Pt::new(100.0 + 50.0 * t.cos(), 100.0 + 50.0 * t.sin()))
+            })
+            .collect();
+        let id = e.doc.alloc_id();
+        e.doc.layers[0].objects.push(Object {
+            id,
+            shape: Shape::Path {
+                subpaths: vec![SubPath {
+                    nodes: pts,
+                    closed: true,
+                }],
+                evenodd: false,
+            },
+            style: Style::default(),
+            angle: 0.0,
+            group: 0,
+            sub: Vec::new(),
+            mask: false,
+            locked: false,
+            name: String::new(),
+        });
+        e.selection = vec![id];
+        let saved = e.simplify_paths(&M);
+        let Shape::Path { subpaths, .. } = &e.doc.object(id).unwrap().shape else {
+            panic!()
+        };
+        let n = subpaths[0].nodes.len();
+        assert!(saved > 150 && n < 40, "{n} Knoten");
+        // die Form bleibt ein Kreis (Knoten liegen auf dem Rand)
+        for nd in &subpaths[0].nodes {
+            assert!((nd.p.dist(Pt::new(100.0, 100.0)) - 50.0).abs() < 1.0);
+        }
+        // ein Quadrat behält seine vier Ecken
+        let sq = SubPath {
+            nodes: [(0.0, 0.0), (5.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+                .iter()
+                .map(|(x, y)| Node::corner(Pt::new(*x, *y)))
+                .collect(),
+            closed: true,
+        };
+        let s2 = simplify_subpath(&sq, 0.5);
+        assert_eq!(s2.nodes.len(), 4);
+
+        // Wiederholen: 3 Kopien, jeweils 30 nach rechts, alles eine Gruppe
+        let mut e = editor();
+        let r = rect_at(&mut e, 0.0, 0.0, 10.0, 10.0);
+        e.selection = vec![r];
+        assert!(e.repeat_selection(3, 30.0, 0.0, 0.0, 1.0, None, &M));
+        assert_eq!(e.doc.layers[0].objects.len(), 4);
+        let xs: Vec<f64> = e.doc.layers[0]
+            .objects
+            .iter()
+            .map(|o| o.shape.geom_bbox().unwrap().x0)
+            .collect();
+        assert_eq!(xs, vec![0.0, 30.0, 60.0, 90.0]);
+        let g = e.doc.layers[0].objects[0].group;
+        assert!(g != 0 && e.doc.layers[0].objects.iter().all(|o| o.group == g));
+        // Drehen um einen Punkt: 4 × 90° um (50, 50) – die letzte Kopie liegt wieder am Anfang
+        let mut e = editor();
+        let r = rect_at(&mut e, 90.0, 45.0, 10.0, 10.0);
+        e.selection = vec![r];
+        assert!(e.repeat_selection(4, 0.0, 0.0, 90.0, 1.0, Some(Pt::new(50.0, 50.0)), &M));
+        let last = e.doc.layers[0].objects[4].shape.geom_bbox().unwrap();
+        assert!(
+            (last.x0 - 90.0).abs() < 1e-6 && (last.y0 - 45.0).abs() < 1e-6,
+            "{last:?}"
+        );
+        let second = e.doc.layers[0].objects[1].shape.geom_bbox().unwrap();
+        // gegen den Uhrzeigersinn: von rechts nach oben
+        assert!(second.y1 < 50.0 && (second.x0 - 45.0).abs() < 1e-6, "{second:?}");
     }
 
     #[test]
@@ -10535,7 +11334,7 @@ mod tests {
         let b = e.selection[0];
         assert!(e.apply_lib_style(&st, &M));
         assert_eq!(e.doc.object(b).unwrap().style, e.doc.object(a).unwrap().style);
-        assert!(e.apply_lib_color(Color::rgb(0.0, 0.0, 1.0), None, false));
+        assert!(e.apply_lib_color(Color::rgb(0.0, 0.0, 1.0), None, None, false));
         assert_eq!(e.selected_color(false), Some(Color::rgb(0.0, 0.0, 1.0)));
         assert!(e.undo());
         // Textstil auf Text
@@ -10564,7 +11363,7 @@ mod tests {
         let a = e.selection[0];
         e.deselect();
         let red = Color::rgb(1.0, 0.0, 0.0);
-        e.lib_drag_motion(Pt::new(30.0, 30.0), LibPayload::Color(red, None), &M);
+        e.lib_drag_motion(Pt::new(30.0, 30.0), LibPayload::Color(red, None, None), &M);
         let (t, p) = e.lib_drag_progress().unwrap();
         assert_eq!(t, a);
         assert!(p < 1.0 && e.lib_drag_preview().is_none());
@@ -10576,9 +11375,9 @@ mod tests {
         // das Dokument bleibt bis zum Loslassen unverändert
         assert_ne!(e.doc.object(a).unwrap().style.fill, Some(red));
         // über leerer Fläche: kein Ziel
-        e.lib_drag_motion(Pt::new(300.0, 300.0), LibPayload::Color(red, None), &M);
+        e.lib_drag_motion(Pt::new(300.0, 300.0), LibPayload::Color(red, None, None), &M);
         assert!(e.lib_drop.is_none());
-        assert!(e.lib_drop_at(Pt::new(30.0, 30.0), &LibPayload::Color(red, None), &M));
+        assert!(e.lib_drop_at(Pt::new(30.0, 30.0), &LibPayload::Color(red, None, None), &M));
         assert_eq!(e.doc.object(a).unwrap().style.fill, Some(red));
         assert_eq!(e.selection, vec![a]);
         // Textstil passt nicht auf eine Form
@@ -11182,9 +11981,48 @@ mod tests {
         assert_ne!(copy.id, id);
         let cb = copy.shape.geom_bbox().unwrap();
         assert!((cb.x0 - orig.x0 - r2.x0).abs() < 1e-9);
-        assert!(e.doc.artboards[1].name.ends_with("(Kopie)"));
+        assert!(e.doc.artboards[1].name.ends_with("(copy)"));
         assert!(e.undo());
         assert_eq!(e.doc.artboards.len(), 1);
+    }
+
+    #[test]
+    fn scaling_snaps_anchor_points() {
+        let mut e = editor();
+        e.set_tool(Tool::Shape);
+        // Ziel: Rechteck mit linker Kante bei x = 300
+        drag(&mut e, (300.0, 300.0), (360.0, 360.0));
+        e.deselect();
+        // Dreieck 100…200: die Spitze oben liegt in der Mitte (x = 150)
+        e.shape_kind = ShapeKind::Polygon;
+        e.corners = 3;
+        drag(&mut e, (100.0, 100.0), (200.0, 200.0));
+        let id = e.selection[0];
+        e.set_tool(Tool::Select);
+        e.selection = vec![id];
+        let b = e.selection_frame(&M).unwrap().0;
+        let tip_x = |e: &Editor| {
+            let o = e.doc.object(id).unwrap();
+            let Some(Shape::Path { subpaths, .. }) = o.shape.to_path() else {
+                panic!()
+            };
+            subpaths[0]
+                .nodes
+                .iter()
+                .min_by(|a, b| a.p.y.total_cmp(&b.p.y))
+                .unwrap()
+                .p
+                .x
+        };
+        let tip0 = tip_x(&e);
+        // rechten Anfasser so ziehen, dass die Spitze knapp neben x = 300 landet (sie
+        // bewegt sich langsamer als die Kante)
+        let k = (tip0 - b.x0) / b.width();
+        let want_edge = b.x1 + (300.0 - 3.0 - tip0) / k;
+        let h = e.view.to_screen(Pt::new(b.x1, (b.y0 + b.y1) / 2.0));
+        let to = e.view.to_screen(Pt::new(want_edge, (b.y0 + b.y1) / 2.0));
+        drag(&mut e, (h.x, h.y), (to.x, to.y));
+        assert!((tip_x(&e) - 300.0).abs() < 1e-6, "{}", tip_x(&e));
     }
 
     #[test]
@@ -11207,6 +12045,7 @@ mod tests {
     #[test]
     fn first_artboard_can_be_deleted() {
         let mut e = editor();
+        e.doc.background = Some(Color::WHITE);
         // nur eine Zeichenfläche: bleibt
         assert!(!e.delete_artboard(0));
         e.artboard_mode = true;
@@ -11217,8 +12056,14 @@ mod tests {
         let id = e.selection[0];
         let before = e.doc.object(id).unwrap().shape.geom_bbox().unwrap();
         let screen = e.view.to_screen(Pt::new(before.x0, before.y0));
+        // eigene Farbe der zweiten Zeichenfläche
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        assert!(e.set_artboard_background(1, Some(red)));
+        assert_eq!(e.doc.artboard_backgrounds(), vec![Some(Color::WHITE), Some(red)]);
+        assert_eq!(e.doc.artboard_doc(1).background, Some(red));
         assert!(e.delete_artboard(0));
         assert!(e.doc.artboards.is_empty());
+        assert_eq!(e.doc.background, Some(red));
         assert!((e.doc.width - r1.width()).abs() < 1e-9);
         assert!((e.doc.height - r1.height()).abs() < 1e-9);
         // das Objekt liegt jetzt relativ zur neuen Hauptzeichenfläche, auf dem Bildschirm

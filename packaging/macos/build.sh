@@ -102,7 +102,7 @@ cp "$BREW/share/icons/hicolor/index.theme" "$RES/share/icons/hicolor/"
 if command -v gtk4-update-icon-cache >/dev/null; then
     gtk4-update-icon-cache -q -t -f "$RES/share/icons/Adwaita" || true
 fi
-for lang in de en_GB; do
+for lang in en_GB de es fr; do
     for mo in gtk40 libadwaita glib20; do
         src="$BREW/share/locale/$lang/LC_MESSAGES/$mo.mo"
         if [[ -f "$src" ]]; then

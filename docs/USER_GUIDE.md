@@ -62,6 +62,12 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
 - **Join Paths** (right-click or Ctrl J): open paths are joined at their nearest ends – small
   gaps (under 4 screen pixels) merge into one point, larger ones are bridged with a straight
   segment. A single open path is closed
+- **Offset Path …** (right-click): a new shape at a set distance around each selected shape
+  (e.g. the white edge of a sticker) – positive values grow it, negative values shrink it;
+  round or sharp corners. A larger shape goes underneath the original, a smaller one on top;
+  open paths become a band of twice the distance
+- **Simplify Path** (right-click or Ctrl L): removes unneeded anchor points from paths
+  (e.g. from freehand strokes or traced images) – corners are kept, curves stay smooth
 
 ## Text
 
@@ -129,8 +135,9 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   gradients can be saved to the library like colours; the gradient line can be dragged in the
   document
 - **Patterns** (not for text, where they would be unreadable; a tab next to *Colour* and
-  *Gradient* for the fill): chequerboard, dots or stripes as previews, two colours of your
-  choice, size and angle; saved in SVG as a real pattern
+  *Gradient* for the fill): chequerboard, gingham, grid, dots, stripes, waves, chevron,
+  herringbone, bricks, honeycomb, scales, terrazzo, zebra, leopard and cow print as previews
+  (five per row), two colours of your choice, size and angle; saved in SVG as a real pattern
 - **Effects:** the *Effects* button in the floating bar works on all selected objects at once;
   submenus open to the side. One effect per category is possible, categories can be
   combined, and the strength is adjustable (except for the colour overlay):
@@ -138,23 +145,41 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
     a single object shows its colour, consecutive Lighten objects add their light, weighted by
     opacity (red + green = yellow, red + green + blue = white). Darken mixes like layers of
     coloured glass towards black
-  - **Texture:** **Frosted glass** – what lies underneath appears blurred; **Brushed metal** –
-    fine horizontal lines with a metallic sheen; **Gloss** – a soft highlight at the top, a
-    bright edge and a slight reflection at the bottom
-  - **Artistic effects:** grain, pixels, watercolour – on the fill of shapes and text and also
-    on images. They only change colours, never opacity
+  - **Glass:** what lies underneath appears blurred, as if seen through frosted glass.
+    **Blur** sets how strongly and **Grain** adds a fine satin-glass texture. The fill
+    lightly tints the glass in its colour (lower its opacity for clearer glass, or remove the
+    fill for colourless glass); the stroke stays solid
+  - **Material:** changes the surface – **Gloss**, **Metal** (polished, reflects a bright sky
+    and a dark horizon), **Brushed metal** (with a **direction**) and **Velvet** (dark in the
+    middle, shimmering at the edges). Without a material the surface is matte. Combined with
+    a 3D effect, the material decides how the relief catches the light: a small sharp
+    highlight for gloss, reflections that follow the shape for metal, a long streak of light
+    across the brushing for brushed metal and a sheen on the steep sides for velvet
+  - **Artistic effects:** grain, pixels, watercolour, **crayons** (paper shows through in
+    slanted strokes), **oil paint** (brush strokes with a slight relief; on images the
+    picture is also simplified into strokes), **halftone** (dots whose size follows the
+    brightness; spacing and angle adjustable like a pattern) and **risograph** (colour layers
+    printed slightly out of register, with grain) – on the fill of shapes and text and also
+    on images. On photos they keep the picture recognisable: areas are simplified while
+    edges stay sharp (watercolour adds darker rims, crayons draw the outlines, oil paint
+    turns areas into brush strokes, halftone uses a four-colour print screen)
   - **3D effects:** give the object a relief with light (from the top left) and shadow; with
     transparency, what lies underneath is distorted as if seen through glass. **Depth** runs
     from −100 % (pressed in) through 0 % (flat) to +100 % (raised); **Lighting** (0–100 %,
     default 50 %) sets how bright the light and how dark the shadow are. Shapes:
     **Raindrop** (flattened sphere), **Sphere** (fully round), **Crystal** (tapering with a
-    flat top), **Pyramid** (fully pointed). Can be combined with a texture; not available for
-    images
+    flat top), **Pyramid** (fully pointed). Without a material the relief is matte (soft light
+    and shadow, no shine); not available for images
   - **Image filters** (images only): sepia, black & white, invert colours
-  - **Extras:** shadow or reflection below the object
+  - **Light & Shadow:** **shadow**, **inner shadow** (the shape looks pressed in; opacity,
+    **direction**, **distance** and **blur** adjustable), **glow** – the stroke (or the shape,
+    if it has none) glows in its own colour like a neon tube – and **reflection** below the
+    object (strength, **length** and **gap** adjustable). Unlike the other categories, all
+    four can be combined. They share one section in the properties: tabs switch between
+    them, and each has its own switch
 
-  Every effect applied appears in the properties as a collapsible section with its type and
-  strength in the header, where it can also be removed. All sliders look the same (a round
+  Every category applied appears in the properties as a collapsible section with its type and
+  strength in the header (for Light & Shadow, the effects that are switched on), where it can also be removed. All sliders look the same (a round
   bar like the colour opacity) and have a field next to them for typing the number
 - **Trace image:** if an image consists of flat colour areas (a logo, an illustration), the
   floating bar offers *Trace*. The number of colours is adjustable; the image is replaced by
@@ -176,7 +201,14 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   colour, stroke width and opacity are blended; both shapes and the in-between shapes are
   grouped), move to layer, add to library (asks: colour, style or graphic) and delete
 - **Groups:** Ctrl G groups the selection, Ctrl Shift G ungroups it; a click always selects
-  the whole group; groups are saved as `<g>`, and groups from other SVG files are kept
+  the whole group. Groups can contain groups: grouping groups keeps them as subgroups, and
+  ungrouping removes one level at a time. Groups are saved as `<g>`, and nested groups from
+  other SVG files are kept
+- **Clipping mask** (right-click or Ctrl 7): the top selected object – a shape, path or text –
+  cuts out the objects below it; only what lies inside it stays visible. Everything becomes
+  one group, which can be moved, scaled and grouped further. *Release Clipping Mask*
+  (Ctrl Alt 7) turns the mask back into an ordinary object. In SVG files the mask is saved
+  as a `clipPath`, so other applications show it too
 - **Rotated objects:** the selection frame rotates with them; width and height can be
   changed along the object’s own axes
 - **Lock:** locked objects can be selected and recoloured but not moved, rotated, scaled or
@@ -195,6 +227,9 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   bounding box
 - **Scale …** (right-click): exact percentages, uniform or width/height separately,
   optionally including strokes and shadows
+- **Repeat …** (right-click): copies of the selection, each moved, rotated and scaled one
+  step further – e.g. a row of dots, a flower of petals (rotation around the centre of the
+  page) or a shrinking spiral. All copies and the original become one group
 - **Copying between documents:** Ctrl C in one tab, Ctrl V in another – at the same position
 - **Copy as Image** (right-click; a shortcut can be set under *Preferences › Keyboard
   Shortcuts*): the selection – or the artboard if nothing is
@@ -205,7 +240,7 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
 - **“Layers and Artboards” panel:** layers at the top, artboards below a divider, each with
   its own “+” button
 - **Several artboards** in one file: each has its own row with a preview, a gear button
-  (size, name), **duplicate** (copies the artboard with everything on it and places it to the
+  (size, name, **background colour** – every artboard has its own), **duplicate** (copies the artboard with everything on it and places it to the
   right) and delete – any artboard can be deleted while another one remains (if the first
   goes, the next one takes its place). While the panel is open, artboards can be edited: dragging the name
   moves an artboard (everything lying fully on it moves along), the handles resize it. Both
@@ -220,8 +255,11 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   right of its preview – drag it onto another layer to move the selection there
 - **Guides belong to layers:** new guides go on the current layer and are hidden, locked or
   deleted together with it
-- **Export:** PNG, JPG, PDF, SVG. *Export Selection…* (menu) or *Selection only* in the
-  dialog exports only the selected objects, cropped to the selection. With several
+- **Export:** PNG, JPG, PDF, SVG. A preview at the top shows what will be exported.
+  *Export Selection…* (menu) or *Selection only* in the dialog exports only the selected
+  objects, cropped to the selection. **File name:** with a running number (preset) or with
+  date and time, the dialog suggests the next free name in the folder of the last export, so
+  earlier exports are never replaced. With several
   artboards you pick them by preview (All/None) – PDF gets one page per artboard, the other
   formats one file per artboard. For PDF and SVG you choose the **effect quality** (small
   150 dpi, medium 300 dpi, high 600 dpi)
@@ -236,6 +274,8 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
     artistic effects, reflection, image filters) are embedded as images, text boxes are
     written as fixed lines (wrapping, columns, justification and text in shapes look the same
     everywhere); fonts can be embedded
+- **Print** (menu or Ctrl P): one page per artboard, at actual size and centred; artboards
+  larger than the paper are scaled down to fit. Portrait or landscape follows the artboard
 
 ## Library
 
@@ -252,6 +292,11 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   the selected colour stop
 - Colours and styles can be named via right-click (optional); the name appears below the
   swatch
+- **Global colours:** objects coloured from your own library stay linked to that colour.
+  *Edit Colour …* (right-click a swatch) changes it in the library and in every linked
+  object of all open documents at once (undoable in each document); documents opened later
+  catch up automatically. Choosing a different colour by hand ends the link; a different
+  opacity keeps it
 - Swatches wrap according to the width of the panel
 - **Graphics:** save selected objects (e.g. a logo) as a graphic with the “+” under
   *Graphics* or the right-click menu; click or drag to copy it into any
@@ -274,8 +319,8 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
 
 ## Interface
 
-- **Language:** English (British) or German. Stijl follows the system language (German
-  systems → German, everything else → English); you can choose a language under
+- **Language:** English (British), German, Spanish or French. Stijl follows the system
+  language (other languages → English); you can choose a language under
   *Preferences › View › Language* (takes effect after a restart)
 - **Report a Problem:** *Main menu › Report a Problem…* opens a new GitHub issue in your
   browser with a template and details of version and system
@@ -365,11 +410,14 @@ Default key bindings; they can be changed under *Preferences › Keyboard Shortc
 | Shift H / Shift V | Flip horizontally / vertically |
 | C | Scissors |
 | Ctrl J | Join paths |
+| Ctrl L | Simplify path |
+| Ctrl 7 / Ctrl Alt 7 | Make / release clipping mask |
 | [ / ] | Smaller / larger eraser |
 | Ctrl W | Close tab |
 | Ctrl I | Insert image |
 | Ctrl , | Preferences |
 | F8 / F9 | Layers and Library / Properties |
 | Ctrl N / O / S / Shift S / E | New / Open / Save / Save As / Export |
+| Ctrl P | Print |
 | Ctrl ? | Keyboard shortcuts |
 | Ctrl Q | Quit |

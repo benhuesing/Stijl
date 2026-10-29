@@ -154,7 +154,7 @@ impl<'a> Parser<'a> {
                 self.i += j + pat.len();
                 Ok(())
             }
-            None => Err(trf("Unerwartetes Dateiende, „{}“ fehlt", &[&(pat)])),
+            None => Err(trf("Unexpected end of file, “{}” is missing", &[&(pat)])),
         }
     }
     fn name(&mut self) -> Result<String, String> {
@@ -200,7 +200,7 @@ impl<'a> Parser<'a> {
 
     fn element(&mut self) -> Result<Element, String> {
         if self.depth >= MAX_DEPTH {
-            return Err(tr("Die Datei ist zu tief verschachtelt").into());
+            return Err(tr("The file is nested too deeply").into());
         }
         self.depth += 1;
         let r = self.element_inner();
@@ -234,15 +234,12 @@ impl<'a> Parser<'a> {
             }
             self.i += 1;
             self.skip_ws();
-            let q = self.rest().chars().next().ok_or(tr("Attributwert fehlt"))?;
+            let q = self.rest().chars().next().ok_or(tr("Attribute value missing"))?;
             if q != '"' && q != '\'' {
-                return Err(trf("Anführungszeichen erwartet bei Position {}", &[&(self.i)]));
+                return Err(trf("Quotation mark expected at position {}", &[&(self.i)]));
             }
             self.i += 1;
-            let end = self
-                .rest()
-                .find(q)
-                .ok_or(tr("Attributwert nicht abgeschlossen"))?;
+            let end = self.rest().find(q).ok_or(tr("Attribute value not closed"))?;
             let v = unescape(&self.rest()[..end]);
             self.i += end + 1;
             el.attrs.push((an, v));
@@ -250,13 +247,13 @@ impl<'a> Parser<'a> {
         // Kinder
         loop {
             if self.i >= self.s.len() {
-                return Err(format!("Element <{}> nicht geschlossen", el.name));
+                return Err(trf("Element <{}> is not closed", &[&el.name]));
             }
             if self.starts("</") {
                 self.i += 2;
                 let n = self.name()?;
                 if n != el.name {
-                    return Err(format!("</{n}> passt nicht zu <{}>", el.name));
+                    return Err(trf("</{}> does not match <{}>", &[&n, &el.name]));
                 }
                 self.skip_ws();
                 self.skip_past(">")?;
@@ -264,7 +261,7 @@ impl<'a> Parser<'a> {
             }
             if self.starts("<![CDATA[") {
                 self.i += 9;
-                let end = self.rest().find("]]>").ok_or(tr("CDATA nicht abgeschlossen"))?;
+                let end = self.rest().find("]]>").ok_or(tr("CDATA not closed"))?;
                 el.children.push(XNode::Text(self.rest()[..end].to_string()));
                 self.i += end + 3;
                 continue;
@@ -291,7 +288,7 @@ pub fn parse(s: &str) -> Result<Element, String> {
     loop {
         p.skip_ws();
         if p.i >= s.len() {
-            return Err(tr("Kein Wurzelelement gefunden").into());
+            return Err(tr("No root element found").into());
         }
         if p.skip_misc()? {
             continue;
@@ -299,7 +296,7 @@ pub fn parse(s: &str) -> Result<Element, String> {
         if p.starts("<") {
             return p.element();
         }
-        return Err(tr("Ungültiger Dateianfang").into());
+        return Err(tr("Invalid start of file").into());
     }
 }
 

@@ -1830,9 +1830,9 @@ pub fn rasterize_object(doc: &Document, id: u64, res: f64) -> Option<(Vec<u8>, R
             .map(|s| s.blur * 3.0 + s.dx.abs().max(s.dy.abs()))
             .unwrap_or(0.0)
         + 4.0;
-    b = b.inflate(grow);
+    b = b.inflate(grow + obj.style.fx.glow.map(crate::model::glow_radius).unwrap_or(0.0));
     if obj.style.fx.mirror.is_some() {
-        b.y1 += b.height();
+        b.y1 += b.height() * obj.style.fx.mirror_len + obj.style.fx.mirror_gap.max(0.0);
     }
     // nur der Teil auf der Seite
     let b = Rect {
@@ -1929,17 +1929,17 @@ pub fn sample_color(ed: &Editor, sx: f64, sy: f64) -> Option<Color> {
         cr.translate(v.ox, v.oy);
         cr.scale(v.zoom, v.zoom);
         // Seite: Hintergrund des Dokuments, sonst Weiß
-        for (_, r) in &rects {
+        for ((_, r), bg) in rects.iter().zip(doc.artboard_backgrounds()) {
             cr.rectangle(r.x0, r.y0, r.width(), r.height());
-        }
-        cr.set_source_rgb(1.0, 1.0, 1.0);
-        let _ = cr.fill_preserve();
-        match doc.background {
-            Some(bg) => {
-                set_color(&cr, bg);
-                let _ = cr.fill();
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+            let _ = cr.fill_preserve();
+            match bg {
+                Some(bg) => {
+                    set_color(&cr, bg);
+                    let _ = cr.fill();
+                }
+                None => cr.new_path(),
             }
-            None => cr.new_path(),
         }
         draw_document(&cr, doc);
     }
@@ -2097,10 +2097,12 @@ fn image_surface_fx(data: &Rc<Vec<u8>>, fx: &Effects) -> Option<cairo::ImageSurf
         return image_surface(data);
     }
     let key = format!(
-        "{:?}|{:?}|{}",
+        "{:?}|{:?}|{}|{}|{}",
         fx.art.map(|(a, k)| (a, k.to_bits())),
         fx.tint.map(|(f, k)| (f, k.to_bits())),
-        fx.temp.to_bits()
+        fx.temp.to_bits(),
+        fx.art_size.to_bits(),
+        fx.art_angle.to_bits()
     );
     let id = Rc::as_ptr(data) as usize;
     let cached = IMAGE_FX_CACHE.with(|c| {
@@ -2149,6 +2151,14 @@ fn image_surface_fx(data: &Rc<Vec<u8>>, fx: &Effects) -> Option<cairo::ImageSurf
                     }
                     Art::Grain => crate::imgfx::grain(&mut buf, k),
                     Art::Watercolor => crate::imgfx::watercolor(&mut buf, k),
+                    Art::Crayon => crate::imgfx::crayon(&mut buf, k),
+                    Art::Oil => crate::imgfx::oil(&mut buf, k),
+                    Art::Halftone => {
+                        // Punktabstand: Bildpixel je etwa 400 Einheiten Bildbreite
+                        let px = (w.min(h) as f64 / 400.0).max(1.0);
+                        crate::imgfx::halftone(&mut buf, k, fx.art_size * px, fx.art_angle)
+                    }
+                    Art::Risograph => crate::imgfx::riso(&mut buf, k),
                 }
             }
             crate::imgfx::temperature(&mut buf, fx.temp);
@@ -2320,12 +2330,139 @@ pub fn draw_object(cr: &cairo::Context, obj: &Object) {
     }
     draw_extras(cr, obj);
     draw_object_body(cr, obj);
+    draw_inner_shadow(cr, obj);
+}
+
+/// Innenschatten: alles außerhalb der (nach rechts unten versetzten) Form deckend,
+/// weichgezeichnet und nur innerhalb der Form aufgetragen – die Form wirkt eingedrückt.
+fn draw_inner_shadow(cr: &cairo::Context, obj: &Object) {
+    let Some(k) = obj.style.fx.inner else { return };
+    if obj.style.fill.is_none() && !matches!(obj.shape, Shape::Image { .. }) {
+        return;
+    }
+    let fx = obj.style.fx;
+    let off = fx.inner_offset();
+    let blur = fx.inner_blur.max(0.0);
+    let reach = off.x.abs().max(off.y.abs());
+    let alpha = (k * obj.style.opacity).clamp(0.0, 1.0);
+    let _ = (|| -> Option<()> {
+        let b = object_box(obj)?;
+        let (ctm, area) = raster_area(cr, &b, &|scale| (blur * 2.0 + reach) * scale + 2.0)?;
+        let key = fx_key(obj, &ctm, area, 9);
+        let (surf, m) = match fx_lookup(obj, SLOT_INNER, key) {
+            Some((e, map)) => (e.surf?, map),
+            None => {
+                let (ix0, iy0, w, h) = area;
+                let scale = (ctm.xx() * ctm.yy() - ctm.xy() * ctm.yx()).abs().sqrt().max(1e-6);
+                let mut surf = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).ok()?;
+                {
+                    let c2 = cairo::Context::new(&surf).ok()?;
+                    c2.set_source_rgba(0.0, 0.0, 0.0, 1.0);
+                    c2.paint().ok()?;
+                    c2.translate(-ix0, -iy0);
+                    c2.transform(ctm);
+                    c2.translate(off.x, off.y);
+                    c2.push_group();
+                    draw_object_body(&c2, &solid_copy(obj));
+                    let hole = c2.pop_group().ok()?;
+                    c2.set_operator(cairo::Operator::DestOut);
+                    c2.set_source(&hole).ok()?;
+                    c2.paint().ok()?;
+                }
+                surf.flush();
+                blur_surface(&mut surf, (blur * scale).max(0.5));
+                let m = to_image(&ctm, ix0, iy0);
+                fx_store(obj, SLOT_INNER, key, Some(surf.clone()), None, m);
+                (surf, m)
+            }
+        };
+        let shape = {
+            cr.push_group();
+            draw_shape(cr, obj);
+            cr.pop_group().ok()?
+        };
+        cr.push_group();
+        let sp = cairo::SurfacePattern::create(&surf);
+        sp.set_matrix(m);
+        cr.set_source_rgba(0.0, 0.0, 0.0, alpha);
+        let _ = cr.mask(&sp);
+        // nur innerhalb der Form
+        cr.set_operator(cairo::Operator::DestIn);
+        let _ = cr.set_source(&shape);
+        let _ = cr.paint();
+        let _ = cr.pop_group_to_source();
+        let _ = cr.paint();
+        Some(())
+    })();
 }
 
 /// Extras unter dem Objekt: Schatten oder Spiegelung.
 fn draw_extras(cr: &cairo::Context, obj: &Object) {
     draw_shadow(cr, obj);
+    draw_glow(cr, obj);
     draw_mirror(cr, obj);
+}
+
+/// Leuchten: die Kontur (ohne Kontur die ganze Form) breiter, weichgezeichnet und in ihrer
+/// Farbe hinter das Objekt gelegt – wie eine Leuchtröhre.
+fn draw_glow(cr: &cairo::Context, obj: &Object) {
+    let Some(k) = obj.style.fx.glow else { return };
+    let col = match (obj.style.stroke, obj.style.fill) {
+        (Some(c), _) if obj.style.width > 0.0 => c,
+        (_, Some(c)) => c,
+        (Some(c), None) => c,
+        (None, None) => return,
+    };
+    let alpha = (0.55 + 0.45 * k) * obj.style.opacity * col.a;
+    if alpha <= 0.0 {
+        return;
+    }
+    let reach = crate::model::glow_radius(k);
+    let _ = (|| -> Option<()> {
+        let b = object_box(obj)?.inflate(obj.style.width.max(0.0) + reach);
+        let (ctm, area) = raster_area(cr, &b, &|scale| reach * scale * 2.0 + 2.0)?;
+        let key = fx_key(obj, &ctm, area, 7);
+        let (surf, m) = match fx_lookup(obj, SLOT_GLOW, key) {
+            Some((e, map)) => (e.surf?, map),
+            None => {
+                let (ix0, iy0, w, h) = area;
+                let scale = (ctm.xx() * ctm.yy() - ctm.xy() * ctm.yx()).abs().sqrt().max(1e-6);
+                let mut surf = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).ok()?;
+                {
+                    let c2 = cairo::Context::new(&surf).ok()?;
+                    c2.translate(-ix0, -iy0);
+                    c2.transform(ctm);
+                    let mut solid = obj.clone();
+                    let stroked = obj.style.stroke.is_some() && obj.style.width > 0.0;
+                    solid.style.fill = if stroked { None } else { Some(Color::BLACK) };
+                    solid.style.stroke = Some(Color::BLACK);
+                    // etwas breiter als die Kontur, damit das Leuchten auch bei dünnen
+                    // Linien sichtbar wird
+                    solid.style.width = obj.style.width.max(0.0) + reach * 0.35;
+                    solid.style.dash = crate::model::Dash::Solid;
+                    solid.style.gradient = None;
+                    solid.style.stroke_gradient = None;
+                    solid.style.opacity = 1.0;
+                    solid.style.blend = Blend::Normal;
+                    solid.style.fx = crate::model::Effects::default();
+                    solid.style.shadow = None;
+                    draw_object_body(&c2, &solid);
+                }
+                surf.flush();
+                blur_surface(&mut surf, (reach * 0.5 * scale).max(0.5));
+                let m = to_image(&ctm, ix0, iy0);
+                fx_store(obj, SLOT_GLOW, key, Some(surf.clone()), None, m);
+                (surf, m)
+            }
+        };
+        let sp = cairo::SurfacePattern::create(&surf);
+        sp.set_matrix(m);
+        let _ = cr.save();
+        cr.set_source_rgba(col.r, col.g, col.b, alpha.clamp(0.0, 1.0));
+        let _ = cr.mask(&sp);
+        let _ = cr.restore();
+        Some(())
+    })();
 }
 
 /// Spiegelung: das Objekt kopfüber unter sich, nach unten ausblendend.
@@ -2335,7 +2472,8 @@ fn draw_mirror(cr: &cairo::Context, obj: &Object) {
     if k <= 0.0 || b.height() <= 0.0 {
         return;
     }
-    let gap = (b.height() * 0.02).min(4.0);
+    let gap = obj.style.fx.mirror_gap;
+    let len = obj.style.fx.mirror_len.max(0.05);
     let _ = cr.save();
     cr.push_group();
     // an der Unterkante spiegeln
@@ -2349,7 +2487,7 @@ fn draw_mirror(cr: &cairo::Context, obj: &Object) {
         let _ = cr.restore();
         return;
     };
-    let fade = cairo::LinearGradient::new(0.0, b.y1 + gap, 0.0, b.y1 + gap + b.height() * 0.75);
+    let fade = cairo::LinearGradient::new(0.0, b.y1 + gap, 0.0, b.y1 + gap + b.height() * len);
     fade.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, (0.15 + 0.6 * k).min(0.9));
     fade.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
     let _ = cr.set_source(&pat);
@@ -2491,54 +2629,118 @@ fn set_gradient(cr: &cairo::Context, g: &Gradient, r: &Rect) {
     }
 }
 
-/// Zweifarbiges Muster (Schachbrett, Punkte, Streifen) als Vektor-Kachel; Lage und Winkel
+/// Zweifarbiges Muster (Schachbrett, Punkte, Streifen …) als Kachel; Lage und Winkel
 /// folgen der Verlaufslinie, die Größe `g.cell`.
+///
+/// Auf dem Bildschirm und in Rasterbildern wird die Kachel als Bild mit ganzzahliger
+/// Pixelgröße gezeichnet, deren Rand genau auf Pixelgrenzen liegt – so entstehen beim
+/// Wiederholen (auch gedreht) keine hellen Nahtlinien. Vektorziele (PDF) bekommen die Kachel
+/// als Vektoraufzeichnung.
 fn set_pattern(cr: &cairo::Context, g: &Gradient, r: &Rect) {
     use crate::model::GradShape;
     let c1 = g.stops.first().map(|s| s.color).unwrap_or(Color::WHITE);
     let c2 = g.stops.get(1).map(|s| s.color).unwrap_or(Color::BLACK);
     let k = g.cell.max(0.5);
-    let tile = if g.shape == GradShape::Stripes { k } else { 2.0 * k };
+    let custom = g.shape.pattern_tile(k);
+    let (tw, th) = match (&custom, g.shape) {
+        (Some(t), _) => (t.w, t.h),
+        (None, GradShape::Stripes) => (k, k),
+        _ => (2.0 * k, 2.0 * k),
+    };
+    let paint = |t: &cairo::Context| {
+        t.rectangle(0.0, 0.0, tw, th);
+        set_color(t, c1);
+        let _ = t.fill();
+        match (&custom, g.shape) {
+            // neuere Muster: Flächen in Zeichenreihenfolge (Ringe gerade/ungerade gefüllt)
+            (Some(tile), _) => {
+                t.set_fill_rule(cairo::FillRule::EvenOdd);
+                for sh in &tile.shapes {
+                    for c in &sh.contours {
+                        for (i, p) in c.iter().enumerate() {
+                            if i == 0 {
+                                t.move_to(p.x, p.y);
+                            } else {
+                                t.line_to(p.x, p.y);
+                            }
+                        }
+                        t.close_path();
+                    }
+                    let col = if sh.ink { c2 } else { c1 };
+                    t.set_source_rgba(col.r, col.g, col.b, col.a * sh.alpha);
+                    let _ = t.fill();
+                }
+            }
+            (None, shape) => {
+                set_color(t, c2);
+                match shape {
+                    GradShape::Checker => {
+                        t.rectangle(0.0, 0.0, k, k);
+                        t.rectangle(k, k, k, k);
+                    }
+                    GradShape::Dots => {
+                        t.arc(k * 0.5, k * 0.5, k * 0.3, 0.0, TAU);
+                        t.new_sub_path();
+                        t.arc(k * 1.5, k * 1.5, k * 0.3, 0.0, TAU);
+                    }
+                    _ => t.rectangle(0.0, 0.0, k * 0.5, k),
+                }
+                let _ = t.fill();
+            }
+        }
+    };
+    // Kachel → Dokument: verschieben an den Anfang der Linie, drehen in ihre Richtung
+    let (a, b) = g.line(r);
+    let ang = (b.y - a.y).atan2(b.x - a.x);
+    let (cs, sn) = (ang.cos(), ang.sin());
+    let to_tile = cairo::Matrix::new(cs, -sn, sn, cs, -(cs * a.x + sn * a.y), sn * a.x - cs * a.y);
+    let target = cr.group_target().type_();
+    let vector = matches!(
+        target,
+        cairo::SurfaceType::Pdf | cairo::SurfaceType::Ps | cairo::SurfaceType::Svg
+    );
+    if !vector {
+        // Gerätemaßstab: wie viele Pixel eine Dokumenteinheit hat (die Zeichenfläche zeichnet
+        // in eine Aufzeichnung in logischen Pixeln, dazu kommt der Skalierungsfaktor)
+        let (dx, dy) = cr.user_to_device_distance(1.0, 0.0).unwrap_or((1.0, 0.0));
+        let (ex, ey) = cr.user_to_device_distance(0.0, 1.0).unwrap_or((0.0, 1.0));
+        let hidpi = if matches!(target, cairo::SurfaceType::Recording) {
+            FX_RES.with(|c| c.get())
+        } else {
+            1.0
+        };
+        let scale = ((dx * ey - dy * ex).abs().sqrt() * hidpi).max(1e-3);
+        let pw = (tw * scale).round().clamp(4.0, 2048.0) as i32;
+        let ph = (th * scale).round().clamp(4.0, 2048.0) as i32;
+        if let Ok(img) = cairo::ImageSurface::create(cairo::Format::ARgb32, pw, ph) {
+            if let Ok(t) = cairo::Context::new(&img) {
+                t.scale(pw as f64 / tw, ph as f64 / th);
+                paint(&t);
+            }
+            img.flush();
+            let pat = cairo::SurfacePattern::create(&img);
+            pat.set_extend(cairo::Extend::Repeat);
+            pat.set_filter(cairo::Filter::Good);
+            // Dokument → Kachel → Kachelpixel
+            let px = cairo::Matrix::new(pw as f64 / tw, 0.0, 0.0, ph as f64 / th, 0.0, 0.0);
+            pat.set_matrix(cairo::Matrix::multiply(&to_tile, &px));
+            let _ = cr.set_source(&pat);
+            return;
+        }
+    }
     let Ok(rec) = cairo::RecordingSurface::create(
         cairo::Content::ColorAlpha,
-        Some(cairo::Rectangle::new(0.0, 0.0, tile, tile)),
+        Some(cairo::Rectangle::new(0.0, 0.0, tw, th)),
     ) else {
         set_color(cr, c1);
         return;
     };
     if let Ok(t) = cairo::Context::new(&rec) {
-        t.rectangle(0.0, 0.0, tile, tile);
-        set_color(&t, c1);
-        let _ = t.fill();
-        set_color(&t, c2);
-        match g.shape {
-            GradShape::Checker => {
-                t.rectangle(0.0, 0.0, k, k);
-                t.rectangle(k, k, k, k);
-            }
-            GradShape::Dots => {
-                t.arc(k * 0.5, k * 0.5, k * 0.3, 0.0, TAU);
-                t.new_sub_path();
-                t.arc(k * 1.5, k * 1.5, k * 0.3, 0.0, TAU);
-            }
-            _ => t.rectangle(0.0, 0.0, k * 0.5, k),
-        }
-        let _ = t.fill();
+        paint(&t);
     }
     let pat = cairo::SurfacePattern::create(&rec);
     pat.set_extend(cairo::Extend::Repeat);
-    // Kachel → Dokument: verschieben an den Anfang der Linie, drehen in ihre Richtung
-    let (a, b) = g.line(r);
-    let th = (b.y - a.y).atan2(b.x - a.x);
-    let (cs, sn) = (th.cos(), th.sin());
-    pat.set_matrix(cairo::Matrix::new(
-        cs,
-        -sn,
-        sn,
-        cs,
-        -(cs * a.x + sn * a.y),
-        sn * a.x - cs * a.y,
-    ));
+    pat.set_matrix(to_tile);
     let _ = cr.set_source(&pat);
 }
 
@@ -2686,12 +2888,12 @@ fn draw_filled(cr: &cairo::Context, obj: &Object) {
                     },
                 }
             }
-            Some((Art::Watercolor, k)) => {
+            Some((a @ (Art::Watercolor | Art::Crayon | Art::Oil | Art::Halftone | Art::Risograph), k)) => {
                 let paint = |c: &cairo::Context| match &grad {
                     Some((g, r)) => set_gradient(c, g, r),
                     None => set_color(c, f),
                 };
-                if !draw_watercolor(cr, obj, &paint, k) {
+                if !draw_painterly(cr, obj, &paint, a, k) {
                     paint(cr);
                     let _ = cr.fill_preserve();
                 }
@@ -2831,19 +3033,36 @@ fn value_noise(x: f64, y: f64, scale: f64, salt: u32) -> f64 {
 /// Zwischenspeicher gemalt und wie mit Aquarell aufgetragen – unregelmäßige Ränder,
 /// dunklere Farbränder, wolkige Farbdichte und etwas Papierstruktur. `k` = Stärke.
 /// Gibt `false` zurück, wenn nichts gezeichnet wurde.
-fn draw_watercolor(cr: &cairo::Context, obj: &Object, paint: &dyn Fn(&cairo::Context), k: f64) -> bool {
+/// Wie Wasserfarben auch Wachsmalstifte (Papier scheint in Strichen durch, rauer Rand) und
+/// Ölfarbe (Pinselstriche mit Relief).
+fn draw_painterly(
+    cr: &cairo::Context,
+    obj: &Object,
+    paint: &dyn Fn(&cairo::Context),
+    art: Art,
+    k: f64,
+) -> bool {
     let Ok(path) = cr.copy_path() else { return false };
     let Ok((x0, y0, x1, y1)) = cr.fill_extents() else {
         return false;
     };
     let b = Rect { x0, y0, x1, y1 };
     let res = FX_RES.with(|c| c.get());
-    let edge_for = |scale: f64| (6.0 * scale).clamp(1.5, 40.0 * res);
-    let Some((ctm, area)) = raster_area(cr, &b, &|scale| edge_for(scale) * 2.0 + 2.0) else {
+    // Breite des weichen Randes (Dokumenteinheiten): Wasserfarben laufen weiter aus
+    let edge_units = match art {
+        Art::Watercolor => 6.0,
+        Art::Oil => 2.5,
+        _ => 1.6,
+    };
+    let edge_for = |scale: f64| (edge_units * scale).clamp(1.0, 40.0 * res);
+    // Risografie: die Farbschichten liegen bis zu so weit (Dokumenteinheiten) versetzt
+    let riso_shift = 1.0 + 3.0 * k.clamp(0.0, 1.0);
+    let extra = if art == Art::Risograph { riso_shift } else { 0.0 };
+    let Some((ctm, area)) = raster_area(cr, &b, &|scale| edge_for(scale) * 2.0 + extra * scale + 2.0) else {
         return false;
     };
     // gespiegelt (Spiegelung unter dem Objekt) eigener Platz im Zwischenspeicher
-    let slot = if ctm.yy() < 0.0 {
+    let slot = if cr.matrix().yy() < 0.0 {
         SLOT_WATER_MIRROR
     } else {
         SLOT_WATER
@@ -2896,41 +3115,133 @@ fn draw_watercolor(cr: &cairo::Context, obj: &Object, paint: &dyn Fn(&cairo::Con
     // Gerät → Dokument (damit die Struktur beim Verschieben der Ansicht stehen bleibt)
     let inv = ctm.try_invert().unwrap_or(ctm);
     let k = k.clamp(0.0, 1.0) as f32;
+    // Risografie liest versetzt aus dem unveränderten Bild
+    let orig: Vec<u32> = if art == Art::Risograph {
+        match surface_pixels(&mut surf, wu, hu) {
+            Some(v) => v,
+            None => return false,
+        }
+    } else {
+        Vec::new()
+    };
+    let fx = obj.style.fx;
+    let (cell, ang) = (fx.art_size.max(1.0) as f32, (fx.art_angle as f32).to_radians());
+    // Breite eines Pixels in Dokumenteinheiten (Kantenglättung der Rasterpunkte)
+    let aa = (1.0 / scale) as f32;
+    let shift_px = riso_shift * scale;
     {
         let Ok(mut d) = surf.data() else { return false };
-        for y in 0..hu {
-            for x in 0..wu {
-                let o = y * stride + x * 4;
-                let a0 = d[o + 3] as f32;
-                if a0 <= 0.0 {
-                    continue;
+        let dd = crate::imgfx::Shared::new(&mut d[..]);
+        let (field, orig) = (&field, &orig);
+        // Zeilen gleichzeitig auf mehreren Kernen (jedes Band schreibt nur seine Zeilen)
+        crate::imgfx::par_bands(hu, crate::imgfx::band_rows(wu), |y0, y1| {
+            for y in y0..y1 {
+                // Sicherheit: die Zeilen y0..y1 gehören nur diesem Band
+                let d = unsafe { dd.range(y * stride, wu * 4) };
+                for x in 0..wu {
+                    let o = x * 4;
+                    let a0 = d[o + 3] as f32;
+                    if a0 <= 0.0 {
+                        continue;
+                    }
+                    let (dx, dy) = inv.transform_point(x as f64 + ix0 + 0.5, y as f64 + iy0 + 0.5);
+                    if art == Art::Halftone {
+                        // Punkte in der Farbe der Füllung; dunkle Stellen größere Punkte
+                        let (r, g, bl) = (d[o + 2] as f32, d[o + 1] as f32, d[o] as f32);
+                        let lum = (0.299 * r + 0.587 * g + 0.114 * bl) / a0;
+                        let fill = ((1.0 - lum) * (0.5 + 0.5 * k) + 0.12 + 0.3 * k).clamp(0.05, 1.0);
+                        let cov = crate::imgfx::halftone_cov(dx as f32, dy as f32, cell, ang, fill, aa);
+                        for c in 0..4 {
+                            d[o + c] = (d[o + c] as f32 * cov).round() as u8;
+                        }
+                        continue;
+                    }
+                    if art == Art::Risograph {
+                        // Rot nach links, Blau nach rechts unten versetzt (wie verrutschte
+                        // Druckschichten), dazu Körnung
+                        let at = |sx: f64, sy: f64| {
+                            let px = (x as f64 + sx).round().clamp(0.0, wu as f64 - 1.0) as usize;
+                            let py = (y as f64 + sy).round().clamp(0.0, hu as f64 - 1.0) as usize;
+                            orig[py * wu + px]
+                        };
+                        let pr = at(-shift_px, 0.0);
+                        let pb = at(shift_px, shift_px * 0.5);
+                        let pg = orig[y * wu + x];
+                        let un = |p: u32, sh: u32| {
+                            let a = (p >> 24) as f32;
+                            if a <= 0.0 {
+                                (0.0, 1.0)
+                            } else {
+                                (a, ((p >> sh) & 255) as f32 / a)
+                            }
+                        };
+                        let (ar, r) = un(pr, 16);
+                        let (ag, g) = un(pg, 8);
+                        let (ab, bl) = un(pb, 0);
+                        let a = ar.max(ag).max(ab);
+                        let grain = crate::imgfx::riso_grain(dx as f32, dy as f32, k);
+                        // fehlt eine Schicht, scheint dort das Papier (weiß) durch
+                        let ch = |v: f32, av: f32| {
+                            let v = if av > 0.0 {
+                                v * (av / a.max(1.0)) + (1.0 - av / a.max(1.0))
+                            } else {
+                                1.0
+                            };
+                            (v + (1.0 - v) * grain).clamp(0.0, 1.0)
+                        };
+                        let out = [ch(bl, ab), ch(g, ag), ch(r, ar)];
+                        for c in 0..3 {
+                            d[o + c] = (out[c] * a).round().clamp(0.0, 255.0) as u8;
+                        }
+                        d[o + 3] = a.round().clamp(0.0, 255.0) as u8;
+                        continue;
+                    }
+                    if art != Art::Watercolor {
+                        let f = field[y * wu + x];
+                        let ragn = value_noise(dx, dy, 1.8, 41) as f32;
+                        // leicht rauer Rand (Wachs bzw. Borsten)
+                        let rough = if art == Art::Crayon { 0.5 } else { 0.3 };
+                        let rag = ((f - 0.5 + (ragn - 0.5) * rough * k) / 0.14 + 0.5).clamp(0.0, 1.0);
+                        let rag = 1.0 - k + k * rag;
+                        let (paper, mul) = if art == Art::Crayon {
+                            crate::imgfx::crayon_px(dx as f32, dy as f32, k)
+                        } else {
+                            (0.0, crate::imgfx::oil_px(dx as f32, dy as f32, k, 10.0))
+                        };
+                        for c in 0..3 {
+                            let v = (d[o + c] as f32 * mul).min(a0);
+                            let v = v + (a0 * 0.97 - v).max(0.0) * paper;
+                            d[o + c] = (v * rag).round().clamp(0.0, 255.0) as u8;
+                        }
+                        d[o + 3] = (a0 * rag).round().clamp(0.0, 255.0) as u8;
+                        continue;
+                    }
+                    let low = value_noise(dx, dy, 60.0, 11) as f32 * 0.6
+                        + value_noise(dx, dy, 23.0, 12) as f32 * 0.4;
+                    let fine = value_noise(dx, dy, 3.5, 13) as f32;
+                    let f = field[y * wu + x];
+                    // ausgefranster Rand
+                    let rag = ((f - 0.5 + (fine - 0.5) * 0.45 * k + (low - 0.5) * 0.2 * k) / 0.12 + 0.5)
+                        .clamp(0.0, 1.0);
+                    let rag = 1.0 - k + k * rag;
+                    // dunklerer Farbrand, wolkige Dichte, Papier
+                    let rim = ((0.85 - f) / 0.35).clamp(0.0, 1.0) * 0.4 * k;
+                    let cloud = (low - 0.5) * 0.45 * k;
+                    let paper = (fine - 0.5) * 0.12 * k;
+                    let dens = (1.0 - 0.25 * k + cloud + rim * 0.6 + paper).clamp(0.2, 1.0);
+                    let dark = 1.0 - rim * 0.55;
+                    // Deckkraft bleibt erhalten (nur der ausgefranste Rand verändert die Form):
+                    // die wolkige Dichte hellt die Farbe auf, statt sie durchsichtig zu machen
+                    let lighten = 1.0 - dens;
+                    for c in 0..3 {
+                        let v = d[o + c] as f32 * dark;
+                        let v = v + (a0 - v) * lighten;
+                        d[o + c] = (v * rag).round().clamp(0.0, 255.0) as u8;
+                    }
+                    d[o + 3] = (a0 * rag).round().clamp(0.0, 255.0) as u8;
                 }
-                let (dx, dy) = inv.transform_point(x as f64 + ix0 + 0.5, y as f64 + iy0 + 0.5);
-                let low =
-                    value_noise(dx, dy, 60.0, 11) as f32 * 0.6 + value_noise(dx, dy, 23.0, 12) as f32 * 0.4;
-                let fine = value_noise(dx, dy, 3.5, 13) as f32;
-                let f = field[y * wu + x];
-                // ausgefranster Rand
-                let rag = ((f - 0.5 + (fine - 0.5) * 0.45 * k + (low - 0.5) * 0.2 * k) / 0.12 + 0.5)
-                    .clamp(0.0, 1.0);
-                let rag = 1.0 - k + k * rag;
-                // dunklerer Farbrand, wolkige Dichte, Papier
-                let rim = ((0.85 - f) / 0.35).clamp(0.0, 1.0) * 0.4 * k;
-                let cloud = (low - 0.5) * 0.45 * k;
-                let paper = (fine - 0.5) * 0.12 * k;
-                let dens = (1.0 - 0.25 * k + cloud + rim * 0.6 + paper).clamp(0.2, 1.0);
-                let dark = 1.0 - rim * 0.55;
-                // Deckkraft bleibt erhalten (nur der ausgefranste Rand verändert die Form):
-                // die wolkige Dichte hellt die Farbe auf, statt sie durchsichtig zu machen
-                let lighten = 1.0 - dens;
-                for c in 0..3 {
-                    let v = d[o + c] as f32 * dark;
-                    let v = v + (a0 - v) * lighten;
-                    d[o + c] = (v * rag).round().clamp(0.0, 255.0) as u8;
-                }
-                d[o + 3] = (a0 * rag).round().clamp(0.0, 255.0) as u8;
             }
-        }
+        });
     }
     surf.mark_dirty();
     let to_img = to_image(&ctm, ix0, iy0);
@@ -3013,29 +3324,64 @@ pub fn draw_document(cr: &cairo::Context, doc: &Document) {
 /// Dokument zeichnen, optional nur bis (ausschließlich) zum Objekt `stop`.
 /// `frost`: Milchglas-Objekte mit weichgezeichnetem Hintergrund (sonst wie normal).
 fn draw_document_until(cr: &cairo::Context, doc: &Document, stop: Option<u64>, frost: bool) {
+    draw_document_in(cr, doc, stop, frost, None);
+}
+
+/// Wie `draw_document_until`, dabei nur Objekte, die `cull` (Dokumentkoordinaten) berühren.
+fn draw_document_in(cr: &cairo::Context, doc: &Document, stop: Option<u64>, frost: bool, cull: Option<Rect>) {
     // Aufhellen wirkt wie Licht: Aufhellen-Objekte, die in der Reihenfolge direkt
     // aufeinander folgen, werden gesammelt und gemeinsam aufgetragen (ein einzelnes
     // Feld zeigt seine Farbe, Überlagerungen laufen Richtung Weiß).
     let mut run: Vec<&Object> = Vec::new();
+    // Schnittmasken werden nicht gezeichnet, sie begrenzen die übrigen Objekte ihrer Gruppe
+    let masks = doc.masks();
     'objects: for layer in doc.layers.iter().filter(|l| l.visible) {
         for obj in &layer.objects {
             if Some(obj.id) == stop {
                 break 'objects;
             }
+            if obj.mask {
+                continue;
+            }
+            if let Some(c) = &cull {
+                if !visual_box(obj).is_some_and(|v| v.intersects(c)) {
+                    continue;
+                }
+            }
+            let clips = crate::model::clips_of(obj, &masks);
             let glass = frost && obj.style.fx.needs_glass() && obj.style.opacity > 0.0;
-            if !glass && obj.style.blend == Blend::Screen && obj.style.opacity > 0.0 {
+            if !glass && clips.is_empty() && obj.style.blend == Blend::Screen && obj.style.opacity > 0.0 {
                 run.push(obj);
                 continue;
             }
             flush_lights(cr, &mut run);
+            let _ = cr.save();
+            apply_clips(cr, &clips);
             if glass {
                 draw_glass(cr, doc, obj);
             } else {
                 draw_object(cr, obj);
             }
+            let _ = cr.restore();
         }
     }
     flush_lights(cr, &mut run);
+}
+
+/// Auf die Flächen der Schnittmasken begrenzen (innerhalb von save/restore aufrufen).
+fn apply_clips(cr: &cairo::Context, clips: &[&Object]) {
+    for c in clips {
+        cr.new_path();
+        build_path(cr, &c.shape);
+        cr.set_fill_rule(if matches!(c.shape, Shape::Path { evenodd: true, .. }) {
+            cairo::FillRule::EvenOdd
+        } else {
+            cairo::FillRule::Winding
+        });
+        cr.clip();
+    }
+    cr.set_fill_rule(cairo::FillRule::Winding);
+    cr.new_path();
 }
 
 /// Eine Folge von Aufhellen-Objekten wie überlagerte Lichtspots auftragen.
@@ -3161,39 +3507,7 @@ fn draw_pixel_gradient(cr: &cairo::Context, g: &Gradient, r: &Rect, cell: f64) {
 
 /// Gleitender Mittelwert auf einem einkanaligen Feld (drei Durchgänge ≈ Gauß).
 fn blur_field(f: &mut [f32], w: usize, h: usize, radius: f64) {
-    let r = ((radius / 3f64.sqrt()).round() as usize).max(1);
-    let mut tmp = vec![0f32; w.max(h)];
-    let mut line = vec![0f32; w.max(h)];
-    let pass = |line: &mut [f32], tmp: &mut [f32], n: usize| {
-        let px = |line: &[f32], i: isize| line[i.clamp(0, n as isize - 1) as usize];
-        let div = (2 * r + 1) as f32;
-        let mut sum = 0f32;
-        for i in -(r as isize)..=(r as isize) {
-            sum += px(line, i);
-        }
-        for i in 0..n {
-            tmp[i] = sum / div;
-            sum += px(line, i as isize + r as isize + 1);
-            sum -= px(line, i as isize - r as isize);
-        }
-        line[..n].copy_from_slice(&tmp[..n]);
-    };
-    for _ in 0..3 {
-        for y in 0..h {
-            line[..w].copy_from_slice(&f[y * w..y * w + w]);
-            pass(&mut line, &mut tmp, w);
-            f[y * w..y * w + w].copy_from_slice(&line[..w]);
-        }
-        for x in 0..w {
-            for y in 0..h {
-                line[y] = f[y * w + x];
-            }
-            pass(&mut line, &mut tmp, h);
-            for y in 0..h {
-                f[y * w + x] = line[y];
-            }
-        }
-    }
+    crate::imgfx::blur_field(f, w, h, radius);
 }
 
 // ───────────────────────────── Effekt-Zwischenspeicher ─────────────────────────────
@@ -3209,6 +3523,11 @@ thread_local! {
     static FX_RES: Cell<f64> = const { Cell::new(1.0) };
     /// Es wird die Zeichenfläche gezeichnet (nur dann wird zwischengespeichert)
     static FX_CANVAS: Cell<bool> = const { Cell::new(false) };
+    /// Es wird der Hintergrund eines Glases gezeichnet: gespeicherte Effektbilder werden
+    /// verwendet, aber keine neuen gespeichert
+    static FX_BACK: Cell<bool> = const { Cell::new(false) };
+    /// Glas: Schlüssel dessen, was darunter liegt (je Objekt: Änderungsstand, Bereich, Schlüssel)
+    static GLASS_UNDER: RefCell<HashMap<u64, (u64, [i64; 4], u64)>> = RefCell::new(HashMap::new());
     /// Verschieben, Skalieren, Zoomen läuft: vorhandene Bilder verwenden statt neu zu rechnen
     static FX_INTERACTIVE: Cell<bool> = const { Cell::new(false) };
     /// Änderungsstand des Dokuments (Glas-Effekte hängen vom Hintergrund ab)
@@ -3227,6 +3546,8 @@ const SLOT_SHADOW: u8 = 1;
 const SLOT_WATER: u8 = 2;
 const SLOT_WATER_MIRROR: u8 = 3;
 const SLOT_GLASS: u8 = 4;
+const SLOT_GLOW: u8 = 5;
+const SLOT_INNER: u8 = 6;
 
 #[derive(Clone)]
 struct FxEntry {
@@ -3360,7 +3681,7 @@ fn fx_store(
     aux: Option<cairo::ImageSurface>,
     to_img: cairo::Matrix,
 ) {
-    if !FX_CANVAS.with(|c| c.get()) {
+    if !FX_CANVAS.with(|c| c.get()) || FX_BACK.with(|c| c.get()) {
         return;
     }
     let Some(anchor) = object_box(obj) else { return };
@@ -3400,10 +3721,15 @@ fn image_source(cr: &cairo::Context, surf: &cairo::ImageSurface, m: cairo::Matri
     let _ = cr.set_source(&sp);
 }
 
-/// Rasterbereich für einen Effekt: Matrix Dokument → Rasterpixel (Gerätematrix mal
-/// Auflösungsfaktor) und Lage (x0, y0, Breite, Höhe) im Raster. `pad` bekommt den Maßstab
-/// (Rasterpixel je Dokumenteinheit) und liefert den nötigen Rand in Rasterpixeln.
-/// Ist das Bild zu groß, wird die Auflösung verringert.
+/// Rasterbereich für einen Effekt: Matrix Dokument → Rasterpixel und Lage (x0, y0, Breite,
+/// Höhe) im Raster. `pad` bekommt den Maßstab (Rasterpixel je Dokumenteinheit) und liefert
+/// den nötigen Rand in Rasterpixeln. Ist das Bild zu groß, wird die Auflösung verringert.
+///
+/// Auf der Zeichenfläche hängt das Raster nicht von der Lage der Ansicht ab: Maßstab in
+/// festen Zoomstufen (`fx_step`), ohne Verschiebung, und das ganze Objekt statt nur des
+/// sichtbaren Teils. So bleiben die gespeicherten Effektbilder beim Verschieben der Ansicht
+/// gültig, und Zoomen rechnet erst beim Überschreiten einer Stufe neu. Beim Export folgt das
+/// Raster wie bisher genau dem Gerät.
 fn raster_area(
     cr: &cairo::Context,
     b: &Rect,
@@ -3411,16 +3737,125 @@ fn raster_area(
 ) -> Option<(cairo::Matrix, (f64, f64, i32, i32))> {
     let base = cr.matrix();
     let mut r = FX_RES.with(|c| c.get());
+    let canvas = FX_CANVAS.with(|c| c.get());
+    let base_scale = (base.xx() * base.yy() - base.xy() * base.yx())
+        .abs()
+        .sqrt()
+        .max(1e-6);
     for _ in 0..6 {
-        let m = cairo::Matrix::multiply(&base, &cairo::Matrix::new(r, 0.0, 0.0, r, 0.0, 0.0));
-        let scale = (m.xx() * m.yy() - m.xy() * m.yx()).abs().sqrt().max(1e-6);
-        let area = device_rect_m(cr, b, pad(scale), &m)?;
+        let (m, area) = if canvas {
+            let s = fx_step(base_scale * r);
+            (
+                cairo::Matrix::new(s, 0.0, 0.0, s, 0.0, 0.0),
+                canvas_rect(cr, b, pad(s), s)?,
+            )
+        } else {
+            let m = cairo::Matrix::multiply(&base, &cairo::Matrix::new(r, 0.0, 0.0, r, 0.0, 0.0));
+            let scale = (m.xx() * m.yy() - m.xy() * m.yx()).abs().sqrt().max(1e-6);
+            (m, device_rect_m(cr, b, pad(scale), &m)?)
+        };
         if (area.2 as f64) * (area.3 as f64) <= FX_MAX_PIXELS && area.2 <= 16000 && area.3 <= 16000 {
             return Some((m, area));
         }
         r *= 0.6;
     }
     None
+}
+
+/// Größtes Effektbild auf der Zeichenfläche, das das ganze Objekt umfasst; größere (stark
+/// hineingezoomt) umfassen nur den sichtbaren Teil mit Rand.
+const FX_CANVAS_PIXELS: f64 = 12_000_000.0;
+
+/// Zoomstufe der Effektbilder: der Maßstab, auf eine Viertel-Zweierpotenz aufgerundet
+/// (Bilder werden also höchstens etwas verkleinert gezeigt, nie vergrößert).
+fn fx_step(scale: f64) -> f64 {
+    2f64.powf((scale.max(1e-6).log2() * 4.0 - 1e-6).ceil() / 4.0)
+}
+
+/// Rahmen eines Effektbildes auf der Zeichenfläche (Maßstab `s`, ohne Verschiebung). Liegt
+/// das Objekt weiter als eine Bildschirmbreite außerhalb des sichtbaren Bereichs, gibt es
+/// nichts zu rechnen.
+fn canvas_rect(cr: &cairo::Context, b: &Rect, pad: f64, s: f64) -> Option<(f64, f64, i32, i32)> {
+    let (mut x0, mut y0, mut x1, mut y1) = (
+        b.x0.min(b.x1) * s - pad,
+        b.y0.min(b.y1) * s - pad,
+        b.x0.max(b.x1) * s + pad,
+        b.y0.max(b.y1) * s + pad,
+    );
+    if let Ok((cx0, cy0, cx1, cy1)) = cr.clip_extents() {
+        let (vx0, vy0, vx1, vy1) = (
+            cx0.min(cx1) * s,
+            cy0.min(cy1) * s,
+            cx0.max(cx1) * s,
+            cy0.max(cy1) * s,
+        );
+        let (vw, vh) = (vx1 - vx0, vy1 - vy0);
+        // weit außerhalb: nicht sichtbar
+        if x1 < vx0 - vw || x0 > vx1 + vw || y1 < vy0 - vh || y0 > vy1 + vh {
+            return None;
+        }
+        if (x1 - x0) * (y1 - y0) > FX_CANVAS_PIXELS {
+            // nur der sichtbare Teil mit einem Viertel Rand, auf 256 Pixel gerundet, damit
+            // kleine Verschiebungen der Ansicht nichts neu rechnen
+            let g = 256.0;
+            x0 = x0.max(((vx0 - vw * 0.25 - pad) / g).floor() * g);
+            y0 = y0.max(((vy0 - vh * 0.25 - pad) / g).floor() * g);
+            x1 = x1.min(((vx1 + vw * 0.25 + pad) / g).ceil() * g);
+            y1 = y1.min(((vy1 + vh * 0.25 + pad) / g).ceil() * g);
+        }
+    }
+    let (ix0, iy0) = (x0.floor(), y0.floor());
+    let w = (x1.ceil() - ix0) as i32;
+    let h = (y1.ceil() - iy0) as i32;
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    Some((ix0, iy0, w, h))
+}
+
+/// Raster (Matrix `m`, Lage `area`) zurück in Dokumentkoordinaten.
+fn area_doc(m: &cairo::Matrix, area: (f64, f64, i32, i32)) -> Option<Rect> {
+    let inv = m.try_invert().ok()?;
+    let (ix0, iy0, w, h) = area;
+    let (x1, y1) = (ix0 + w as f64, iy0 + h as f64);
+    let mut r: Option<Rect> = None;
+    for (x, y) in [(ix0, iy0), (x1, iy0), (x1, y1), (ix0, y1)] {
+        let (dx, dy) = inv.transform_point(x, y);
+        let p = Rect {
+            x0: dx,
+            y0: dy,
+            x1: dx,
+            y1: dy,
+        };
+        r = Some(r.map_or(p, |q| q.union(&p)));
+    }
+    r
+}
+
+/// Rahmen von allem, was ein Objekt zeichnet: Form, Kontur samt Linienenden, Schatten,
+/// Leuchten und Spiegelung (großzügig, zum Aussortieren beim Zeichnen).
+fn visual_box(obj: &Object) -> Option<Rect> {
+    let b = object_box(obj)?;
+    let st = &obj.style;
+    let width = st.width.max(0.0);
+    let mut r = b.inflate(width * 40.0 + 4.0);
+    if let Some(sh) = st.shadow {
+        let e = sh.blur.abs() * 3.0 + width * 40.0 + 4.0;
+        let moved = Rect {
+            x0: b.x0 + sh.dx,
+            y0: b.y0 + sh.dy,
+            x1: b.x1 + sh.dx,
+            y1: b.y1 + sh.dy,
+        };
+        r = r.union(&moved.inflate(e));
+    }
+    if let Some(k) = st.fx.glow {
+        r = r.inflate(crate::model::glow_radius(k) * 2.0);
+    }
+    if st.fx.mirror.is_some() {
+        r.y1 += b.height() * st.fx.mirror_len.max(0.0) + st.fx.mirror_gap.abs() + width * 40.0 + 4.0;
+    }
+    Some(r)
 }
 
 /// Rahmen in Rasterkoordinaten (Matrix `m`) mit Rand, auf den sichtbaren Bereich beschränkt.
@@ -3547,9 +3982,9 @@ fn draw_glass(cr: &cairo::Context, doc: &Document, obj: &Object) {
             reach * 2.2 + blur * 2.0 + 2.0
         };
         let (m, area) = raster_area(cr, &b, &pad)?;
-        // Glas hängt vom Hintergrund ab, daher zählt der Änderungsstand des Dokuments mit
-        let epoch = FX_EPOCH.with(|c| c.get());
-        let key = fx_key(obj, &m, area, epoch);
+        // Glas hängt von dem ab, was darunter liegt (nicht von Änderungen anderswo)
+        let under = glass_under_key(doc, obj, area_doc(&m, area));
+        let key = fx_key(obj, &m, area, under);
         if let Some((e, map)) = fx_lookup(obj, SLOT_GLASS, key) {
             let to_img = map;
             return Some((
@@ -3566,9 +4001,10 @@ fn draw_glass(cr: &cairo::Context, doc: &Document, obj: &Object) {
         Some((g, false))
     })();
     // Form des Objekts als Maske (für Milchglas ohne 3D-Effekt und den Schleier)
+    // (deckend, damit eine durchsichtige Füllung das Glas nicht abschwächt)
     let shape_mask = {
         cr.push_group();
-        draw_shape(cr, obj);
+        draw_shape(cr, &solid_copy(obj));
         cr.pop_group().ok()
     };
     if let Some((g, _)) = &out {
@@ -3593,8 +4029,34 @@ fn draw_glass(cr: &cairo::Context, doc: &Document, obj: &Object) {
         let _ = cr.mask(mask);
         let _ = cr.restore();
     }
-    // darüber das Objekt selbst als Tönung
-    draw_object_body(cr, obj);
+    // darüber das Objekt selbst als Tönung. Bei Glas tönt die Füllung das Glas nur leicht
+    // (sonst deckt sie den weichgezeichneten Hintergrund zu, wie bis 0.9.61); die Kontur
+    // bleibt deckend
+    match fx.glass {
+        Some(_) => {
+            let tint = crate::model::GLASS_FILL;
+            let image = matches!(obj.shape, Shape::Image { .. });
+            let mut body = obj.clone();
+            if !image {
+                body.style.stroke = None;
+                body.style.stroke_gradient = None;
+            }
+            if tint > 0.0 {
+                cr.push_group();
+                draw_object_body(cr, &body);
+                let _ = cr.pop_group_to_source();
+                let _ = cr.paint_with_alpha(tint);
+                cr.set_source_rgba(0.0, 0.0, 0.0, 1.0);
+            }
+            if !image && obj.style.stroke.is_some() {
+                let mut line = obj.clone();
+                line.style.fill = None;
+                line.style.gradient = None;
+                draw_object_body(cr, &line);
+            }
+        }
+        None => draw_object_body(cr, obj),
+    }
     if let Some((g, _)) = &out {
         if let Some(o) = &g.over {
             let _ = cr.save();
@@ -3603,6 +4065,55 @@ fn draw_glass(cr: &cairo::Context, doc: &Document, obj: &Object) {
             let _ = cr.restore();
         }
     }
+    draw_inner_shadow(cr, obj);
+}
+
+/// Schlüssel für das, was unter einem Glas liegt: Zeichenflächen, sichtbare Ebenen und alle
+/// Objekte darunter, die den Bereich `cull` berühren. Wird nur nach einer Änderung des
+/// Dokuments (oder des Bereichs) neu berechnet.
+fn glass_under_key(doc: &Document, obj: &Object, cull: Option<Rect>) -> u64 {
+    use std::fmt::Write;
+    use std::hash::{Hash, Hasher};
+    if !FX_CANVAS.with(|c| c.get()) {
+        return 0;
+    }
+    let Some(cull) = cull else { return 0 };
+    let epoch = FX_EPOCH.with(|c| c.get());
+    let ck = [cull.x0, cull.y0, cull.x1, cull.y1].map(|v| (v * 8.0).round() as i64);
+    if let Some(k) = GLASS_UNDER.with(|g| {
+        g.borrow()
+            .get(&obj.id)
+            .filter(|(e, c, _)| *e == epoch && *c == ck)
+            .map(|x| x.2)
+    }) {
+        return k;
+    }
+    let mut h = HashWriter(std::collections::hash_map::DefaultHasher::new());
+    let _ = write!(h, "{:?} {:?}", doc.artboard_rects(), doc.artboard_backgrounds());
+    'objects: for layer in &doc.layers {
+        layer.visible.hash(&mut h.0);
+        if !layer.visible {
+            continue;
+        }
+        for o in &layer.objects {
+            if o.id == obj.id {
+                break 'objects;
+            }
+            if visual_box(o).is_some_and(|v| v.intersects(&cull)) {
+                o.id.hash(&mut h.0);
+                fingerprint(o).hash(&mut h.0);
+            }
+        }
+    }
+    let k = h.0.finish();
+    GLASS_UNDER.with(|g| {
+        let mut g = g.borrow_mut();
+        if g.len() > 4096 {
+            g.clear();
+        }
+        g.insert(obj.id, (epoch, ck, k));
+    });
+    k
 }
 
 /// Glas-Bilder berechnen (Matrix `ctm`: Dokument → Rasterpixel, `area`: Lage im Raster).
@@ -3612,7 +4123,6 @@ fn glass_compute(
     ctm: &cairo::Matrix,
     area: (f64, f64, i32, i32),
 ) -> Option<GlassOut> {
-    use crate::model::{Lens, Texture};
     let ctm = *ctm;
     let (ix0, iy0, w, h) = area;
     let b = object_box(obj)?;
@@ -3620,10 +4130,9 @@ fn glass_compute(
     let fx = obj.style.fx;
     let frost = fx.frost();
     let lens = fx.lens.filter(|(_, k)| k.abs() > 0.004);
-    let finish = match fx.tex {
-        Some((t @ (Texture::Brushed | Texture::Gloss), k)) => Some((t, k)),
-        _ => None,
-    };
+    let finish = fx.mat.map(|(m, k)| (m, k as f32));
+    // feine Körnung des Glases
+    let grain = fx.glass.map(|_| fx.glass_grain as f32).filter(|g| *g > 0.004);
     // Milchglas-Skala: 100 % entsprechen dem früheren 50 % (daher halbiert)
     let blur = frost
         .map(|k| (FROST_BLUR * (0.15 + 0.85 * k) * scale).clamp(0.5, 600.0))
@@ -3653,16 +4162,21 @@ fn glass_compute(
             let c2 = cairo::Context::new(&surf).ok()?;
             c2.translate(-ix0, -iy0);
             c2.transform(ctm);
-            if let Some(bg) = doc.background {
-                for (_, r) in doc.artboard_rects() {
+            for ((_, r), bg) in doc.artboard_rects().into_iter().zip(doc.artboard_backgrounds()) {
+                if let Some(bg) = bg {
                     c2.rectangle(r.x0, r.y0, r.width(), r.height());
+                    set_color(&c2, bg);
+                    let _ = c2.fill();
                 }
-                set_color(&c2, bg);
-                let _ = c2.fill();
             }
-            let was = FX_CANVAS.with(|c| c.replace(false));
-            draw_document_until(&c2, doc, Some(obj.id), false);
-            FX_CANVAS.with(|c| c.set(was));
+            // nur was das Glas berührt; Effekte der Objekte darunter aus dem Zwischenspeicher
+            // (sie sind in diesem Bild schon gezeichnet worden). Das Raster hat die Auflösung
+            // bereits, also kein zweites Mal hochrechnen.
+            let prev_res = set_effect_resolution(1.0);
+            let was = FX_BACK.with(|c| c.replace(true));
+            draw_document_in(&c2, doc, Some(obj.id), false, area_doc(&ctm, area));
+            FX_BACK.with(|c| c.set(was));
+            set_effect_resolution(prev_res);
         }
         surf.flush();
         if blur >= 0.5 {
@@ -3674,7 +4188,7 @@ fn glass_compute(
         // nur Milchglas: weichgezeichneter Hintergrund, wird mit der Form maskiert
         out.under = back.clone();
     }
-    if lens.is_none() && finish.is_none() {
+    if lens.is_none() && finish.is_none() && grain.is_none() {
         return Some(out);
     }
 
@@ -3689,6 +4203,7 @@ fn glass_compute(
     mask.flush();
     let ms = mask.stride() as usize;
     let alpha: Vec<f32> = {
+        make_exclusive(&mut mask);
         let d = mask.data().ok()?;
         let mut a = vec![0f32; wu * hu];
         for y in 0..hu {
@@ -3699,9 +4214,8 @@ fn glass_compute(
         a
     };
     let dist = crate::imgfx::inside_distance(&alpha, wu, hu);
-    // Licht (weiß) und Schatten (schwarz) über dem Objekt, je Pixel 0…1
-    let mut lit = vec![0f32; wu * hu];
-    let mut shade = vec![0f32; wu * hu];
+    // Neigung des Reliefs je Pixel (nur mit 3D-Effekt)
+    let mut tilt: Vec<Option<crate::imgfx::Tilt>> = Vec::new();
     // Objektrahmen im Zwischenbild
     let (bx0, by0) = (ox0 - ix0, oy0 - iy0);
     let (bw, bh) = ((ox1 - ox0).max(1.0), (oy1 - oy0).max(1.0));
@@ -3718,6 +4232,7 @@ fn glass_compute(
         // Treppenstufen am Rand glätten, damit Licht und Brechung ruhig bleiben
         blur_field(&mut rel.height, wu, hu, (1.5 + rel.zone as f64 * 0.04).min(8.0));
         let zone = rel.zone;
+        make_exclusive(back);
         let bs = back.stride() as usize;
         let src: Vec<u32> = {
             let d = back.data().ok()?;
@@ -3747,174 +4262,228 @@ fn glass_compute(
         };
         let mut outs = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).ok()?;
         let os = outs.stride() as usize;
+        tilt = vec![None; wu * hu];
         {
             let mut d = outs.data().ok()?;
-            let (ohw, ohh) = ((bw / 2.0).max(1.0) as f32, (bh / 2.0).max(1.0) as f32);
-            for y in 0..hu {
-                for x in 0..wu {
-                    let m = alpha[y * wu + x];
-                    if m <= 0.0 {
-                        continue;
-                    }
-                    let i = y * wu + x;
-                    let (gx, gy) = crate::imgfx::slope(&rel.height, wu, hu, x, y);
-                    let sl = (gx * gx + gy * gy).sqrt();
-                    let (nx, ny) = if sl > 1e-6 { (gx / sl, gy / sl) } else { (0.0, 0.0) };
-                    let pp = rel.p[i];
-                    let (px_, py_) = (x as f32, y as f32);
-                    // Brechung: in der Mitte vergrößert (herausgedrückt) bzw. verkleinert,
-                    // an den Flanken zur Seite verschoben
-                    let mag = 0.14 * amt * sign * pp;
-                    let sx = ocx + (px_ - ocx) * (1.0 - mag) - gx * zone * 0.8 * amt;
-                    let sy = ocy + (py_ - ocy) * (1.0 - mag) - gy * zone * 0.8 * amt;
-                    let c = sample(sx as f64, sy as f64);
-                    // Umgebungsspiegelung zum Rand hin
-                    let e = 1.0 - pp;
-                    let rw = (0.06 + 0.2 * e * e) * (2.0 * amt).min(1.0);
-                    let rx = ocx - (px_ - ocx) * 1.3 - nx * sign * zone * 0.6;
-                    let ry = ocy - (py_ - ocy) * 1.3 - ny * sign * zone * 0.6;
-                    let refl = sample(rx as f64, ry as f64);
-                    let mut col = [0f32; 4];
-                    for q in 0..4 {
-                        col[q] = c[q] * (1.0 - rw) + refl[q] * rw;
-                    }
-                    let px = |v: f32| (v * m).round().clamp(0.0, 255.0) as u32;
-                    let val = (px(col[0]) << 24)
-                        | (px(col[1].min(col[0])) << 16)
-                        | (px(col[2].min(col[0])) << 8)
-                        | px(col[3].min(col[0]));
-                    let o = y * os + x * 4;
-                    d[o..o + 4].copy_from_slice(&val.to_ne_bytes());
+            let dd = crate::imgfx::Shared::new(&mut d[..]);
+            let tt = crate::imgfx::Shared::new(&mut tilt);
+            let rel = &rel;
+            // Zeilen gleichzeitig auf mehreren Kernen (jedes Band schreibt nur seine Zeilen)
+            crate::imgfx::par_bands(hu, crate::imgfx::band_rows(wu), |y0, y1| {
+                for y in y0..y1 {
+                    // Sicherheit: die Zeilen y0..y1 gehören nur diesem Band
+                    let d = unsafe { dd.range(y * os, wu * 4) };
+                    let trow = unsafe { tt.range(y * wu, wu) };
+                    for x in 0..wu {
+                        let m = alpha[y * wu + x];
+                        if m <= 0.0 {
+                            continue;
+                        }
+                        let i = y * wu + x;
+                        let (gx, gy) = crate::imgfx::slope(&rel.height, wu, hu, x, y);
+                        let sl = (gx * gx + gy * gy).sqrt();
+                        let (nx, ny) = if sl > 1e-6 { (gx / sl, gy / sl) } else { (0.0, 0.0) };
+                        let pp = rel.p[i];
+                        let (px_, py_) = (x as f32, y as f32);
+                        // Brechung: in der Mitte vergrößert (herausgedrückt) bzw. verkleinert,
+                        // an den Flanken zur Seite verschoben
+                        let mag = 0.14 * amt * sign * pp;
+                        let sx = ocx + (px_ - ocx) * (1.0 - mag) - gx * zone * 0.8 * amt;
+                        let sy = ocy + (py_ - ocy) * (1.0 - mag) - gy * zone * 0.8 * amt;
+                        let c = sample(sx as f64, sy as f64);
+                        // Umgebungsspiegelung zum Rand hin
+                        let e = 1.0 - pp;
+                        let rw = (0.06 + 0.2 * e * e) * (2.0 * amt).min(1.0);
+                        let rx = ocx - (px_ - ocx) * 1.3 - nx * sign * zone * 0.6;
+                        let ry = ocy - (py_ - ocy) * 1.3 - ny * sign * zone * 0.6;
+                        let refl = sample(rx as f64, ry as f64);
+                        let mut col = [0f32; 4];
+                        for q in 0..4 {
+                            col[q] = c[q] * (1.0 - rw) + refl[q] * rw;
+                        }
+                        let px = |v: f32| (v * m).round().clamp(0.0, 255.0) as u32;
+                        let val = (px(col[0]) << 24)
+                            | (px(col[1].min(col[0])) << 16)
+                            | (px(col[2].min(col[0])) << 8)
+                            | px(col[3].min(col[0]));
+                        let o = x * 4;
+                        d[o..o + 4].copy_from_slice(&val.to_ne_bytes());
 
-                    // Licht und Schatten auf dem Objekt
-                    let delta = crate::imgfx::light_delta(gx, gy);
-                    let mut wv = (delta * 2.0 * amt * lc).clamp(0.0, 0.7);
-                    let dv = (-delta * 1.1 * amt * lc).clamp(0.0, 0.5);
-                    // Glanzlicht oben links auf runden Formen
-                    if sign > 0.0 && matches!(kind, Lens::Drop | Lens::Sphere) {
-                        let sx = (px_ - (ocx - ohw * 0.38)) / (ohw * 0.32);
-                        let sy = (py_ - (ocy - ohh * 0.45)) / (ohh * 0.22);
-                        let spot = (-(sx * sx + sy * sy)).exp() * 0.4 * (2.0 * amt).min(1.0) * lc.min(1.5);
-                        wv = 1.0 - (1.0 - wv) * (1.0 - spot);
+                        // Licht und Schatten auf dem Objekt: je nach Material (unten)
+                        trow[x] = Some(crate::imgfx::Tilt { gx, gy, amt, lc });
                     }
-                    lit[i] = wv;
-                    shade[i] = dv;
                 }
-            }
+            });
         }
         outs.mark_dirty();
         out.under = Some(outs);
     }
 
-    // Texturen: gebürstetes Metall und Hochglanz
-    if let Some((tex, k)) = finish {
-        let k = k as f32;
-        for y in 0..hu {
-            for x in 0..wu {
-                let i = y * wu + x;
-                if alpha[i] <= 0.0 {
-                    continue;
-                }
-                let lx = (x as f64 + 0.5 - bx0) as f32;
-                let ly = (y as f64 + 0.5 - by0) as f32;
-                match tex {
-                    Texture::Brushed => {
-                        let v = crate::imgfx::brushed(lx, ly, bw as f32, scale as f32) * k * 0.5;
+    // Licht und Schatten über dem Objekt, je Pixel 0…1: Material (ohne: matt) auf dem
+    // Relief bzw. der flachen Form, dazu die Körnung des Glases
+    let mut lit = vec![0f32; wu * hu];
+    let mut shade = vec![0f32; wu * hu];
+    let mut tint = vec![0f32; wu * hu];
+    let mat_angle = fx.mat_angle.to_radians() as f32;
+    {
+        let (ls, ss, ts) = (
+            crate::imgfx::Shared::new(&mut lit),
+            crate::imgfx::Shared::new(&mut shade),
+            crate::imgfx::Shared::new(&mut tint),
+        );
+        let tilt = &tilt;
+        crate::imgfx::par_bands(hu, crate::imgfx::band_rows(wu), |y0, y1| {
+            for y in y0..y1 {
+                for x in 0..wu {
+                    let i = y * wu + x;
+                    if alpha[i] <= 0.0 {
+                        continue;
+                    }
+                    let lx = (x as f64 + 0.5 - bx0) as f32;
+                    let ly = (y as f64 + 0.5 - by0) as f32;
+                    let t = tilt.get(i).copied().flatten();
+                    if finish.is_none() && t.is_none() && grain.is_none() {
+                        continue;
+                    }
+                    let sh = crate::imgfx::material_px(
+                        finish,
+                        mat_angle,
+                        lx,
+                        ly,
+                        bw as f32,
+                        bh as f32,
+                        dist[i],
+                        scale as f32,
+                        t,
+                    );
+                    let (mut l, mut s) = (sh.lit, sh.shade);
+                    if let Some(g) = grain {
+                        let v = crate::imgfx::frost_grain(lx / scale as f32, ly / scale as f32) * g * 0.22;
                         if v > 0.0 {
-                            lit[i] = 1.0 - (1.0 - lit[i]) * (1.0 - v);
+                            l = 1.0 - (1.0 - l) * (1.0 - v);
                         } else {
-                            shade[i] = 1.0 - (1.0 - shade[i]) * (1.0 - (-v * 0.8));
+                            s = 1.0 - (1.0 - s) * (1.0 + v);
                         }
                     }
-                    _ => {
-                        let g = crate::imgfx::gloss(lx, ly, bw as f32, bh as f32, dist[i], scale as f32) * k;
-                        lit[i] = 1.0 - (1.0 - lit[i]) * (1.0 - g);
+                    // Sicherheit: Pixel i liegt in einer Zeile dieses Bandes
+                    unsafe {
+                        ls.set(i, l);
+                        ss.set(i, s);
+                        ts.set(i, sh.tint);
                     }
                 }
             }
-        }
+        });
     }
 
+    // Farbe des Objekts für getöntes Licht
+    let tone = {
+        let st = &obj.style;
+        let c = st
+            .gradient
+            .as_ref()
+            .and_then(|g| g.stops.first().map(|s| s.color))
+            .or(st.fill)
+            .or(st.stroke)
+            .unwrap_or(Color::WHITE);
+        [c.r as f32, c.g as f32, c.b as f32]
+    };
     // Schicht zusammensetzen: erst Schatten, darauf das Licht (vormultipliziert)
     let mut ov = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).ok()?;
     let os = ov.stride() as usize;
     {
         let mut d = ov.data().ok()?;
-        for y in 0..hu {
-            for x in 0..wu {
-                let i = y * wu + x;
-                let m = alpha[i];
-                if m <= 0.0 || (lit[i] <= 0.0 && shade[i] <= 0.0) {
-                    continue;
+        let dd = crate::imgfx::Shared::new(&mut d[..]);
+        let (lit, shade, tint) = (&lit, &shade, &tint);
+        crate::imgfx::par_bands(hu, crate::imgfx::band_rows(wu), |y0, y1| {
+            for y in y0..y1 {
+                // Sicherheit: die Zeilen y0..y1 gehören nur diesem Band
+                let d = unsafe { dd.range(y * os, wu * 4) };
+                for x in 0..wu {
+                    let i = y * wu + x;
+                    let m = alpha[i];
+                    if m <= 0.0 || (lit[i] <= 0.0 && shade[i] <= 0.0) {
+                        continue;
+                    }
+                    let a = lit[i] + (1.0 - lit[i]) * shade[i];
+                    let px = |v: f32| (v * m * 255.0).round().clamp(0.0, 255.0) as u32;
+                    // Licht in der Farbe des Objekts (Metall, Samt) oder weiß
+                    let t = tint[i];
+                    let lc = |c: f32| lit[i] * (1.0 - t + t * c);
+                    let val =
+                        (px(a) << 24) | (px(lc(tone[0])) << 16) | (px(lc(tone[1])) << 8) | px(lc(tone[2]));
+                    let o = x * 4;
+                    d[o..o + 4].copy_from_slice(&val.to_ne_bytes());
                 }
-                let a = lit[i] + (1.0 - lit[i]) * shade[i];
-                let px = |v: f32| (v * m * 255.0).round().clamp(0.0, 255.0) as u32;
-                let val = (px(a) << 24) | (px(lit[i]) << 16) | (px(lit[i]) << 8) | px(lit[i]);
-                let o = y * os + x * 4;
-                d[o..o + 4].copy_from_slice(&val.to_ne_bytes());
             }
-        }
+        });
     }
     ov.mark_dirty();
     out.over = Some(ov);
     Some(out)
 }
 
-/// Dreifacher Kastenweichzeichner (annähernd gaußförmig) auf einer ARGB-Fläche.
+/// Pixel einer ARGB-Fläche (vormultipliziert, je Pixel ein `u32`).
+fn surface_pixels(surf: &mut cairo::ImageSurface, w: usize, h: usize) -> Option<Vec<u32>> {
+    let s = surf.stride() as usize;
+    let d = surf.data().ok()?;
+    let mut v = vec![0u32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let o = y * s + x * 4;
+            v[y * w + x] = u32::from_ne_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
+        }
+    }
+    Some(v)
+}
+
+/// Die Pixel einer Fläche sind nur zugänglich, solange niemand sonst sie verwendet; sonst
+/// wird sie durch eine eigene Kopie ersetzt (damit z. B. die Weichzeichnung nie still
+/// ausfällt).
+fn make_exclusive(surf: &mut cairo::ImageSurface) {
+    if surf.data().is_ok() {
+        return;
+    }
+    let Ok(copy) = cairo::ImageSurface::create(cairo::Format::ARgb32, surf.width(), surf.height()) else {
+        return;
+    };
+    if let Ok(c) = cairo::Context::new(&copy) {
+        c.set_operator(cairo::Operator::Source);
+        let _ = c.set_source_surface(&*surf, 0.0, 0.0);
+        let _ = c.paint();
+    }
+    copy.flush();
+    *surf = copy;
+}
+
+/// Dreifacher Kastenweichzeichner (annähernd gaußförmig) auf einer ARGB-Fläche, auf
+/// mehreren Kernen.
 fn blur_surface(surf: &mut cairo::ImageSurface, radius: f64) {
+    make_exclusive(surf);
     let w = surf.width() as usize;
     let h = surf.height() as usize;
     let stride = surf.stride() as usize;
-    // drei Durchgänge mit etwa radius/√3 ergeben ungefähr die gewünschte Unschärfe
-    let r = ((radius / 3f64.sqrt()).round() as usize).max(1);
-    let Ok(mut data) = surf.data() else { return };
-    let mut buf = vec![0u8; w.max(h) * 4];
-    for _ in 0..3 {
-        for y in 0..h {
-            let row = &mut data[y * stride..y * stride + w * 4];
-            box_line(row, &mut buf[..w * 4], w, 4, r);
-        }
-        let mut col = vec![0u8; h * 4];
-        for x in 0..w {
-            for y in 0..h {
-                let o = y * stride + x * 4;
-                col[y * 4..y * 4 + 4].copy_from_slice(&data[o..o + 4]);
-            }
-            box_line(&mut col, &mut buf[..h * 4], h, 4, r);
-            for y in 0..h {
-                let o = y * stride + x * 4;
-                data[o..o + 4].copy_from_slice(&col[y * 4..y * 4 + 4]);
-            }
-        }
+    {
+        let Ok(mut data) = surf.data() else { return };
+        crate::imgfx::box_blur_rgba(&mut data, w, h, stride, radius);
     }
-    drop(data);
     surf.mark_dirty();
 }
 
-/// Gleitender Mittelwert über `n` Pixel (je 4 Kanäle), Ränder werden fortgesetzt.
-fn box_line(line: &mut [u8], tmp: &mut [u8], n: usize, ch: usize, r: usize) {
-    if n == 0 {
-        return;
-    }
-    let div = (2 * r + 1) as u32;
-    for c in 0..ch {
-        let px = |i: isize| -> u32 { line[(i.clamp(0, n as isize - 1) as usize) * ch + c] as u32 };
-        let mut sum: u32 = 0;
-        for i in -(r as isize)..=(r as isize) {
-            sum += px(i);
-        }
-        for i in 0..n {
-            tmp[i * ch + c] = ((sum + div / 2) / div) as u8;
-            sum += px(i as isize + r as isize + 1);
-            sum -= px(i as isize - r as isize);
-        }
-    }
-    line[..n * ch].copy_from_slice(&tmp[..n * ch]);
+pub fn draw_layer(cr: &cairo::Context, layer: &Layer) {
+    draw_objects(cr, &layer.objects);
 }
 
-pub fn draw_layer(cr: &cairo::Context, layer: &Layer) {
-    for obj in &layer.objects {
+/// Objekte nacheinander zeichnen, Schnittmasken berücksichtigt (z. B. Grafiken der
+/// Bibliothek, Vorschaubilder).
+pub fn draw_objects(cr: &cairo::Context, objs: &[Object]) {
+    let masks = crate::model::masks_of(objs.iter());
+    for obj in objs.iter().filter(|o| !o.mask) {
+        let clips = crate::model::clips_of(obj, &masks);
+        let _ = cr.save();
+        apply_clips(cr, &clips);
         draw_object(cr, obj);
+        let _ = cr.restore();
     }
 }
 
@@ -4266,9 +4835,9 @@ impl Backdrop {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Backdrop::Default => tr("Standard"),
-            Backdrop::Dark => tr("Dunkel"),
-            Backdrop::Checker => tr("Schachbrett"),
+            Backdrop::Default => tr("Default"),
+            Backdrop::Dark => tr("Dark"),
+            Backdrop::Checker => tr("Chequerboard"),
         }
     }
     pub fn from_name(s: &str) -> Backdrop {
@@ -4321,6 +4890,7 @@ pub fn draw_canvas(
     // Zeichenflächen (ohne Schatten); transparente Flächen als helleres Schachbrett
     // Notizheft: nur die aktuelle Seite
     let only = ed.page_index();
+    let bgs = doc.artboard_backgrounds();
     let pages: Vec<(String, (f64, f64, f64, f64))> = doc
         .artboard_rects()
         .into_iter()
@@ -4331,27 +4901,32 @@ pub fn draw_canvas(
             (n, (a.x, a.y, r.width() * v.zoom, r.height() * v.zoom))
         })
         .collect();
-    for (_, (px, py, pw, ph)) in &pages {
+    let page_bgs: Vec<Option<Color>> = (0..bgs.len())
+        .filter(|i| only.map_or(true, |o| o == *i))
+        .map(|i| bgs[i])
+        .collect();
+    // jede Zeichenfläche mit ihrem eigenen Hintergrund
+    for ((_, (px, py, pw, ph)), bg) in pages.iter().zip(&page_bgs) {
         cr.rectangle(*px, *py, *pw, *ph);
-    }
-    match doc.background {
-        Some(bg) => {
-            if bg.a < 1.0 {
+        match bg {
+            Some(bg) => {
+                if bg.a < 1.0 {
+                    if let Some(p) = checkerboard() {
+                        let _ = cr.set_source(&p);
+                        let _ = cr.fill_preserve();
+                    }
+                }
+                set_color(cr, *bg);
+                let _ = cr.fill();
+            }
+            None => {
                 if let Some(p) = checkerboard() {
                     let _ = cr.set_source(&p);
-                    let _ = cr.fill_preserve();
+                } else {
+                    cr.set_source_rgb(1.0, 1.0, 1.0);
                 }
+                let _ = cr.fill();
             }
-            set_color(cr, bg);
-            let _ = cr.fill();
-        }
-        None => {
-            if let Some(p) = checkerboard() {
-                let _ = cr.set_source(&p);
-            } else {
-                cr.set_source_rgb(1.0, 1.0, 1.0);
-            }
-            let _ = cr.fill();
         }
     }
 
@@ -5294,11 +5869,11 @@ impl Unit {
     /// Name für Auswahllisten, z. B. „Zoll (in)“.
     pub fn label(self) -> &'static str {
         match self {
-            Unit::Px => tr("Pixel (px)"),
-            Unit::Mm => tr("Millimeter (mm)"),
-            Unit::Cm => tr("Zentimeter (cm)"),
-            Unit::In => tr("Zoll (in)"),
-            Unit::Pt => tr("Punkt (pt)"),
+            Unit::Px => tr("Pixels (px)"),
+            Unit::Mm => tr("Millimetres (mm)"),
+            Unit::Cm => tr("Centimetres (cm)"),
+            Unit::In => tr("Inches (in)"),
+            Unit::Pt => tr("Points (pt)"),
         }
     }
 
@@ -5513,11 +6088,6 @@ fn draw_rulers(cr: &cairo::Context, w: f64, h: f64, ed: &Editor, unit: Unit, dar
 
 // ───────────────────────────── Vorschaubilder ─────────────────────────────
 
-/// Kleines Vorschaubild einer Ebene.
-pub fn draw_thumbnail(cr: &cairo::Context, w: f64, h: f64, doc: &Document, layer: &Layer, dark: bool) {
-    thumbnail_frame(cr, w, h, doc, dark, |cr| draw_layer(cr, layer));
-}
-
 /// Vorschaubild einer Ebene nur mit ihren Objekten (ohne Zeichenfläche dahinter);
 /// Lage wie auf der Seite, was darüber hinausragt, wird am Bildrand abgeschnitten.
 pub fn draw_layer_objects(
@@ -5609,19 +6179,6 @@ fn thumbnail_frame(
     let _ = cr.stroke();
 }
 
-/// Vorschaubild der Zeichenfläche (nur Hintergrund und Format).
-pub fn draw_artboard_thumbnail(cr: &cairo::Context, w: f64, h: f64, doc: &Document, dark: bool) {
-    let empty = Layer {
-        color: 0,
-        id: 0,
-        name: String::new(),
-        visible: true,
-        locked: false,
-        objects: Vec::new(),
-    };
-    draw_thumbnail(cr, w, h, doc, &empty, dark);
-}
-
 /// Vorschau eines Bibliotheksstils: Rechteck (bzw. Linie) oder „Aa“ in der Schrift.
 pub fn draw_style_preview(cr: &cairo::Context, w: f64, h: f64, s: &crate::library::LibStyle) {
     let shape = match &s.text {
@@ -5654,6 +6211,8 @@ pub fn draw_style_preview(cr: &cairo::Context, w: f64, h: f64, s: &crate::librar
     };
     let obj = Object {
         group: 0,
+        sub: Vec::new(),
+        mask: false,
         locked: false,
         name: String::new(),
         id: 0,
@@ -5709,9 +6268,7 @@ pub fn draw_objects_preview(cr: &cairo::Context, w: f64, h: f64, objs: &[Object]
         c2.translate(w / 2.0, h / 2.0);
         c2.scale(k, k);
         c2.translate(-(b.x0 + b.x1) / 2.0, -(b.y0 + b.y1) / 2.0);
-        for o in objs {
-            draw_object(&c2, o);
-        }
+        draw_objects(&c2, objs);
     }
     surf.flush();
     let _ = cr.save();

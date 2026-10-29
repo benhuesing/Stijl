@@ -7,7 +7,7 @@ Stijl is named after **De Stijl** (“The Style”), the Dutch art movement that
 belonged to. Until version 0.9.38 the app was called “Mondrian”; settings, shortcuts and
 libraries from that time are taken over automatically on first start.
 
-Version 0.9.57 – still in testing. Feedback and bug reports are very welcome.
+Version 0.9.67 – still in testing. Feedback and bug reports are very welcome.
 
 > **Note:** Stijl was written with the help of AI (Claude by Anthropic). Ideas, requirements
 > and testing come from a human; most of the program code was written by the AI.
@@ -18,19 +18,22 @@ Version 0.9.57 – still in testing. Feedback and bug reports are very welcome.
   freehand, node editing across several objects, rounded corners on any shape, eraser,
   scissors and a **Shape Builder** that turns any area enclosed by outlines into a new shape
 - **Path operations:** unite, subtract front, intersect, exclude overlap, join paths,
-  convert stroke to fill, blend between two shapes
+  offset path, simplify path, convert stroke to fill, blend between two shapes, repeat with
+  offset, rotation and scale
 - **Text:** text boxes with columns, lists, indents and word-processor-style formatting,
   text on a path, text flowing inside shapes, small caps and ligatures, variable fonts
 - **Colour:** gradients, patterns, eyedropper, colour libraries with styles and reusable
-  graphics
-- **Effects:** shadow, reflection, frosted glass, brushed metal, gloss, 3D relief,
-  watercolour, grain, pixelate, image filters – combinable and non-destructive
-- **Layout:** multiple artboards, layers, smart guides, equal-spacing snapping, align and
-  distribute, a “notebook” view that shows one page at a time
+  graphics, global colours (edit a library colour once, every object using it follows)
+- **Effects:** shadow, inner shadow, reflection, glow, frosted glass, materials (gloss, metal,
+  brushed metal, velvet) that also shape the light of the 3D relief, watercolour, crayons, oil paint, halftone, risograph, grain, pixelate,
+  image filters – combinable and non-destructive
+- **Layout:** multiple artboards, layers, nested groups, clipping masks, smart guides,
+  equal-spacing snapping, align and distribute, a “notebook” view that shows one page at a time
 - **Import:** SVG from other apps, PDF and Adobe Illustrator (.ai) files
-- **Export:** PNG, JPG, SVG and PDF – including print-ready **PDF/X-4 with CMYK** and bleed
+- **Export and printing:** PNG, JPG, SVG and PDF – including print-ready **PDF/X-4 with
+  CMYK** and bleed – and printing with one page per artboard
 - **Safety nets:** atomic saving, automatic recovery after a crash, unlimited undo
-- **Languages:** English (British) and German
+- **Languages:** English (British), German, Spanish and French
 
 See the **[User Guide](docs/USER_GUIDE.md)** for a full description of every feature and
 all keyboard shortcuts.
@@ -129,7 +132,7 @@ Stijl does not collect any data. It only connects to the internet in two cases:
 
 | What | Location |
 |---|---|
-| Libraries | `Documents/Stijl/Libraries/` (or `Bibliotheken` in German) – one SVG file per library; copy them to share or sync the folder with a cloud service |
+| Libraries | `Documents/Stijl/Libraries/` (or the translated name, e.g. `Bibliotheken`) – one SVG file per library; copy them to share or sync the folder with a cloud service |
 | Settings | `~/.config/stijl/settings.ini` |
 | Recently opened | `~/.config/stijl/recent` |
 | Recovery files | `~/.local/state/stijl/recovery/` |
@@ -142,11 +145,20 @@ On Windows, settings and recovery files are in `%LOCALAPPDATA%\stijl`; on macOS 
 
 Bug reports and ideas are welcome as [issues](https://github.com/benhuesing/Stijl/issues).
 
-- **Tests:** `cargo test`. The *Check* workflow builds Stijl on Linux and runs the tests on
-  every push.
-- **Translations:** the English text lives in `po/en_GB.po` (editable with e.g.
-  [Poedit](https://poedit.net)); `po/stijl.pot` is the template for new languages. The
-  original strings in the source code are German.
+- **Tests:** `cargo test`. Besides the unit tests this includes a round trip of a document
+  with every feature (save, open, save again – nothing may change), damaged and deliberately
+  hostile SVG and PDF files (deep nesting, huge numbers, self-references, memory bombs) and
+  a check that every text is translated.
+- **Checks on GitHub:** on every push the *Check* workflow builds Stijl (compiler warnings
+  count as errors), runs the tests, checks the formatting and runs Clippy; it validates the
+  desktop file and the app description the way Flathub does, and checks with
+  [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) that every library has a
+  licence compatible with GPL-3.0-or-later (list in `deny.toml`).
+- **Translations:** the source texts are English (British). The translations live in
+  `po/de.po`, `po/es.po` and `po/fr.po` (editable with e.g. [Poedit](https://poedit.net));
+  `po/stijl.pot` is the template for new languages. A new language also needs an entry
+  in `Lang` in `src/i18n.rs`. A test checks that every translation is complete and keeps
+  the placeholders (`{}`) and line breaks.
 - **File format:** drawings are plain SVG. Stijl’s own information (effects, text boxes,
   layers …) is stored in the `mondrian:` namespace – the old name stays so that older files
   remain readable.
