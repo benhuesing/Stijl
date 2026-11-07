@@ -2543,3 +2543,591 @@ msgstr "Échec de l’impression : {}"
 
 msgid "{} colours updated"
 msgstr "{} couleurs mises à jour"
+
+msgid "Release Mask"
+msgstr "Libérer le masque"
+
+msgid "Align to the artboard instead of to each other"
+msgstr "Aligner sur le plan de travail plutôt que les uns sur les autres"
+
+msgid "Align to the Artboard"
+msgstr "Aligner sur le plan de travail"
+
+msgid "Align to the artboard or to each other"
+msgstr "Aligner sur le plan de travail ou les uns sur les autres"
+
+msgid "Combine"
+msgstr "Combiner"
+
+msgid "Unite, subtract, intersect or exclude"
+msgstr "Unir, soustraire, intersecter ou exclure"
+
+msgid "Add Effect"
+msgstr "Ajouter un effet"
+
+msgid "Align to the artboard"
+msgstr "Aligner sur le plan de travail"
+
+msgid "Each Other"
+msgstr "Entre eux"
+
+msgid "Align the objects to each other"
+msgstr "Aligner les objets les uns sur les autres"
+
+msgid "Align to"
+msgstr "Aligner sur"
+
+msgid "Distribute"
+msgstr "Répartir"
+
+msgid "Remove unneeded points"
+msgstr "Retirer les points superflus"
+
+msgid "Remove shadow"
+msgstr "Retirer l’ombre"
+
+msgid "Remove inner shadow"
+msgstr "Retirer l’ombre intérieure"
+
+msgid "Remove glow"
+msgstr "Retirer la lueur"
+
+msgid "Remove reflection"
+msgstr "Retirer le reflet"
+
+msgid "Page {}"
+msgstr "Page {}"
+
+msgid "Fonts are replaced by installed fonts; lines of text were combined into text boxes where possible"
+msgstr "Les polices sont remplacées par des polices installées ; les lignes de texte ont été regroupées en zones de texte lorsque c’était possible"
+
+msgid "The pages could not be arranged"
+msgstr "Impossible de réorganiser les pages"
+
+msgid "Pages and Artboards"
+msgstr "Pages et plans de travail"
+
+msgid "Edit the PDF: its pages become objects you can change"
+msgstr "Modifier le PDF : ses pages deviennent des objets modifiables"
+
+msgid "Edit this PDF?"
+msgstr "Modifier ce PDF ?"
+
+msgid "_Edit"
+msgstr "_Modifier"
+
+msgid "Editing: saving creates a new SVG file"
+msgstr "Modification : l’enregistrement crée un nouveau fichier SVG"
+
+msgid "These pages cannot be saved into the PDF"
+msgstr "Ces pages ne peuvent pas être enregistrées dans le PDF"
+
+msgid "Save PDF"
+msgstr "Enregistrer le PDF"
+
+msgid "PDF files"
+msgstr "Fichiers PDF"
+
+msgid "Pages"
+msgstr "Pages"
+
+msgid "Edit Page"
+msgstr "Modifier la page"
+
+msgid "Remove Page"
+msgstr "Supprimer la page"
+
+msgid "Showing the first {} of {} pages. Saving keeps all pages."
+msgstr "Les {} premières pages sur {} sont affichées. L’enregistrement conserve toutes les pages."
+
+msgid "“{}” is not installed and will be replaced by a similar font"
+msgstr "« {} » n’est pas installée et sera remplacée par une police similaire"
+
+msgid "{} more fonts will be replaced"
+msgstr "{} autres polices seront remplacées"
+
+msgid "The pages become objects you can change. Some things may look different:\n{}\n\nThe PDF itself stays unchanged: saving creates a new SVG file."
+msgstr "Les pages deviennent des objets modifiables. Certains éléments peuvent paraître différents :\n{}\n\nLe PDF lui-même reste inchangé : l’enregistrement crée un nouveau fichier SVG."
+
+msgid "Select Text (V)"
+msgstr "Sélectionner du texte (V)"
+
+msgid "Move View (H)"
+msgstr "Déplacer la vue (H)"
+
+msgid "Highlighter"
+msgstr "Surligneur"
+
+msgid "Yellow"
+msgstr "Jaune"
+
+msgid "Green"
+msgstr "Vert"
+
+msgid "Pink"
+msgstr "Rose"
+
+msgid "Blue"
+msgstr "Bleu"
+
+msgid "Table"
+msgstr "Tableau"
+
+msgid "Amount"
+msgstr "Montant"
+
+msgid "Bar Chart"
+msgstr "Diagramme en barres"
+
+msgid "Donut Chart"
+msgstr "Diagramme en anneau"
+
+msgid "Item"
+msgstr "Poste"
+
+msgid "Line Chart"
+msgstr "Graphique linéaire"
+
+msgid "No data"
+msgstr "Aucune donnée"
+
+msgid "Pie Chart"
+msgstr "Diagramme circulaire"
+
+msgid "Total"
+msgstr "Total"
+
+msgid "Artboards: all pages side by side"
+msgstr "Plans de travail : toutes les pages côte à côte"
+
+msgid "Insert _Chart"
+msgstr "Insérer un _graphique"
+
+msgid "Insert Table"
+msgstr "Insérer un tableau"
+
+msgid "Presentation: full screen, one page after another"
+msgstr "Présentation : plein écran, une page après l’autre"
+
+msgid "Presentation"
+msgstr "Présentation"
+
+msgid "New Table"
+msgstr "Nouveau tableau"
+
+msgid "+ Column"
+msgstr "+ Colonne"
+
+msgid "+ Row"
+msgstr "+ Ligne"
+
+msgid "− Column"
+msgstr "− Colonne"
+
+msgid "− Row"
+msgstr "− Ligne"
+
+msgid "A chart next to the table that follows its data"
+msgstr "Un graphique à côté du tableau qui suit ses données"
+
+msgid "Add a column to the right of the selected cell"
+msgstr "Ajouter une colonne à droite de la cellule sélectionnée"
+
+msgid "Add a row below the selected cell"
+msgstr "Ajouter une ligne sous la cellule sélectionnée"
+
+msgid "Alignment of the selected column (automatic: numbers right, text left)"
+msgstr "Alignement de la colonne sélectionnée (automatique : nombres à droite, texte à gauche)"
+
+msgid "Automatic"
+msgstr "Automatique"
+
+msgid "Chart"
+msgstr "Graphique"
+
+msgid "Column"
+msgstr "Colonne"
+
+msgid "Content of the selected cell – a formula starts with =, e.g. =SUM(B2:B4)"
+msgstr "Contenu de la cellule sélectionnée – une formule commence par =, p. ex. =SOMME(B2:B4)"
+
+msgid "Create Chart"
+msgstr "Créer un graphique"
+
+msgid "Create a chart from this table"
+msgstr "Créer un graphique à partir de ce tableau"
+
+msgid "Data (D) – drag to insert a table, click a cell to type; a selected table can become a chart"
+msgstr "Données (D) – glisser pour insérer un tableau, cliquer dans une cellule pour écrire ; un tableau sélectionné peut devenir un graphique"
+
+msgid "Data (Tables and Charts)"
+msgstr "Données (tableaux et graphiques)"
+
+msgid "Edit Data as Table"
+msgstr "Modifier les données dans un tableau"
+
+msgid "Header Row"
+msgstr "Ligne d’en-tête"
+
+msgid "Legend"
+msgstr "Légende"
+
+msgid "Put the chart's data in a table below it; the chart follows the table"
+msgstr "Place les données du graphique dans un tableau en dessous ; le graphique suit le tableau"
+
+msgid "Remove the column of the selected cell"
+msgstr "Supprimer la colonne de la cellule sélectionnée"
+
+msgid "Remove the row of the selected cell"
+msgstr "Supprimer la ligne de la cellule sélectionnée"
+
+msgid "Text Size"
+msgstr "Taille du texte"
+
+msgid "Text size in the chart"
+msgstr "Taille du texte dans le graphique"
+
+msgid "Text size in the table"
+msgstr "Taille du texte dans le tableau"
+
+msgid "Text, number or =formula"
+msgstr "Texte, nombre ou =formule"
+
+msgid "The data comes from a table – edit it there"
+msgstr "Les données viennent d’un tableau – modifiez-les là"
+
+msgid "Values"
+msgstr "Valeurs"
+
+msgid "Series {}"
+msgstr "Série {}"
+
+msgid "The first row names the columns – charts use it for the names of their series"
+msgstr "La première ligne nomme les colonnes – les graphiques s’en servent pour nommer leurs séries"
+
+msgid "Header Colour"
+msgstr "Couleur de l’en-tête"
+
+msgid "Click the table again to pick a cell, or click A, B … and 1, 2 … for whole columns and rows – fill, stroke and text below then apply to them"
+msgstr "Cliquez à nouveau sur le tableau pour choisir une cellule, ou sur A, B … et 1, 2 … pour des colonnes et lignes entières – le remplissage, le contour et le texte ci-dessous s’y appliquent alors"
+
+msgid "Click the chart again to pick a slice, bar, series or the labels on their own"
+msgstr "Cliquez à nouveau sur le graphique pour choisir une part, une barre, une série ou les libellés séparément"
+
+msgid "Convert to Shapes"
+msgstr "Convertir en formes"
+
+msgid "Keep only the shapes and text – no more data, formulas or chart settings"
+msgstr "Ne garder que les formes et le texte – plus de données, de formules ni de réglages du graphique"
+
+msgid "Text makes room for tables, charts and pictures placed in front of it"
+msgstr "Le texte laisse la place aux tableaux, graphiques et images placés devant lui"
+
+msgid "Flow Around Objects"
+msgstr "Habiller les objets"
+
+msgid "Insert rows above the selected cells"
+msgstr "Insérer des lignes au-dessus des cellules sélectionnées"
+
+msgid "Insert rows below the selected cells"
+msgstr "Insérer des lignes au-dessous des cellules sélectionnées"
+
+msgid "Insert columns to the left of the selected cells"
+msgstr "Insérer des colonnes à gauche des cellules sélectionnées"
+
+msgid "Insert columns to the right of the selected cells"
+msgstr "Insérer des colonnes à droite des cellules sélectionnées"
+
+msgid "Remove the rows of the selected cells"
+msgstr "Supprimer les lignes des cellules sélectionnées"
+
+msgid "Remove the columns of the selected cells"
+msgstr "Supprimer les colonnes des cellules sélectionnées"
+
+msgid "Click or drag in the selected table to pick cells, or click A, B … and 1, 2 … for whole columns and rows – fill, stroke and text below then apply to them. Drag the borders between A, B … or 1, 2 … to resize; move the table with the grip where they meet"
+msgstr "Cliquez ou faites glisser dans le tableau sélectionné pour choisir des cellules, ou cliquez sur A, B … et 1, 2 … pour des colonnes et lignes entières – le remplissage, le contour et le texte ci-dessous s’y appliquent alors. Faites glisser les bordures entre A, B … ou 1, 2 … pour changer la taille ; déplacez le tableau avec la poignée à leur croisement"
+
+msgid "Click the chart again to pick a slice, bar, series or a single label – with the whole chart selected, the text settings change all its labels"
+msgstr "Cliquez à nouveau sur le graphique pour choisir une part, une barre, une série ou un seul libellé – avec tout le graphique sélectionné, les réglages du texte changent tous ses libellés"
+
+msgid "Push text away"
+msgstr "Repousser le texte"
+
+msgid "Text boxes behind this object make room for it; the gap is their padding"
+msgstr "Les zones de texte derrière cet objet lui laissent de la place ; l’écart est leur marge intérieure"
+
+msgid "Remove push text away"
+msgstr "Retirer « Repousser le texte »"
+
+msgid "Rows"
+msgstr "Lignes"
+
+msgid "Where the series are in the table – one line or bar colour per row or per column"
+msgstr "Où se trouvent les séries dans le tableau – une ligne ou couleur de barre par ligne ou par colonne"
+
+msgid "Series In"
+msgstr "Séries en"
+
+msgid "X Axis Title"
+msgstr "Titre de l’axe X"
+
+msgid "Y Axis Title"
+msgstr "Titre de l’axe Y"
+
+msgid "Merge the selected cells into one"
+msgstr "Fusionner les cellules sélectionnées en une seule"
+
+msgid "Split merged cells"
+msgstr "Scinder les cellules fusionnées"
+
+msgid "How numbers, dates and times appear in the selected cells"
+msgstr "Comment les nombres, dates et heures s’affichent dans les cellules sélectionnées"
+
+msgid "Digits after the decimal point"
+msgstr "Chiffres après la virgule"
+
+msgid "Decimals"
+msgstr "Décimales"
+
+msgid "Currency"
+msgstr "Devise"
+
+msgid "Horizontal"
+msgstr "Horizontal"
+
+msgid "Upwards"
+msgstr "Vers le haut"
+
+msgid "Downwards"
+msgstr "Vers le bas"
+
+msgid "Write the text across or turned on its side"
+msgstr "Écrire le texte à l’horizontale ou tourné sur le côté"
+
+msgid "Text Direction"
+msgstr "Direction du texte"
+
+msgid "General"
+msgstr "Standard"
+
+msgid "Number"
+msgstr "Nombre"
+
+msgid "Percent"
+msgstr "Pourcentage"
+
+msgid "Scientific"
+msgstr "Scientifique"
+
+msgid "Date"
+msgstr "Date"
+
+msgid "Date, Long"
+msgstr "Date longue"
+
+msgid "Date, ISO"
+msgstr "Date ISO"
+
+msgid "Time"
+msgstr "Heure"
+
+msgid "Time with Seconds"
+msgstr "Heure avec secondes"
+
+msgid "Date and Time"
+msgstr "Date et heure"
+
+msgid "Insert Rows Above"
+msgstr "Insérer des lignes au-dessus"
+
+msgid "Insert Rows Below"
+msgstr "Insérer des lignes en dessous"
+
+msgid "Insert Columns Left"
+msgstr "Insérer des colonnes à gauche"
+
+msgid "Insert Columns Right"
+msgstr "Insérer des colonnes à droite"
+
+msgid "Remove Rows"
+msgstr "Supprimer les lignes"
+
+msgid "Remove Columns"
+msgstr "Supprimer les colonnes"
+
+msgid "Insert or remove rows and columns at the selected cells"
+msgstr "Insérer ou supprimer des lignes et des colonnes aux cellules sélectionnées"
+
+msgid "Convert to Path"
+msgstr "Convertir en chemin"
+
+msgid "Split into Columns"
+msgstr "Scinder en colonnes"
+
+msgid "Split into Rows"
+msgstr "Scinder en lignes"
+
+msgid "Split the selected cells"
+msgstr "Scinder les cellules sélectionnées"
+
+msgid "Laser Pointer (L)"
+msgstr "Pointeur laser (L)"
+
+msgid "Artboards: free canvas, artboards side by side"
+msgstr "Plans de travail : espace libre, plans de travail côte à côte"
+
+msgid "Notebook: pages one below the other, for writing and layout"
+msgstr "Cahier : pages les unes sous les autres, pour écrire et mettre en page"
+
+msgid "Presentation: view, highlight and present – nothing can be changed"
+msgstr "Présentation : afficher, surligner et présenter – rien ne peut être modifié"
+
+msgid "Full Screen: one page at a time"
+msgstr "Plein écran : une page à la fois"
+
+msgid "The pages become objects you can change. Text is placed with installed fonts, so line breaks can shift slightly.\n\nThe PDF itself stays unchanged: saving creates a new SVG file."
+msgstr "Les pages deviennent des objets modifiables. Le texte est composé avec les polices installées, les retours à la ligne peuvent donc légèrement changer.\n\nLe PDF lui-même reste inchangé : l’enregistrement crée un nouveau fichier SVG."
+
+msgid "Presentation Full Screen"
+msgstr "Présentation en plein écran"
+
+msgid "Body Text"
+msgstr "Texte courant"
+
+msgid "Text Margin"
+msgstr "Marge du texte"
+
+msgid "Space between the page edge and the body text, on all pages"
+msgstr "Espace entre le bord de la page et le texte courant, sur toutes les pages"
+
+msgid "Text Margins"
+msgstr "Marges du texte"
+
+msgid "Top"
+msgstr "Haut"
+
+msgid "Bottom"
+msgstr "Bas"
+
+msgid "Page Break"
+msgstr "Saut de page"
+
+msgid "Insert Page Break"
+msgstr "Insérer un saut de page"
+
+msgid "Formatting Marks"
+msgstr "Marques de mise en forme"
+
+msgid "Formatting Marks On/Off"
+msgstr "Afficher/masquer les marques de mise en forme"
+
+msgid "Page Break (Notebook)"
+msgstr "Saut de page (carnet)"
+
+msgid "The text after the cursor starts on a new page"
+msgstr "Le texte après le curseur commence sur une nouvelle page"
+
+msgid "Auto"
+msgstr "Auto"
+
+msgid "Automatic Line Spacing"
+msgstr "Interligne automatique"
+
+msgid "Distance between the object and the text pushed away"
+msgstr "Distance entre l’objet et le texte repoussé"
+
+msgid "Outline"
+msgstr "Contour"
+
+msgid "The text follows the outline of the object"
+msgstr "Le texte suit le contour de l’objet"
+
+msgid "The text keeps to a rectangle around the object"
+msgstr "Le texte respecte un rectangle autour de l’objet"
+
+msgid "Indent of the first line of each paragraph"
+msgstr "Retrait de la première ligne de chaque paragraphe"
+
+msgid "First line"
+msgstr "Première ligne"
+
+msgid "Header"
+msgstr "En-tête"
+
+msgid "Footer"
+msgstr "Pied de page"
+
+msgid "Insert Page Number"
+msgstr "Insérer le numéro de page"
+
+msgid "Insert Page Count"
+msgstr "Insérer le nombre de pages"
+
+msgid "Insert Date"
+msgstr "Insérer la date"
+
+msgid "%-d %B %Y"
+msgstr "%-d %B %Y"
+
+msgid "Double-click the top margin of a page to edit it"
+msgstr "Double-cliquez dans la marge supérieure d’une page pour le modifier"
+
+msgid "Double-click the bottom margin of a page to edit it"
+msgstr "Double-cliquez dans la marge inférieure d’une page pour le modifier"
+
+msgid "No header or footer on the first page"
+msgstr "Pas d’en-tête ni de pied de page sur la première page"
+
+msgid "Different first page"
+msgstr "Première page différente"
+
+msgid "Space before the paragraph in % of the font size"
+msgstr "Espace avant le paragraphe en % de la taille de police"
+
+msgid "Space after the paragraph in % of the font size"
+msgstr "Espace après le paragraphe en % de la taille de police"
+
+msgid "Space before"
+msgstr "Espace avant"
+
+msgid "Space after"
+msgstr "Espace après"
+
+msgid "This is not an OpenDocument text"
+msgstr "Ce n’est pas un texte OpenDocument"
+
+msgid "The document has no content"
+msgstr "Le document n’a pas de contenu"
+
+msgid "Tab stops in the header or footer are not kept"
+msgstr "Les tabulations de l’en-tête ou du pied de page ne sont pas conservées"
+
+msgid "Pictures and tables were placed next to their paragraph – please check their position"
+msgstr "Les images et tableaux ont été placés près de leur paragraphe – vérifiez leur position"
+
+msgid "{} footnotes are at the end of the text"
+msgstr "{} notes de bas de page se trouvent à la fin du texte"
+
+msgid "Fonts not installed: {}"
+msgstr "Polices non installées : {}"
+
+msgid "{} comments left out"
+msgstr "{} commentaires omis"
+
+msgid "{} drawings left out"
+msgstr "{} dessins omis"
+
+msgid "{} text frames left out"
+msgstr "{} cadres de texte omis"
+
+msgid "{} pictures left out (format not supported)"
+msgstr "{} images omises (format non pris en charge)"
+
+msgid "Opened. Saving creates a new SVG file."
+msgstr "Ouvert. L’enregistrement crée un nouveau fichier SVG."
+
+msgid "SVG, Illustrator (.ai), PDF and OpenDocument text"
+msgstr "SVG, Illustrator (.ai), PDF et texte OpenDocument"
+
+msgid "Opened. {}"
+msgstr "Ouvert. {}"

@@ -7,7 +7,7 @@ Stijl is named after **De Stijl** (“The Style”), the Dutch art movement that
 belonged to. Until version 0.9.38 the app was called “Mondrian”; settings, shortcuts and
 libraries from that time are taken over automatically on first start.
 
-Version 0.9.67 – still in testing. Feedback and bug reports are very welcome.
+Version 0.9.110 – still in testing. Feedback and bug reports are very welcome.
 
 > **Note:** Stijl was written with the help of AI (Claude by Anthropic). Ideas, requirements
 > and testing come from a human; most of the program code was written by the AI.
@@ -22,14 +22,20 @@ Version 0.9.67 – still in testing. Feedback and bug reports are very welcome.
   offset, rotation and scale
 - **Text:** text boxes with columns, lists, indents and word-processor-style formatting,
   text on a path, text flowing inside shapes, small caps and ligatures, variable fonts
+- **Tables and charts:** a Data tool for tables with spreadsheet formulas; pie, donut, bar
+  and line charts that follow their table; cells, slices and bars with their own fill,
+  stroke and text; text boxes flow around tables, charts and pictures
 - **Colour:** gradients, patterns, eyedropper, colour libraries with styles and reusable
   graphics, global colours (edit a library colour once, every object using it follows)
 - **Effects:** shadow, inner shadow, reflection, glow, frosted glass, materials (gloss, metal,
   brushed metal, velvet) that also shape the light of the 3D relief, watercolour, crayons, oil paint, halftone, risograph, grain, pixelate,
   image filters – combinable and non-destructive
 - **Layout:** multiple artboards, layers, nested groups, clipping masks, smart guides,
-  equal-spacing snapping, align and distribute, a “notebook” view that shows one page at a time
-- **Import:** SVG from other apps, PDF and Adobe Illustrator (.ai) files
+  equal-spacing snapping, align and distribute; three views – artboards, a notebook for
+  writing (body text over pages, margins, columns, header/footer) and a presentation view
+- **Import:** SVG from other apps, PDF and Adobe Illustrator (.ai) files – PDFs open for viewing
+  first (reorder or remove pages and save them losslessly), *Edit* turns them into drawings;
+  OpenDocument texts (.odt, .ott) open as body text with pages, header and footer
 - **Export and printing:** PNG, JPG, SVG and PDF – including print-ready **PDF/X-4 with
   CMYK** and bleed – and printing with one page per artboard
 - **Safety nets:** atomic saving, automatic recovery after a crash, unlimited undo
@@ -159,6 +165,9 @@ Bug reports and ideas are welcome as [issues](https://github.com/benhuesing/Stij
   `po/stijl.pot` is the template for new languages. A new language also needs an entry
   in `Lang` in `src/i18n.rs`. A test checks that every translation is complete and keeps
   the placeholders (`{}`) and line breaks.
+- **Icons:** Stijl’s own icons are in `data/icons/` (16 × 16 px, fill only, one colour, so
+  that GTK can recolour them for light and dark mode). To change one, overwrite its file and
+  rebuild; a test checks that every icon the interface uses exists and follows these rules.
 - **File format:** drawings are plain SVG. Stijl’s own information (effects, text boxes,
   layers …) is stored in the `mondrian:` namespace – the old name stays so that older files
   remain readable.

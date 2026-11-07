@@ -93,6 +93,225 @@
   </keywords>
 
   <releases>
+    <release version="0.9.110" date="2026-11-07">
+      <description>
+        <p>Opens OpenDocument texts (.odt) and templates (.ott): the text flows as body text over the pages with its fonts, paragraph formats, lists, page breaks, header and footer; pictures and tables are placed at their paragraphs.</p>
+      </description>
+    </release>
+    <release version="0.9.109" date="2026-11-07">
+      <description>
+        <p>Paragraph formatting: each paragraph can have its own alignment, line spacing and space before and after. Text styles from the library work as paragraph styles.</p>
+      </description>
+    </release>
+    <release version="0.9.108" date="2026-11-07">
+      <description>
+        <p>A more compact Page section with paired margin fields and buttons for page break and formatting marks. Pages can be reordered by dragging only in documents opened from a PDF.</p>
+      </description>
+    </release>
+    <release version="0.9.107" date="2026-11-07">
+      <description>
+        <p>Headers and footers in the notebook, with page number, page count and date fields and an option for a different first page. Grouped objects that push text away as a rectangle share one rectangle.</p>
+      </description>
+    </release>
+    <release version="0.9.106" date="2026-11-07">
+      <description>
+        <p>A Page section in the notebook properties with exact margins, first-line indent, columns, page break and formatting marks. Push text away has its own distance and can follow the outline or a rectangle; the area is shown dotted while the object is selected.</p>
+      </description>
+    </release>
+    <release version="0.9.105" date="2026-11-07">
+      <description>
+        <p>Automatic line spacing: each line is as tall as its largest text, so larger text no longer overlaps; a fixed spacing can still be set and reset to automatic. The notebook always shows the body text settings.</p>
+      </description>
+    </release>
+    <release version="0.9.104" date="2026-11-07">
+      <description>
+        <p>Redesigned ruler handles in the style of the selection handles: small tabs whose point marks the exact position, and pills at the edges of column gaps.</p>
+      </description>
+    </release>
+    <release version="0.9.103" date="2026-11-07">
+      <description>
+        <p>Formatting marks appear only in the notebook. In the presentation, Select Text selects only text, also beneath pictures and shapes.</p>
+      </description>
+    </release>
+    <release version="0.9.102" date="2026-11-07">
+      <description>
+        <p>First-line indent for body text on the ruler. Clicking into the left column of multi-column text now places the cursor there instead of in the right column.</p>
+      </description>
+    </release>
+    <release version="0.9.101" date="2026-11-07">
+      <description>
+        <p>Notebook writing tools: page breaks (Ctrl Enter), formatting marks (Ctrl F10), and column gaps on the ruler that can be moved and resized. Lists and columns now also work where objects push the body text aside, and page breaks are stored as valid XML.</p>
+      </description>
+    </release>
+    <release version="0.9.100" date="2026-11-07">
+      <description>
+        <p>Body text reliably adds new pages when it runs past the last one. Text colour can be set for selected characters. Columns are available for the body text, and in the notebook the text settings fill the sidebar.</p>
+      </description>
+    </release>
+    <release version="0.9.99" date="2026-11-06">
+      <description>
+        <p>The notebook is now for writing: only the text tool, a click anywhere on a page writes, and the properties show just the text settings. Body text lives on its own locked layer. A page ruler like in a word processor shows the margins, which can be dragged; corner marks show the writing area. Rulers are always shown.</p>
+      </description>
+    </release>
+    <release version="0.9.98" date="2026-11-06">
+      <description>
+        <p>Body text in the notebook view: click a page and write like in a word processor. The text flows from page to page, adds pages as needed and removes them again, and makes room for pictures, tables and charts. The text margin is set in the page settings.</p>
+      </description>
+    </release>
+    <release version="0.9.97" date="2026-11-06">
+      <description>
+        <p>Three views per document: Artboards for free illustration, Notebook with pages that scroll one below the other, and Presentation for viewing and presenting with highlighter and laser pointer, optionally in full screen. The view is saved with the document. Editing a PDF now asks first and lists fonts that will be replaced.</p>
+      </description>
+    </release>
+    <release version="0.9.96" date="2026-11-06">
+      <description>
+        <p>Fixes an empty properties sidebar.</p>
+      </description>
+    </release>
+    <release version="0.9.95" date="2026-11-06">
+      <description>
+        <p>Merged table cells are framed as a whole while typing in them. The properties sidebar is always wide enough for every setting, so it no longer grows when a section opens. New presentation icon.</p>
+      </description>
+    </release>
+    <release version="0.9.94" date="2026-11-06">
+      <description>
+        <p>Any table cell can now be split into columns or rows, and formulas follow when rows or columns are inserted or removed. Rotated charts stay in one piece. Explanation texts were removed from the side panel.</p>
+      </description>
+    </release>
+    <release version="0.9.93" date="2026-11-06">
+      <description>
+        <p>A tidier table panel: one menu button for inserting and removing rows and columns, next to merge and split. New tables look the same in every cell. Converting to paths or shapes moved to the right-click menu, and text direction moved to the text settings.</p>
+      </description>
+    </release>
+    <release version="0.9.92" date="2026-11-06">
+      <description>
+        <p>Table cells can be merged and split, turned on their side, and formatted as numbers, percentages, currency, dates or times. Formulas suggest matching functions as you type, and the arrow keys move between cells while typing.</p>
+      </description>
+    </release>
+    <release version="0.9.91" date="2026-11-06">
+      <description>
+        <p>Charts now work out how a table is laid out – names in the first row or column, series in rows or columns – and pick a fitting chart type. Bar and line charts can have axis titles. The header row setting is gone.</p>
+      </description>
+    </release>
+    <release version="0.9.90" date="2026-11-05">
+      <description>
+        <p>Typing into cells of tables in reopened documents works again. Cells can be typed into directly after picking them, moved through with the arrow keys and copied or pasted as text. References can also be picked while writing a formula in the formula bar.</p>
+      </description>
+    </release>
+    <release version="0.9.89" date="2026-11-05">
+      <description>
+        <p>Formulas now cover the common functions of LibreOffice Calc and Excel in four languages, including conditions, lookups, text and dates. While writing a formula, clicking cells inserts colour-coded references. Double-clicking a cell reliably starts typing, and pictures no longer snap into shapes behind a text box.</p>
+      </description>
+    </release>
+    <release version="0.9.88" date="2026-11-05">
+      <description>
+        <p>Holding a picture over a text box, table or chart no longer places it inside; text boxes make room for it instead.</p>
+      </description>
+    </release>
+    <release version="0.9.87" date="2026-11-05">
+      <description>
+        <p>Column letters and row numbers of a selected table now sit in rounded capsules with a soft shadow, matching the selection handles, with a round move grip in the corner.</p>
+      </description>
+    </release>
+    <release version="0.9.86" date="2026-11-05">
+      <description>
+        <p>Picked table cells can be continued with a fill handle (numbers count on, formulas follow) and moved by their border. Pushing text away is now an effect: pictures, tables and charts have it by default, other shapes can get it, and text follows their real outline. Chart legends can be arranged left or right.</p>
+      </description>
+    </release>
+    <release version="0.9.85" date="2026-11-05">
+      <description>
+        <p>Cells of a selected table are picked by dragging, columns and rows are resized at their headers and the table moves with a grip. Rows and columns can be inserted above, below, left or right of the picked cells. Cells and chart labels get all the text settings of the Text tool, and single chart labels can be styled on their own.</p>
+      </description>
+    </release>
+    <release version="0.9.84" date="2026-11-05">
+      <description>
+        <p>Cells, rows and columns of tables and the slices, bars and labels of charts can be picked and given their own fill, stroke and text formatting. Tables and charts can be converted to ordinary shapes, and text boxes now flow around tables, charts and pictures placed in front of them.</p>
+      </description>
+    </release>
+    <release version="0.9.83" date="2026-11-05">
+      <description>
+        <p>New Data tool: draw a table and type into its cells, with spreadsheet formulas, a formula bar and column and row headers while editing. A table can become a chart (pie, donut, bar or line) that follows its data.</p>
+      </description>
+    </release>
+    <release version="0.9.82" date="2026-11-05">
+      <description>
+        <p>Presentation view: full screen, one page at a time, click or arrow keys to go on. The view bar always offers the two other views.</p>
+        <p>A selected guide shows its settings with the Select tool too.</p>
+        <p>First steps towards tables and charts: tables with spreadsheet formulas and pie, donut, bar and line charts can be inserted with sample data.</p>
+      </description>
+    </release>
+    <release version="0.9.81" date="2026-11-02">
+      <description>
+        <p>PDF text sits where it belongs: text boxes keep the PDF's line spacing, table cells and list items are no longer merged, and the last line of a box is not cut off. New icons for Pages, Library, Move View and Highlighter.</p>
+      </description>
+    </release>
+    <release version="0.9.80" date="2026-11-02">
+      <description>
+        <p>Viewing a PDF: select and copy text, move the view, and mark text with a highlighter in four colours. Highlights are saved into the PDF as annotations, and annotations already in a PDF (highlights, stamps, filled-in forms) are now shown.</p>
+        <p>Page and layer rows look alike, and their previews grow with the sidebar.</p>
+      </description>
+    </release>
+    <release version="0.9.79" date="2026-11-02">
+      <description>
+        <p>PDFs open for viewing first: pages in a sidebar, Undo/Redo and an Edit button instead of the tools. Pages can be reordered and removed and saved back as a PDF without changing their content. Edit says which fonts will be replaced before turning the pages into objects.</p>
+        <p>Pages and artboards have their own sidebar with large previews; drag one to change the order. Undo and Redo moved into the tool bar.</p>
+      </description>
+    </release>
+    <release version="0.9.78" date="2026-11-02">
+      <description>
+        <p>PDF files open as pages in the notebook view: one artboard per page called Page, with the page background. Paragraphs become text boxes, including bold or italic words, split words and accents.</p>
+      </description>
+    </release>
+    <release version="0.9.77" date="2026-11-02">
+      <description>
+        <p>Scale, Repeat, Offset Path and Blend open their settings in the sidebar instead of a window and show a live preview; Apply keeps the result, Cancel goes back.</p>
+      </description>
+    </release>
+    <release version="0.9.76" date="2026-11-01">
+      <description>
+        <p>Shadow, inner shadow, glow and reflection are effects of their own. While editing nodes or guides the properties only show what matters there; Simplify Path moved into the node options. Guides take the colour of their layer.</p>
+      </description>
+    </release>
+    <release version="0.9.75" date="2026-11-01">
+      <description>
+        <p>Align and effects moved to the properties; new objects no longer take over effects. The corner radius of nodes can be typed in, and nodes have rounded handles with a white edge. The floating bar no longer jumps when it opens and closes.</p>
+      </description>
+    </release>
+    <release version="0.9.74" date="2026-11-01">
+      <description>
+        <p>Fixes a build error in 0.9.73.</p>
+      </description>
+    </release>
+    <release version="0.9.73" date="2026-11-01">
+      <description>
+        <p>The floating bar holds actions, the properties hold settings. Align, Combine and Trace open sideways into their options; one Align works for a single object, for objects among each other and for the artboard. Choosing an effect opens its settings in the properties.</p>
+      </description>
+    </release>
+    <release version="0.9.72" date="2026-11-01">
+      <description>
+        <p>New selection handles: rounded triangles in the corners and pills on the sides, easier to grab with a mouse or a finger. They hide while you move, resize or rotate.</p>
+      </description>
+    </release>
+    <release version="0.9.71" date="2026-11-01">
+      <description>
+        <p>Text settings are more compact: size and weight, and line and letter spacing, sit side by side with icons.</p>
+      </description>
+    </release>
+    <release version="0.9.70" date="2026-11-01">
+      <description>
+        <p>Path operations keep real curves: circles stay circles, and new points appear only where shapes cross. The Shape Builder no longer stops finding areas after a step, after moving shapes with the arrow keys, or for some shapes depending on their direction.</p>
+      </description>
+    </release>
+    <release version="0.9.69" date="2026-11-01">
+      <description>
+        <p>Effects turn with an object while it is being rotated. Fill, stroke and text settings for new objects carry over between tabs. A click with the pen at high zoom with the grid on no longer makes an unintended curve. New icons for effects, rotating and flipping.</p>
+      </description>
+    </release>
+    <release version="0.9.68" date="2026-11-01">
+      <description>
+        <p>New icons throughout the interface, drawn in Stijl.</p>
+      </description>
+    </release>
     <release version="0.9.67" date="2026-10-29">
       <description>
         <p>Builds without warnings again.</p>

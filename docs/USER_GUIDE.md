@@ -29,7 +29,8 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   nothing moves and no handles or curves appear by accident
 - **Freehand:** adjustable smoothing (tool options); if start and end are close together,
   the shape is closed
-- **Edit Nodes:** click and drag nodes, select several with Shift or a selection frame; drag
+- **Edit Nodes:** the properties then only show node and path options (corners, corner
+  radius, Simplify Path). Click and drag nodes, select several with Shift or a selection frame; drag
   the round handle to round corners – also on rectangles and ellipses. Works on **several
   objects** at once: a frame dragged from empty space picks up the nodes of all objects
   inside it, and Shift + click on another object adds it with all its nodes (click again to
@@ -38,7 +39,8 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   changed later in the properties
   (position, size, rotation and corner radius are kept)
 - **Corner radius:** drag the round handles in the Edit Nodes tool – one corner or several
-  together. The handle always stays at the same distance from the edge of the rounding and
+  together – or type it under *Corner radius* in the properties (selected corners; without a
+  selection all corners). The handle always stays at the same distance from the edge of the rounding and
   is limited by the space the neighbouring edges leave. The radius is shown next to the
   pointer while dragging (and the angle while rotating)
 - **Eraser:** removes area from filled shapes and cuts lines apart; set the size in the
@@ -50,15 +52,17 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
 - **Shape Builder:** all outlines form areas – including gaps between shapes and areas that
   are only bounded by open lines (e.g. freehand strokes); curves stay curves. The area under
   the pointer is highlighted as you hover. With a selection only the selected objects count
-  (the whole network of areas is then shown dashed), otherwise everything visible.
+  (the whole network of areas is then shown dashed), otherwise everything visible. The
+  new shapes then take the place of the ones used up, so you can keep going.
   - **Click** an area: it becomes a new shape in the current fill colour (existing shapes
     stay unchanged)
   - **Drag** across several areas: they are merged into one shape (in the colour of the area
     where you started); the shapes involved fall apart into their remaining areas, open
     lines are kept
   - **Alt** while clicking or dragging: the areas are deleted from the shapes
-- **Path Operations:** Unite, Subtract Front, Intersect, Exclude Overlap – as icons in the
-  floating bar when two or more objects are selected, and in the right-click menu
+- **Path Operations:** Unite, Subtract Front, Intersect, Exclude Overlap – under *Combine* in
+  the floating bar when two or more objects are selected, and in the right-click menu. Curves
+  stay curves: new anchor points only appear where the shapes cross
 - **Join Paths** (right-click or Ctrl J): open paths are joined at their nearest ends – small
   gaps (under 4 screen pixels) merge into one point, larger ones are bridged with a straight
   segment. A single open path is closed
@@ -66,7 +70,7 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   (e.g. the white edge of a sticker) – positive values grow it, negative values shrink it;
   round or sharp corners. A larger shape goes underneath the original, a smaller one on top;
   open paths become a band of twice the distance
-- **Simplify Path** (right-click or Ctrl L): removes unneeded anchor points from paths
+- **Simplify Path** (in the properties while editing nodes, or Ctrl L): removes unneeded anchor points from paths
   (e.g. from freehand strokes or traced images) – corners are kept, curves stay smooth
 
 ## Text
@@ -75,25 +79,38 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   dragging or double-clicking selects, Esc finishes
 - **Text options:** a collapsible card of its own (when collapsed, font and size are shown
   in its header), grouped into font, character, paragraph, text box and text on path – each
-  group only appears where it applies. At the bottom are the text styles of the current
+  group only appears where it applies. Text styles work as **paragraph styles**: with the
+  cursor in a paragraph (or whole paragraphs selected) a style sets the font, size and
+  colour of the whole paragraph and its alignment, line spacing and spacing; with only a
+  few words selected, just their font. The “+” takes the style from the paragraph with the
+  cursor. At the bottom are the text styles of the current
   library (like the library colours for fill and stroke); the “+” after them saves the style
   of the selected text to the library. The font is chosen from a
   searchable drop-down, each font shown in its own typeface; below it the **style** (all
   styles of the family, e.g. Light, Regular, Medium, Semi Bold, Extra Bold, Black – each also
-  in italics), the size and, for **variable fonts**, a weight slider (100–900). Underline,
+  in italics), then size and, for **variable fonts**, weight (100–900) side by side. Underline,
   strikethrough, **small caps** and **ligatures** are icon buttons in one row under
-  *Character*. *Convert Text to Paths* is here as well –
+  *Character*. *Convert to Path* (right-click) turns text into paths –
   every letter becomes a path of its own and all of them form a group (Ctrl Shift G ungroups
   it so that single letters can be moved)
-- **Formatting like a word processor:** in text boxes, font, size and styles apply only to
-  the selected text; with a cursor and no selection, to what you type next; if the box
+- **Formatting like a word processor:** in text boxes, font, size, styles and colour (the
+  fill while you type) apply only to the selected text; with a cursor and no selection, to what you type next; if the box
   itself is selected, to the whole box. If a box contains different fonts or sizes, the
   fields stay empty – a choice then applies to everything
 - **Paragraphs:** left, right, centred, justified; text boxes also top/middle/bottom; line
-  and letter spacing. Enter starts a new paragraph (with adjustable paragraph spacing),
-  Shift+Enter only a new line. Tab inserts a tab (stops every 2.4 font sizes). Text boxes
+  and letter spacing side by side; space before and after the paragraph side by side. In
+  text boxes and the body text each paragraph can have its own **alignment, line spacing
+  and space before/after**, like in a word processor: while you write, these settings apply
+  to the paragraph with the cursor (or all paragraphs in the selection), and the sidebar
+  shows that paragraph's values. With the text box selected (not writing), they apply to
+  the whole text and replace the paragraphs' own settings. Enter starts a new paragraph that
+  keeps the format of the one it came from, Shift+Enter only a new line. Tab inserts a tab (stops every 2.4 font sizes). Text boxes
   have an adjustable number of **columns** (1–8): text flows into the next column once the
   box height is reached. Ligatures (fi, fl …) and small caps can be switched per text
+- **Line spacing:** automatic to begin with – the field shows *Auto* and each line is as
+  tall as its largest text, so a bigger heading never runs into the line above. Typing a
+  value or using − / + sets a fixed spacing (in % of the font size); the arrow button next
+  to the field goes back to automatic
 - **Lists and indents** (in text boxes, per paragraph): a button toggles the list, the small
   arrow next to it chooses bullets, squares, dashes or numbers; increase/decrease indent
   moves paragraphs in steps (indented numbers count separately). Bullets and numbers take
@@ -138,8 +155,10 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   *Gradient* for the fill): chequerboard, gingham, grid, dots, stripes, waves, chevron,
   herringbone, bricks, honeycomb, scales, terrazzo, zebra, leopard and cow print as previews
   (five per row), two colours of your choice, size and angle; saved in SVG as a real pattern
-- **Effects:** the *Effects* button in the floating bar works on all selected objects at once;
-  submenus open to the side. One effect per category is possible, categories can be
+- **Effects:** *Add Effect* at the end of the appearance settings in the properties works on
+  all selected objects at once; submenus open to the side, and choosing an effect opens its
+  settings right there. Effects are added afterwards: new objects take over colours, stroke
+  and font from the last ones, but no effects. One effect per category is possible, categories can be
   combined, and the strength is adjustable (except for the colour overlay):
   - **Colour overlay:** Lighten or Darken (default is Cover). Lighten mixes like spotlights:
     a single object shows its colour, consecutive Lighten objects add their light, weighted by
@@ -171,35 +190,37 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
     flat top), **Pyramid** (fully pointed). Without a material the relief is matte (soft light
     and shadow, no shine); not available for images
   - **Image filters** (images only): sepia, black & white, invert colours
-  - **Light & Shadow:** **shadow**, **inner shadow** (the shape looks pressed in; opacity,
-    **direction**, **distance** and **blur** adjustable), **glow** – the stroke (or the shape,
-    if it has none) glows in its own colour like a neon tube – and **reflection** below the
-    object (strength, **length** and **gap** adjustable). Unlike the other categories, all
-    four can be combined. They share one section in the properties: tabs switch between
-    them, and each has its own switch
+  - **Shadow**, **Inner shadow** (the shape looks pressed in; opacity, **direction**,
+    **distance** and **blur** adjustable), **Glow** – the stroke (or the shape, if it has
+    none) glows in its own colour like a neon tube – and **Reflection** below the object
+    (strength, **length** and **gap** adjustable): four effects of their own, each with its
+    own section in the properties
 
   Every category applied appears in the properties as a collapsible section with its type and
-  strength in the header (for Light & Shadow, the effects that are switched on), where it can also be removed. All sliders look the same (a round
+  strength in the header, where it can also be removed. All sliders look the same (a round
   bar like the colour opacity) and have a field next to them for typing the number
 - **Trace image:** if an image consists of flat colour areas (a logo, an illustration), the
-  floating bar offers *Trace*. The number of colours is adjustable; the image is replaced by
+  floating bar offers *Trace*; it opens into the number of colours and the Trace button; the image is replaced by
   grouped, editable vector areas (can be undone). Not offered for photos
-- **Images:** insert (Ctrl I) or drag onto the canvas; drag onto a shape and hold briefly to
-  place the image inside the shape
+- **Images:** insert (Ctrl I) or drag onto the canvas; drag onto a shape and hold briefly (until
+  the ring fills) to place the image inside the shape – or inside the letters of a text. Text
+  boxes, tables and charts don't take images this way; text boxes make room for them instead
 
 ## Arranging
 
-- **Floating bar:** above (or, if there is little room, below) the selection – it only shows
-  what fits the selection: lock/unlock, effects and “…” for more (the same menu as the
-  right-click menu; submenus open to the side, nothing needs scrolling). With several
-  objects *Group*, with groups *Ungroup*; with two or more objects *Align* (to each other)
-  and the four **path operations** as icons; with three or more objects or groups the
-  align menu also offers *Distribute* (horizontally or vertically – the outer ones stay in
-  place, all gaps become equal)
+- **Floating bar:** above (or, if there is little room, below) the selection – it holds
+  quick actions; settings are in the properties. It only shows what fits the selection:
+  lock/unlock and “…” for more (the same menu as the right-click menu). With several
+  objects *Group* and *Combine* (the path operations), with groups *Ungroup*, with a
+  clipping mask *Release Mask*, with a traceable image *Trace*. *Combine* and *Trace* open
+  sideways into their options, like the tool groups; they stay open for several clicks and
+  close when you click them again or select something else
 - **Right-click:** cut, copy, paste, duplicate, scale, arrange, path operations, *Blend …*
   (with exactly two shapes: in-between shapes with an adjustable number of steps – shape,
   colour, stroke width and opacity are blended; both shapes and the in-between shapes are
-  grouped), move to layer, add to library (asks: colour, style or graphic) and delete
+  grouped), *Convert to Path* (text and shapes; for tables and charts *Convert to Shapes*),
+  move to layer, add to library (asks: colour, style or graphic – not for tables and charts,
+  which have many colours) and delete
 - **Groups:** Ctrl G groups the selection, Ctrl Shift G ungroups it; a click always selects
   the whole group. Groups can contain groups: grouping groups keeps them as subgroups, and
   ungrouping removes one level at a time. Groups are saved as `<g>`, and nested groups from
@@ -209,6 +230,10 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   one group, which can be moved, scaled and grouped further. *Release Clipping Mask*
   (Ctrl Alt 7) turns the mask back into an ordinary object. In SVG files the mask is saved
   as a `clipPath`, so other applications show it too
+- **Selection handles:** rounded triangles in the corners, pills on the sides and a round
+  rotate handle above, in the layer colour. They react a little beyond what you see, so they
+  are easy to hit with a mouse or a finger. Small selections only show the corners, and the
+  handles disappear while you move, resize or rotate, so you see the real edges
 - **Rotated objects:** the selection frame rotates with them; width and height can be
   changed along the object’s own axes
 - **Lock:** locked objects can be selected and recoloured but not moved, rotated, scaled or
@@ -219,12 +244,20 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   another gap in the same row (so an even row can be continued) or when the space on the
   left and right is equal; can be turned off in the preferences
 - **Guides:** click and drag – the direction of the drag sets the angle (Shift: 45° steps);
-  can also be dragged out of the rulers. They snap to anchor points, corners, centres and
+  can also be dragged out of the rulers (always shown; a click on their corner changes the
+  unit). They take the colour of their layer; while you work
+  with guides, the properties only show the guide settings. They snap to anchor points, corners, centres and
   edges when created and when moved later
-- **Align:** left, centre, right, top, middle, bottom. A single object aligns to the artboard
-  it is on. In the *Position* section several objects (groups count as one) align as a whole
-  to the page; *Align* in the floating bar aligns them to each other – to their common
-  bounding box
+- **Align** (*Position* in the properties): left, centre, right, top, middle, bottom. A
+  single object aligns to the artboard it is on; for several objects (groups count as one)
+  *Align to* chooses between *Each Other* (their common bounding box) and *Artboard* (as a
+  whole). With three or more, *Distribute* spreads them horizontally or vertically – the
+  outer ones stay in place, all gaps become equal
+- **Commands with settings** (*Scale …*, *Repeat …*, *Offset Path …*, *Blend …*) open
+  their settings on the right in place of the properties, so the object stays in view, and
+  show the result straight away while you change the values. *Apply* keeps it (one undo
+  step), *Cancel*, Esc or Ctrl Z go back; clicking on the canvas also applies, moving the
+  view does not
 - **Scale …** (right-click): exact percentages, uniform or width/height separately,
   optionally including strokes and shadows
 - **Repeat …** (right-click): copies of the selection, each moved, rotated and scaled one
@@ -237,12 +270,19 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
 
 ## Artboards and layers
 
-- **“Layers and Artboards” panel:** layers at the top, artboards below a divider, each with
-  its own “+” button
-- **Several artboards** in one file: each has its own row with a preview, a gear button
+- **Pages (Artboards) sidebar:** its own button at the top left, next to *Layers* and
+  *Library*. Its rows look like the layer rows (preview on the left, buttons stacked on the
+  right); previews in both lists grow with the width of the sidebar. Every artboard (in a PDF: every page) has a large preview like in a PDF reader;
+  a click shows it (in the notebook view it turns to that page, and the current page is
+  highlighted). In a document opened from a PDF, **drag a preview to change the order** of
+  the pages – the order used for turning pages, printing and PDF export (numbered names
+  such as *Page 3* are renumbered, your own names stay). In your own documents the order
+  follows the text (notebook) or where you put the artboards (artboard view). A “+” button
+  below adds one
+- **Several artboards** in one file: each row has a gear button
   (size, name, **background colour** – every artboard has its own), **duplicate** (copies the artboard with everything on it and places it to the
   right) and delete – any artboard can be deleted while another one remains (if the first
-  goes, the next one takes its place). While the panel is open, artboards can be edited: dragging the name
+  goes, the next one takes its place). While the Pages sidebar is open, artboards can be edited: dragging the name
   moves an artboard (everything lying fully on it moves along), the handles resize it. Both
   snap to other artboards, objects and guides like objects do; Shift keeps the movement
   horizontal or vertical
@@ -306,16 +346,213 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   after a short hold a preview appears
 - Import, export, open folder and reload via the menu (⋮)
 
-## Notebook view
+## Views: artboards, notebook, presentation
 
-- Instead of the canvas (all artboards side by side), pages can be shown like a notebook:
-  one page at a time; anything outside it is hidden and cannot be clicked
-- Scrolling moves the page; scrolling on at the end of a page turns to the next one (at the
-  start, to the previous one). Page Down / Page Up turn pages as well, and in the artboards
-  panel a click on a preview jumps to that page
-- The floating bar at the bottom left switches between canvas and notebook (also Ctrl Shift N
-  or *Preferences › View*); in the notebook it also shows “Page 2 of 5” with arrows for
-  turning pages. The choice is saved and applies to all documents
+Every document has one of three views. They sit as three linked buttons in the floating bar
+at the bottom left; the active one is filled in the accent colour. The view is saved in the
+file, so each document opens the way you left it.
+
+- **Artboards** (like Illustrator): a free canvas with all artboards where you put them,
+  for illustrations and screen graphics. New documents in pixels start here
+- **Notebook** (like Word): the pages stand one below the other and scroll through, for
+  writing and laying out. Whatever lies on a page moves along with it; what lies beside the
+  pages is hidden and can't be clicked. Switching back to *Artboards* puts every artboard
+  back where it was. New documents in print formats (mm, cm, inches, points) start here.
+  Pages of different sizes are centred below each other; a new page goes to the end.
+  Page Down / Page Up jump from page to page, *Whole Page* (Ctrl 0) fits the current one,
+  and the bar shows “Page 2 of 5” with arrows. Ctrl Shift N switches between notebook and
+  artboards
+- **Body text** (notebook): the notebook is for writing. Only the Text tool is there, and
+  a click anywhere on a page puts the cursor into the body text (the first click starts
+  it) – no text box needed, like in a word processor. Pictures, shapes, tables and charts
+  stay visible and push the text away, but are arranged in the artboard view. The text
+  fills each page inside its margins and runs on to the next page; when it reaches the
+  end, a new page is added, and pages added that way disappear again when the text no
+  longer needs them (unless something else lies on them). ← → ↑ ↓ cross from page to
+  page, Backspace at the top of a page joins it with the end of the previous one.
+  Formatting works as in a text box: bold, size, colour and so on apply to the selected
+  text (without a selection, to what you type next). Font, alignment, line spacing and
+  columns of the whole body text are the same on every page. The properties always show
+  the body text settings, open and filling the sidebar – there is no position, the page
+  decides it, and no vertical alignment or padding. Below the text settings, **Page** has
+  the margins (top and bottom, left and right side by side) and the first-line indent and
+  columns to type in exactly, two buttons for *Insert Page Break* and *Formatting Marks*,
+  and the header and footer switches.
+  Lists, indents and columns keep working where objects push the text aside
+- **Paragraphs:** Enter starts a new paragraph, Shift Enter a new line within the same
+  paragraph. To set paragraphs apart, use the first-line indent on the ruler or
+  *Paragraph spacing* in the properties; the formatting marks show ¶ where a paragraph ends
+- **Header and footer** (notebook): double-click in the top or bottom margin of a page, or
+  switch on *Header* / *Footer* under *Page* in the properties. The header or footer is the
+  same on every page and is edited like the body text (font, size, colour, alignment);
+  while you edit it, a dashed line marks it on every page. Right-click in it to insert the
+  **page number**, the **page count** (“Page 3 of 12”) or the **date** – each page shows its
+  own number, and the date is the day the document was last saved. While editing, these
+  fields show as № (page number), ∑ (page count) and ◷ (date). *Different first page*
+  leaves the first page (a title page) without them. A header or footer left empty
+  disappears; switching it off removes it on all pages (Ctrl Z brings it back)
+- **Page break** (notebook): Ctrl Enter, or *Insert Page Break* in the properties, starts
+  the text after the cursor on the next page. Backspace at the top of that page removes
+  the break again
+- **Formatting marks** (Ctrl F10, or the switch in the properties): ¶ at the end of each
+  paragraph, · for spaces, → for tabs, ↵ for line breaks within a paragraph, and a dashed
+  line labelled *Page Break*. They are only shown in the notebook (not on the artboards or
+  in the presentation), never printed or exported
+- **Body Text layer:** the body text lies on its own layer at the bottom, locked. It can
+  only be changed in the notebook; in the artboard view it stays on its pages and can't
+  be clicked. When the body text is deleted completely, the layer goes away too
+- **Page ruler** (notebook): the rulers show the current page like in a word processor –
+  margins grey, the writing area white, counted from where the text begins. The handles
+  are small blue tabs whose point marks the exact position on the scale. Drag the lower
+  tabs on the left and right of the top ruler, or the tabs on the left ruler, to change
+  the left, right, top and bottom margins; they apply to all pages (Ctrl Z takes a drag
+  back). The upper tab on the left (pointing down) is the **first-line indent**: drag it
+  to the right to indent the first line of every paragraph (not list items, and not a
+  paragraph that continues from the previous page). Grey corner marks on each page show
+  the writing area. With two or more columns, the gaps between them are grey too, with a
+  small blue pill at each edge: drag the middle of a gap to move it left or right (the
+  columns beside it get wider or narrower), or drag one of its edges to make the gap wider
+  or narrower for all columns. The margins can also be typed in under *Text Margins* in
+  the page settings (gear button in the Pages sidebar; 20 mm to begin with)
+- **Presentation** (like a PDF viewer): the pages scroll like in the notebook, but nothing
+  can be changed. Instead of the drawing tools there are viewing tools: **Select Text** (V –
+  only text can be selected: a click puts the cursor into it, even under a picture, and
+  dragging across empty space picks whole texts to copy),
+  **Move View** (H), the **Highlighter** with four colours, and the **Laser Pointer** (L) – a
+  glowing red trail that fades after a second. In your own documents highlights are only
+  shown while presenting (Ctrl Z takes them back); they are gone when you leave the
+  presentation. In a PDF they are saved as annotations
+- **Full screen** (F5, or the button next to the zoom at the bottom right, only in the
+  presentation): one page at a time on black. The bars appear while the mouse moves and
+  disappear after two seconds. With *Select Text* or *Move View* a click, →, ↓, Page Down,
+  Space or Enter go to the next page; right-click, ←, ↑, Page Up or Backspace go back;
+  Home/End jump to the first/last page. The highlighter and the laser pointer draw instead.
+  Esc ends the full screen
+
+## Tables and charts
+
+- **Data tool (D):** drag out a frame to insert a table (three rows, three columns, all cells
+  looking the same – make any row stand out with fill and text settings for its cells) and type straight away; a click places one in a standard size. Click a cell
+  of a table with the Data tool – or double-click it with the Select tool – to type in it.
+  The floating bar offers no shape combining (union, subtract …) for tables and charts
+- While typing in a cell: **Tab** / **Shift Tab** go to the next/previous cell (Tab after the
+  last cell adds a row), **Enter** / **Shift Enter** go down/up, **Alt Enter** starts a new
+  line in the cell, **Esc** discards the change. Each cell is one step for Undo
+- While a table is selected or edited, column letters (A, B, C …) and row numbers (1, 2,
+  3 …) appear around it in two rounded capsules, so you know how cells are called in
+  formulas; picked columns and rows show as a blue pill in them
+- **Choosing what to format:** the first click selects the whole table (dragging it then
+  moves it). Once it is selected, click a cell to pick it or drag across cells to pick a
+  block (Shift-click extends); click or drag across column letters or row numbers to pick
+  whole columns or rows. Typing in a cell picks that cell. Fill, stroke, text colour and all
+  text settings (font, size, style, weight, underline, strikethrough, small capitals,
+  ligatures, alignment, line and letter spacing, text styles from the library) then apply to
+  the picked cells – or to every cell when the whole table is selected. Delete clears the
+  picked cells (with the whole table selected it deletes the table)
+- **Fill and move like in a spreadsheet:** picked cells have a small square at their bottom
+  right corner – drag it down, up, left or right to continue them: numbers count on (one
+  number in steps of 1, several in their step), “Week 1” becomes “Week 2”, formulas move
+  their references along (except those fixed with `$`), other text repeats; their look comes
+  along. Dragging past the end of the table adds rows or columns. Drag the border of the
+  picked cells to move them elsewhere in the table (formulas that refer to them follow).
+  While cells are picked, the table shows no resize handles; tables have no rotate handle
+- **Moving and resizing:** a selected table moves with the round grip where the column letters and
+  row numbers meet. Drag the border between two column letters (or row numbers) to change
+  the width of a column (or height of a row); the table grows or shrinks with it. When whole
+  columns or rows are picked, all of them take the new size. Scaling the whole table with
+  its handles keeps the proportions of the rows and columns
+- Cells hold text, numbers, dates (`5.11.2026`, `05/11/2026`, `2026-11-05`) or formulas as
+  in a spreadsheet, with + − * / ^ % & and comparisons and the functions of LibreOffice Calc
+  and Excel – by their English names or the German, Spanish and French ones Calc uses
+  (`=SUMME(B2:B4)`, `=SVERWEIS(…)`, `=SOMME.SI(…)`):
+  - *Maths:* SUM, PRODUCT, SUMPRODUCT, SUMSQ, ABS, SQRT, POWER, MOD, ROUND, ROUNDUP,
+    ROUNDDOWN, INT, TRUNC, CEILING, FLOOR, SIGN, PI, EXP, LN, LOG, LOG10, FACT
+  - *Statistics:* AVERAGE, MIN, MAX, COUNT, COUNTA, COUNTBLANK, MEDIAN, STDEV, STDEVP, VAR,
+    VARP, LARGE, SMALL, RANK
+  - *Conditions:* SUMIF, COUNTIF, AVERAGEIF, SUMIFS, COUNTIFS, AVERAGEIFS, MAXIFS, MINIFS
+    (criteria like `">5"`, `"<>red"`, `"A*"`)
+  - *Logic:* IF, IFS, AND, OR, NOT, XOR, IFERROR, IFNA, ISBLANK, ISNUMBER, ISTEXT, ISERROR,
+    SWITCH, CHOOSE, TRUE, FALSE
+  - *Text:* CONCATENATE, CONCAT, TEXTJOIN, LEFT, RIGHT, MID, LEN, UPPER, LOWER, PROPER, TRIM,
+    VALUE, REPT, SUBSTITUTE, REPLACE, FIND, SEARCH, EXACT, TEXT
+  - *Lookup:* VLOOKUP, HLOOKUP, XLOOKUP, INDEX, MATCH, ROW, COLUMN, ROWS, COLUMNS
+  - *Dates:* TODAY, NOW, DATE, YEAR, MONTH, DAY, WEEKDAY, DAYS
+
+  In German, Spanish and French, numbers use a decimal comma and arguments are separated by
+  `;`. While editing, a cell shows its formula; otherwise the result
+- **Pointing at cells:** while writing a formula – in the cell or in the formula bar – click
+  another cell of the table where a reference may go (after `=`, `(`, `;` or an operator) to
+  insert it; click again to swap it, drag to make it a range (`A1:B4`). Each reference gets
+  its own colour, in the formula, in the formula bar and as a frame around its cells, like in
+  a spreadsheet
+- **Merging cells:** pick several cells and press the merge button (next to the rows and
+  columns button) – they become one cell showing the content of the top left one. Clicking a merged cell
+  picks all of it; inserting rows or columns inside a merge widens it (picked, typed in or not, a merged
+  cell is always framed as a whole)
+- **Splitting cells:** the split button offers *Split into Columns* and *Split into Rows*. A
+  merged cell is taken apart into its columns or rows; any other cell gets a new column (or
+  row) beside it, half its size, and the other cells of that column (row) stretch over both
+- **Formats:** *Format* sets how numbers appear in the picked cells – General, Number,
+  Percent, Currency, Scientific, Date (short, long, ISO), Time (with or without seconds),
+  Date and Time, or Text (shows exactly what was typed, formulas too); *Decimals* and
+  *Currency* appear when they apply. Times can be typed as `14:30`, dates with a time as
+  `5.11.2026 14:30`; TIME, HOUR, MINUTE and SECOND work with them. *Text Direction* (in the
+  text settings) turns the text of the picked cells upwards or downwards
+- **Function suggestions:** while writing a formula, the rest of a matching function name
+  appears in light grey behind the cursor – in the cell and in the formula bar; Enter (or Tab
+  in a cell) takes it, including the opening bracket
+- **Keyboard with picked cells:** just start typing to replace the content of the picked cell
+  (Enter or F2 edits it keeping the content); arrow keys move to the next cell (Shift: extend
+  the block) – also while typing after starting this way; after a double-click they move the
+  cursor and go to the next cell at the start or end of the text (up and down always), Tab moves right, Esc goes back to the whole table, Delete clears the cells.
+  Ctrl C / Ctrl X copy or cut the picked cells as text (tabs between columns – they paste
+  into other spreadsheets), Ctrl V pastes such text into the table from the picked cell on
+  (the table grows if needed)
+- **Properties of a table:** a formula bar with the cell name (“B3”) and its content – type
+  and press Enter; one row of buttons: a menu to insert rows above or below and columns left
+  or right of the picked cells (as many as are picked) or to remove their rows or columns,
+  then merge and split. Below them the usual fill, stroke and text settings.
+  New rows and columns take on the size and look of their neighbours. Formulas follow when
+  rows or columns are inserted or removed (a reference to a removed cell becomes `#REF!`)
+- **Charts from tables:** with a table selected, *Chart* in the floating bar puts a fitting chart next to it – lines for a time series (years,
+  dates or rising numbers as labels), bars for several series, a pie for a few shares. The chart follows the table: change
+  a number and the chart changes too. Its properties choose the type (pie, donut, bar,
+  line), legend, values, where the series are (*Series In*) and – for bars and lines – the
+  titles of the x and y axes. A chart keeps a copy of its data: if the table is deleted, the
+  chart stays, and *Edit Data as Table* makes a new table for it
+- **How the table is read:** the chart works out how the table is laid out, like a
+  spreadsheet does. If the top left cell is empty, the first row and the first column are
+  names; otherwise each is, when it holds text (or years). The series run along the longer
+  side of the numbers: a table with years across and “M” and “F” down gives two lines, M and
+  F, over the years; the same table turned gives the same chart. *Series In* (Automatic,
+  Rows, Columns) overrides this. Without names, series are called “Series 1”, “Series 2” …
+  and the points are numbered. Text in the top left cell becomes the title of the x axis
+  unless you type your own
+- **Formatting a chart:** with the whole chart selected, fill and stroke apply to its
+  background and the text settings to all its text at once (labels, legend and values).
+  Click it again to pick one slice, bar or point (its fill and stroke), a line or a legend
+  colour (the whole series), or a single label or value (its own text settings). Left and
+  right alignment arrange the legend: colour before the text, or text aligned right with the
+  colour after it
+- **Convert to Shapes** (right-click a table or chart): keeps only the shapes and text as an
+  ordinary group – no more data, formulas or chart settings
+- Tables from earlier versions keep the look of their header row – it is now the format of
+  the cells of the first row and can be changed like any other
+- Tables and charts are groups of ordinary shapes, so they print and export like everything
+  else. Scaling one with the handles resizes the cells or the chart; the text keeps its size.
+  Charts can be rotated as a whole (they stay rotated when their data changes); tables
+  cannot be rotated
+- **Push text away (effect):** text boxes make room for objects in front of them that push
+  text away – each line uses the wider free side, or continues below the object when neither
+  side has room. In the effect's settings, *Shape* chooses whether the text follows the
+  object's **Outline** (a circle gets a round gap) or keeps to a **Rectangle** around it –
+  grouped objects then share one rectangle around the whole group,
+  and *Distance* sets the gap between object and text (12 px to begin with). While such an
+  object is selected, the area it keeps free is shown as a dotted line. Objects behind the
+  text don't count. Pictures, tables and charts push text away by themselves (remove the
+  effect in their properties); any other shape gets it with *Add Effect › Push text away*.
+  A text box can ignore all of this with *Flow Around Objects* in its properties (text from
+  PDF imports doesn't flow). Lists, indents and columns keep working around objects
 
 ## Interface
 
@@ -336,26 +573,28 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   field, ending with the dashed *Custom Format …* tile
 - **Window layout:** the header bar shows the document name (with a dot when there are
   unsaved changes) and below it where the file is saved and the page format. Floating bars
-  over the canvas, as in the GNOME image viewer: tools at the top left, canvas/notebook and
-  pages at the bottom left, zoom at the bottom right
+  over the canvas, as in the GNOME image viewer: tools at the top left, the three views and
+  pages at the bottom left, zoom (and full screen in the presentation) at the bottom right
 - Tabs for several documents. Files opened from the desktop (double-click, *Open with*)
   arrive as a new tab in the window that is already open
 - With nothing selected, the properties show “Nothing selected”
 - The position section (rotate, flip, align to page) is always at the bottom of the
   properties
-- **Sidebars:** the *Layers* and *Library* buttons at the top left open the left sidebar
+- **Undo and Redo** sit at the end of the tool bar, after a divider
+- **Sidebars:** the *Pages*, *Layers* and *Library* buttons at the top left open the left sidebar
   with that content (a second click closes it; F8 shows or hides it); the *Properties* button
   at the top right (F9) shows the properties on the right, and the *information* button next
   to it shows details about the document instead: folder (with a button to open it), format,
   size, number of artboards, layers and objects, file size and dates. Both sides can be open
   together.
-  Sidebars can be widened with the mouse, and the scroll wheel always
+  Sidebars can be widened with the mouse; the properties are never narrower than their
+  widest setting, so they don't grow when you open a section. The scroll wheel always
   scrolls the sidebar. In narrow windows (under about 1100 pixels) the sidebars float over
   the canvas instead, one at a time; a click next to the sidebar closes it
 - **Main menu:** new, open, save and export, then Preferences, Keyboard Shortcuts (Ctrl ?),
   Help (this guide), Report a Problem and About Stijl
 - **Preferences** (Ctrl ,): a sidebar with the categories **View** (colour scheme
-  System/Light/Dark, background Default/Dark/Chequerboard, view Canvas/Notebook, rulers,
+  System/Light/Dark, background Default/Dark/Chequerboard,
   unit – metric, imperial or pixels, language, updates), **Align** (“Snap to”: guides,
   corners, centres, anchor points, page, paths, spacing and grid individually or with
   *All On / All Off*; plus the delay when placing into shapes) and **Keyboard Shortcuts**; the
@@ -384,6 +623,42 @@ All shortcuts can be changed under *Preferences › Keyboard Shortcuts* (Ctrl ?)
   and all colour spaces (CMYK is converted to RGB); several pages become artboards. Not
   imported: opacity masks, pattern and mesh gradients (simplified), CMYK JPEG and JPEG 2000
   images, encrypted files
+- **Opening OpenDocument texts (.odt) and templates (.ott)**, e.g. from LibreOffice Writer:
+  via Open or by dragging into the window. The text becomes the body text in the notebook
+  view and flows over as many pages as it needs: fonts, sizes, bold, italic, underline,
+  strikethrough and colour per word; alignment, line spacing and space before/after per
+  paragraph; bulleted and numbered lists with their levels; page breaks; page size,
+  margins and columns; the header and footer with page number, page count and date (and
+  a title page without them). Pictures and tables are placed at their paragraph and push
+  the text away – check their position afterwards. Footnotes are collected at the end of the
+  text. Not taken over (a note says so): comments, drawings, text frames, custom tab stops,
+  different left/right pages, tables continuing over pages. The original file stays
+  unchanged: saving creates a new SVG file (and a PDF can be exported)
+- **PDF files open for viewing first** – in the presentation view, with the Pages
+  sidebar; Page Up/Down, the arrow keys, Home and End go from page to page. Instead of the
+  drawing tools there are the viewing tools and Undo/Redo:
+  - **Select Text** (V): drag inside text to mark characters, or drag a frame around
+    several text blocks; Ctrl C copies the text, Ctrl A marks all of it. Nothing can be moved
+    or typed
+  - **Move View** (H): dragging pans (Space works with every tool)
+  - **Highlighter** with four colours: drag over text – nearly straight strokes become
+    straight, and the stroke is as tall as the text under it. Your own highlights can be
+    selected and removed with Delete until the PDF is saved. Saving writes them into the
+    PDF as standard ink annotations, so every PDF reader shows them Pages can be **reordered and removed** in the
+  Pages sidebar and saved back as a PDF (*Save* asks where the first time): the pages
+  themselves are copied unchanged – fonts, images and text stay exactly as they were.
+  Pages beyond the first 24 aren’t shown but are kept when saving
+- **Switching to Notebook or Artboards** turns the PDF into a Stijl document. Stijl asks
+  first, and lists fonts that aren’t installed and anything that can’t be imported. The PDF stays unchanged; saving creates
+  a new SVG file. While editing, a PDF is a document of pages: one artboard per page, named
+  *Page 1*, *Page 2* …, shown in the notebook view. Each page keeps its background colour (white if it has none). Lines of
+  text that belong together – the same colour and size, evenly spaced, aligned left, right,
+  centred or justified – become one text box, so paragraphs can be edited and re-flow;
+  bold or italic words inside stay part of the paragraph. Hyphens at line ends are removed
+  where a word was split, and TeX-style accents are joined with their letter. Lines only
+  run on into the next one where the text really wraps; list items, short lines and table
+  cells (separated by their borders) stay apart, and line spacing stays exactly as in the PDF. Headings,
+  captions and labels stay separate text objects. Up to 24 pages are read
 
 ## Keyboard shortcuts
 
@@ -397,7 +672,12 @@ Default key bindings; they can be changed under *Preferences › Keyboard Shortc
 | Ctrl + scroll wheel, pinch | Zoom |
 | Ctrl + / Ctrl − / Ctrl 0 / Ctrl 1 | Zoom in / Zoom out / All artboards (notebook: whole page) / 100 % |
 | Ctrl Shift N | Notebook view on/off |
+| F5 | Presentation full screen on/off |
+| V / H / L | Presentation: Select Text / Move View / Laser Pointer |
 | Page Down / Page Up | Next / previous page (notebook) |
+| Ctrl Enter | Page break (notebook) |
+| Double-click top / bottom margin | Edit header / footer (notebook) |
+| Ctrl F10 | Formatting marks on/off |
 | Shift while dragging | Proportional, straight lines, 45° steps |
 | Alt while dragging | Move: drag a copy (the original stays); shapes: from the centre; Shape Builder: delete areas |
 | Enter / double-click | Finish a pen path |

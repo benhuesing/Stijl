@@ -17,5 +17,5 @@ Keywords=vector;svg;drawing;illustration;design;
 Keywords[de]=Vektor;SVG;Zeichnen;Illustration;Grafik;Design;
 Keywords[es]=vector;svg;dibujo;ilustración;diseño;gráficos;
 Keywords[fr]=vectoriel;svg;dessin;illustration;design;graphisme;
-MimeType=image/svg+xml;application/illustrator;
+MimeType=image/svg+xml;application/illustrator;application/vnd.oasis.opendocument.text;application/vnd.oasis.opendocument.text-template;
 StartupNotify=true
