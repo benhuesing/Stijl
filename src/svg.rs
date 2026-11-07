@@ -163,6 +163,52 @@ width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\"{u}>\n",
             format!(" mondrian:unit=\"{}\"", xml::escape(&doc.unit))
         }
     ));
+    // aus Seiten (PDF): beim Öffnen Notizheft, Zeichenflächen heißen „Seite“
+    if doc.pages {
+        let at = o.rfind('>').unwrap_or(o.len());
+        o.insert_str(at, " mondrian:pages=\"true\"");
+    }
+    // Seitenrand des Fließtexts (nur wenn abweichend)
+    if doc
+        .margins
+        .iter()
+        .any(|m| (m - crate::model::DEFAULT_MARGIN).abs() > 1e-6)
+    {
+        let at = o.rfind('>').unwrap_or(o.len());
+        let m = &doc.margins;
+        o.insert_str(
+            at,
+            &format!(
+                " mondrian:margin=\"{} {} {} {}\"",
+                num6(m[0]),
+                num6(m[1]),
+                num6(m[2]),
+                num6(m[3])
+            ),
+        );
+    }
+    // Datum des Speicherns (Datumsfeld der Kopf-/Fußzeilen), Titelseite ohne sie
+    if !doc.date.is_empty() {
+        let at = o.rfind('>').unwrap_or(o.len());
+        o.insert_str(at, &format!(" mondrian:date=\"{}\"", xml::escape(&doc.date)));
+    }
+    if doc.bands_skip_first {
+        let at = o.rfind('>').unwrap_or(o.len());
+        o.insert_str(at, " mondrian:bands-first=\"0\"");
+    }
+    // Ansicht beim Öffnen (Zeichenflächen ist die Voreinstellung)
+    if doc.view != crate::model::ViewMode::Artboards {
+        let at = o.rfind('>').unwrap_or(o.len());
+        o.insert_str(at, &format!(" mondrian:view=\"{}\"", doc.view.name()));
+    }
+    // eigener Name der ersten Zeichenfläche
+    if !doc.first_name.is_empty() {
+        let at = o.rfind('>').unwrap_or(o.len());
+        o.insert_str(
+            at,
+            &format!(" mondrian:first-name=\"{}\"", xml::escape(&doc.first_name)),
+        );
+    }
     if include_background {
         if let Some(bg) = doc.background {
             o.push_str(&format!(
@@ -258,6 +304,12 @@ width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\"{u}>\n",
             Some(c) => format!(" background=\"{}\"", c.to_hex()),
             None => " background=\"none\"".to_string(),
         };
+        // Lage in der Zeichenflächen-Ansicht, solange die Seiten untereinander stehen
+        let bg = match a.free {
+            Some((fx, fy)) => format!("{bg} free-x=\"{}\" free-y=\"{}\"", num(fx), num(fy)),
+            None => bg,
+        };
+        let bg = if a.auto { format!("{bg} auto=\"1\"") } else { bg };
         o.push_str(&format!(
             "  <mondrian:artboard x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" name=\"{}\"{bg}/>\n",
             num(a.x),
@@ -372,7 +424,9 @@ fn format_attrs(f: &TextFormat) -> String {
     if f.valign != d.valign {
         s.push_str(&format!(" mondrian:valign=\"{}\"", f.valign.name()));
     }
-    if (f.line - d.line).abs() > 1e-9 {
+    if f.line_auto {
+        s.push_str(" mondrian:line=\"auto\"");
+    } else if (f.line - d.line).abs() > 1e-9 {
         s.push_str(&format!(" mondrian:line=\"{}\"", num(f.line)));
     }
     if f.tracking.abs() > 1e-9 {
@@ -402,6 +456,19 @@ fn format_attrs(f: &TextFormat) -> String {
     }
     if f.cols() > 1 {
         s.push_str(&format!(" mondrian:columns=\"{}\"", f.cols()));
+        if f.col_gap > 0.0 {
+            s.push_str(&format!(" mondrian:column-gap=\"{}\"", num(f.col_gap)));
+        }
+        if f.col_widths[..f.cols()].iter().any(|w| *w > 0.0) {
+            let ws: Vec<String> = f.col_widths[..f.cols()].iter().map(|w| num(*w)).collect();
+            s.push_str(&format!(" mondrian:column-widths=\"{}\"", ws.join(" ")));
+        }
+    }
+    if f.first > 0.0 {
+        s.push_str(&format!(" mondrian:first-indent=\"{}\"", num(f.first)));
+    }
+    if f.before > 0.0 {
+        s.push_str(&format!(" mondrian:before=\"{}\"", num(f.before)));
     }
     if f.small_caps {
         s.push_str(" font-variant=\"small-caps\"");
@@ -496,6 +563,12 @@ fn rich_range(text: &str, rich: &RichText, fmt: &TextFormat, from: usize, to: us
             };
             at.push_str(&format!(" text-decoration=\"{d}\""));
         }
+        if let Some(c) = st.color {
+            at.push_str(&format!(" fill=\"{}\"", c.to_hex()));
+            if c.a < 1.0 {
+                at.push_str(&format!(" fill-opacity=\"{}\"", num(c.a)));
+            }
+        }
         out.push_str(&format!("<tspan{at}>{}</tspan>", escape(&text[a..b])));
         pos = b;
     }
@@ -503,7 +576,8 @@ fn rich_range(text: &str, rich: &RichText, fmt: &TextFormat, from: usize, to: us
     out
 }
 
-/// Absatzformate als Attribut („Aufzählung:Einzug;…“).
+/// Absatzformate als Attribut („Aufzählung:Einzug[:Ausrichtung:Zeilenabstand:davor:danach];…“;
+/// leer bzw. weggelassen: wie der Text, 0 beim Zeilenabstand: automatisch).
 fn paras_attr(rich: &RichText) -> String {
     if rich.paras.is_empty() {
         return String::new();
@@ -511,7 +585,20 @@ fn paras_attr(rich: &RichText) -> String {
     let v: Vec<String> = rich
         .paras
         .iter()
-        .map(|p| format!("{}:{}", p.list.name(), p.indent))
+        .map(|p| {
+            let mut s = format!("{}:{}", p.list.name(), p.indent);
+            if p.align.is_some() || p.line.is_some() || p.before.is_some() || p.after.is_some() {
+                let opt = |v: Option<f64>| v.map(num).unwrap_or_default();
+                s.push_str(&format!(
+                    ":{}:{}:{}:{}",
+                    p.align.map(|a| a.name()).unwrap_or(""),
+                    opt(p.line),
+                    opt(p.before),
+                    opt(p.after)
+                ));
+            }
+            s
+        })
         .collect();
     format!(" mondrian:paras=\"{}\"", v.join(";"))
 }
@@ -548,6 +635,14 @@ fn read_rich(el: &Element) -> (String, RichText) {
                     italic: e.attr("font-style").map(|v| v == "italic" || v == "oblique"),
                     underline: deco.map(|d| d.contains("underline")),
                     strike: deco.map(|d| d.contains("line-through")),
+                    // eigene Farbe des Textteils
+                    color: e.attr("fill").and_then(Color::parse).map(|c| Color {
+                        a: e.attr("fill-opacity")
+                            .and_then(|v| v.parse::<f64>().ok())
+                            .unwrap_or(c.a)
+                            .clamp(0.0, 1.0),
+                        ..c
+                    }),
                 };
                 if !style.is_empty() && text.len() > start {
                     rich.runs.push(TextRun {
@@ -564,9 +659,25 @@ fn read_rich(el: &Element) -> (String, RichText) {
             .split(';')
             .map(|p| {
                 let mut it = p.split(':');
+                let list = it.next().and_then(ListStyle::from_name).unwrap_or_default();
+                let indent = it.next().and_then(|n| n.trim().parse().ok()).unwrap_or(0);
+                let align = it.next().and_then(Align::from_name);
+                let mut num_opt = || {
+                    it.next()
+                        .and_then(|n| n.trim().parse::<f64>().ok())
+                        .filter(|x| x.is_finite())
+                        .map(|x| x.clamp(0.0, 100.0))
+                };
+                let line = num_opt();
+                let before = num_opt();
+                let after = num_opt();
                 ParaFmt {
-                    list: it.next().and_then(ListStyle::from_name).unwrap_or_default(),
-                    indent: it.next().and_then(|n| n.trim().parse().ok()).unwrap_or(0),
+                    list,
+                    indent,
+                    align,
+                    line,
+                    before,
+                    after,
                 }
             })
             .collect();
@@ -761,6 +872,19 @@ fn apply_radii(subpaths: &mut [SubPath], list: &str) {
 }
 
 pub fn object_to_svg(obj: &Object) -> String {
+    // Export für andere Programme: Kopf-/Fußzeilen mit den Werten ihrer Felder
+    if LINES_FN.with(|c| c.get()).is_some() {
+        if let Shape::TextArea { frame, .. } = &obj.shape {
+            if frame.band != 0 && frame.page_no == 0 && frame.page_count > 0 {
+                return String::new();
+            }
+        }
+        if let Some(sh) = crate::model::band_display(&obj.shape) {
+            let mut o = obj.clone();
+            o.shape = sh;
+            return object_to_svg(&o);
+        }
+    }
     let angle = if obj.angle.abs() > 1e-9 {
         format!(" mondrian:angle=\"{}\"", num(obj.angle))
     } else {
@@ -776,7 +900,13 @@ pub fn object_to_svg(obj: &Object) -> String {
     } else {
         format!(" inkscape:label=\"{}\"", escape(&obj.name))
     };
-    let id = format!("id=\"obj{}\"{angle}{locked}{label}", obj.id);
+    // Tabelle oder Diagramm: Daten am Rahmen
+    let smart = obj
+        .smart
+        .as_ref()
+        .map(|d| format!(" mondrian:smart=\"{}\"", escape(&d.encode())))
+        .unwrap_or_default();
+    let id = format!("id=\"obj{}\"{angle}{locked}{label}{smart}", obj.id);
     // Farbverlauf: Definition vor dem Element, Füllung verweist darauf.
     let grad = obj.style.gradient.as_ref().filter(|_| obj.style.fill.is_some());
     let gid = format!("grad{}", obj.id);
@@ -1015,7 +1145,7 @@ pub fn object_to_svg(obj: &Object) -> String {
                 s.push_str(&format!(
                     "<tspan x=\"{}\" y=\"{}\">{}</tspan>",
                     num(pos.x),
-                    num(pos.y + i as f64 * size * fmt.line),
+                    num(pos.y + i as f64 * size * fmt.pitch_factor()),
                     escape(line)
                 ));
             }
@@ -1087,6 +1217,24 @@ pub fn object_to_svg(obj: &Object) -> String {
             if frame.inset > 0.0 {
                 fattr.push_str(&format!(" mondrian:inset=\"{}\"", num(frame.inset)));
             }
+            if frame.no_flow {
+                fattr.push_str(" mondrian:flow=\"0\"");
+            }
+            // Fließtext des Notizhefts
+            if frame.band != 0 {
+                fattr.push_str(if frame.band == crate::model::BAND_HEADER {
+                    " mondrian:band=\"header\""
+                } else {
+                    " mondrian:band=\"footer\""
+                });
+            }
+            if frame.body {
+                fattr.push_str(if frame.joined {
+                    " mondrian:body=\"joined\""
+                } else {
+                    " mondrian:body=\"1\""
+                });
+            }
             let frame_el = if frame.fill.is_some() || frame.stroke.is_some() {
                 let local = match &frame.path {
                     Some(p) => crate::model::effective_subpaths(p),
@@ -1149,7 +1297,8 @@ pub fn object_to_svg(obj: &Object) -> String {
                     body.push_str(&format!(
                         "<tspan x=\"{}\"{fit}>{}</tspan></text>",
                         num(l.text_x),
-                        rich_range(text, rich, fmt, l.start, l.end)
+                        // (Seitenumbrüche kennen andere Programme nicht)
+                        rich_range(text, rich, fmt, l.start, l.end).replace(crate::xml::PAGE_BREAK_REF, "")
                     ));
                 }
                 let deco = if fmt.underline || fmt.strike {
@@ -1187,13 +1336,20 @@ pub fn object_to_svg(obj: &Object) -> String {
                 "inline-size:{}px;white-space:pre-wrap;text-align:{};line-height:{}",
                 num(*w),
                 fmt.align.name(),
-                num(fmt.line)
+                if fmt.line_auto {
+                    "normal".to_string()
+                } else {
+                    num(fmt.line)
+                }
             );
             if fmt.tracking.abs() > 1e-9 {
                 css.push_str(&format!(";letter-spacing:{}px", num(fmt.tracking_px(*size))));
             }
             if fmt.cols() > 1 {
                 css.push_str(&format!(";column-count:{}", fmt.cols()));
+            }
+            if fmt.first > 0.0 {
+                css.push_str(&format!(";text-indent:{}px", num(fmt.first)));
             }
             if fmt.no_ligatures {
                 css.push_str(";font-variant-ligatures:none");
@@ -2206,7 +2362,9 @@ fn text_format(el: &Element, ctx: &Ctx) -> TextFormat {
         weight: ctx.weight,
         ..TextFormat::default()
     };
-    if let Some(l) = own(el, "line").and_then(|v| v.parse::<f64>().ok()) {
+    if own(el, "line") == Some("auto") {
+        f.line_auto = true;
+    } else if let Some(l) = own(el, "line").and_then(|v| v.parse::<f64>().ok()) {
         f.line = l;
     } else if let Some(l) = ctx.line_factor {
         f.line = l;
@@ -2229,6 +2387,25 @@ fn text_format(el: &Element, ctx: &Ctx) -> TextFormat {
     f.path_reverse = own(el, "path-reverse") == Some("true");
     if let Some(v) = own(el, "para").and_then(|v| v.parse::<f64>().ok()) {
         f.para = v;
+    }
+    if let Some(v) = own(el, "before").and_then(|v| v.parse::<f64>().ok()) {
+        f.before = v.clamp(0.0, 100.0);
+    }
+    if let Some(v) = own(el, "first-indent").and_then(|v| v.parse::<f64>().ok()) {
+        f.first = v.max(0.0);
+    }
+    if let Some(v) = own(el, "column-gap").and_then(|v| v.parse::<f64>().ok()) {
+        f.col_gap = v.max(0.0);
+    }
+    if let Some(v) = own(el, "column-widths") {
+        for (i, w) in v
+            .split_whitespace()
+            .filter_map(|x| x.parse::<f64>().ok())
+            .take(crate::model::MAX_COLUMNS as usize)
+            .enumerate()
+        {
+            f.col_widths[i] = w.max(0.0);
+        }
     }
     if let Some(v) = own(el, "columns").and_then(|v| v.parse::<u32>().ok()) {
         f.columns = v.clamp(1, crate::model::MAX_COLUMNS);
@@ -2276,6 +2453,15 @@ fn read_text_frame(el: &Element) -> TextFrame {
         stroke: own(el, "frame-stroke").and_then(col),
         width: own(el, "frame-width").and_then(|v| v.parse().ok()).unwrap_or(1.0),
         inset: own(el, "inset").and_then(|v| v.parse().ok()).unwrap_or(0.0),
+        no_flow: own(el, "flow") == Some("0"),
+        body: own(el, "body").is_some(),
+        joined: own(el, "body") == Some("joined"),
+        band: match own(el, "band") {
+            Some("header") => crate::model::BAND_HEADER,
+            Some("footer") => crate::model::BAND_FOOTER,
+            _ => 0,
+        },
+        ..TextFrame::default()
     }
 }
 
@@ -2645,6 +2831,10 @@ fn collect(
                 mask,
                 locked: own(child, "locked") == Some("true")
                     || child.attr_local("insensitive") == Some("true"),
+                // Tabelle oder Diagramm: die Daten am Rahmen
+                smart: own(child, "smart")
+                    .and_then(crate::smart::Smart::decode)
+                    .map(Box::new),
                 name: child.attr_local("label").unwrap_or("").to_string(),
                 id,
                 shape,
@@ -2790,6 +2980,40 @@ fn read_inner(text: &str) -> Result<Document, String> {
     };
 
     let mut doc = Document {
+        pages: root.attr("mondrian:pages") == Some("true"),
+        // ein Wert für alle Seiten oder vier (oben, rechts, unten, links)
+        margins: root
+            .attr("mondrian:margin")
+            .map(|v| {
+                let n: Vec<f64> = v
+                    .split_whitespace()
+                    .filter_map(|x| x.parse::<f64>().ok())
+                    .filter(|x| x.is_finite() && *x >= 0.0)
+                    .collect();
+                match n[..] {
+                    [a] => [a; 4],
+                    [t, r, b, l] => [t, r, b, l],
+                    _ => [crate::model::DEFAULT_MARGIN; 4],
+                }
+            })
+            .unwrap_or([crate::model::DEFAULT_MARGIN; 4]),
+        // ohne Angabe: Seiten (aus einem PDF) im Notizheft, sonst Zeichenflächen
+        view: root
+            .attr("mondrian:view")
+            .and_then(crate::model::ViewMode::from_name)
+            .unwrap_or(if root.attr("mondrian:pages") == Some("true") {
+                crate::model::ViewMode::Notebook
+            } else {
+                crate::model::ViewMode::Artboards
+            }),
+        first_name: root.attr("mondrian:first-name").unwrap_or("").trim().to_string(),
+        page_src: Vec::new(),
+        date: root
+            .attr("mondrian:date")
+            .filter(|d| d.len() == 10 && d.as_bytes()[4] == b'-' && d.as_bytes()[7] == b'-')
+            .unwrap_or("")
+            .to_string(),
+        bands_skip_first: root.attr("mondrian:bands-first") == Some("0"),
         width,
         height,
         background: None,
@@ -2839,6 +3063,8 @@ fn read_inner(text: &str) -> Result<Document, String> {
                     w: num("width")?.max(1.0),
                     h: num("height")?.max(1.0),
                     background,
+                    free: num("free-x").zip(num("free-y")),
+                    auto: e.attr("auto") == Some("1"),
                 })
             })
             .collect(),
@@ -3055,7 +3281,7 @@ fn read_image(el: &Element, ctx: &Ctx) -> Option<Shape> {
 const MAX_LINKED_IMAGE: u64 = 200 << 20;
 
 /// Sind die Daten ein Bild (Rastergrafik oder SVG)?
-fn looks_like_image(data: &[u8]) -> bool {
+pub fn looks_like_image(data: &[u8]) -> bool {
     if sniff_mime(data) != "image/svg+xml" {
         return true;
     }
@@ -3163,6 +3389,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             angle: 0.0,
             id,
@@ -3181,6 +3408,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             angle: 0.0,
             id,
@@ -3209,6 +3437,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             angle: 0.0,
             id,
@@ -3228,6 +3457,7 @@ mod tests {
                 sub: Vec::new(),
                 mask: false,
                 locked: false,
+                smart: None,
                 name: String::new(),
                 angle: 0.0,
                 id,
@@ -3276,6 +3506,8 @@ mod tests {
             w: 200.0,
             h: 100.0,
             background: Some(c(255, 204, 0)),
+            free: Some((450.0, 20.0)),
+            auto: true,
         });
         d.artboards.push(Artboard {
             name: "Durchsichtig".into(),
@@ -3284,6 +3516,8 @@ mod tests {
             w: 100.0,
             h: 100.0,
             background: None,
+            free: None,
+            auto: false,
         });
         d.guides.push(Guide {
             pos: Pt::new(50.0, 20.0),
@@ -3505,6 +3739,10 @@ mod tests {
                     stroke: Some(blue),
                     width: 2.0,
                     inset: 5.0,
+                    no_flow: true,
+                    body: true,
+                    joined: true,
+                    ..TextFrame::default()
                 },
                 rich: Default::default(),
             },
@@ -3524,6 +3762,7 @@ mod tests {
                 sub: Vec::new(),
                 mask: false,
                 locked: id % 7 == 0,
+                smart: None,
                 name: if id % 3 == 0 {
                     format!("Objekt {id}")
                 } else {
@@ -3561,6 +3800,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
         });
         let id = d.alloc_id();
@@ -3597,6 +3837,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
         });
         let lid = d.alloc_id();
@@ -3790,6 +4031,7 @@ mod tests {
                 stroke: Some(Color::rgb(0.0, 0.0, 1.0)),
                 width: 2.5,
                 inset: 6.0,
+                ..TextFrame::default()
             },
             rich: RichText {
                 runs: vec![TextRun {
@@ -3806,8 +4048,16 @@ mod tests {
                     ParaFmt {
                         list: ListStyle::Dot,
                         indent: 1,
+                        ..ParaFmt::default()
                     },
-                    ParaFmt::default(),
+                    // eigene Ausrichtung, automatischer Zeilenabstand, Abstände
+                    ParaFmt {
+                        align: Some(Align::Center),
+                        line: Some(0.0),
+                        before: Some(0.5),
+                        after: Some(1.25),
+                        ..ParaFmt::default()
+                    },
                 ],
             },
         };
@@ -3817,6 +4067,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             angle: 0.0,
             id,
@@ -3898,6 +4149,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             angle: 0.0,
             id,
@@ -3933,6 +4185,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
         });
         assert_eq!(used_fonts(&d), vec![("Beispiel Serif".to_string(), true, false)]);
@@ -3979,6 +4232,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             angle: 0.0,
             id,
@@ -4001,6 +4255,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             angle: 0.0,
             id,
@@ -4139,6 +4394,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             id,
             angle: 25.0,
@@ -4178,6 +4434,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             id,
             angle: 0.0,
@@ -4190,6 +4447,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             id,
             angle: 0.0,
@@ -4353,6 +4611,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             id,
             angle: 0.0,
@@ -4398,9 +4657,16 @@ mod tests {
                 a: 0.5,
                 ..Color::rgb(0.2, 0.4, 0.6)
             }),
+            free: None,
+            auto: false,
         });
+        d.first_name = "Vorderseite \"1\"".into();
+        d.view = crate::model::ViewMode::Notebook;
         let t = write(&d, true);
         let r = read(&t).unwrap();
+        assert_eq!(r.first_name, d.first_name);
+        assert_eq!(r.view, crate::model::ViewMode::Notebook);
+        assert_eq!(r.artboard_rects()[0].0, d.first_name);
         assert!((r.artboards[0].background.unwrap().a - 0.5).abs() < 1e-6);
         let mut cmp = r.artboards.clone();
         cmp[0].background = d.artboards[0].background;
@@ -4482,6 +4748,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
         });
         let (_, notes) = read_with(&write(&d, true), None).unwrap();
@@ -4597,6 +4864,7 @@ mod tests {
                 sub: Vec::new(),
                 mask: false,
                 locked: false,
+                smart: None,
                 name: String::new(),
             });
         }
@@ -4640,6 +4908,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
         });
         let back = read(&write(&d, false)).unwrap();

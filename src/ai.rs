@@ -27,6 +27,8 @@ use crate::xml::escape;
 pub struct Import {
     pub svg: String,
     pub notes: Vec<String>,
+    /// Schriften des Dokuments, die nicht installiert sind (werden ersetzt)
+    pub missing_fonts: Vec<String>,
 }
 
 /// Sieht die Datei nach einer Illustrator-/PDF-Datei aus?
@@ -627,6 +629,79 @@ struct PText {
     text: String,
     layer: usize,
     size: f64,
+    /// Anfang der Zeile (Grundlinie)
+    origin: Pt,
+    /// waagerechter, einfach gefüllter Text ohne Sperrung: kann mit den folgenden Zeilen zu
+    /// einem Textfeld werden
+    blockable: bool,
+    family: String,
+    bold: bool,
+    italic: bool,
+    /// Füllfarbe (und Deckkraft) als Attribute – gleich in einem Textfeld
+    color: String,
+}
+
+/// Ein Stück Text in einer Schrift (Teil einer Zeile).
+struct Frag {
+    layer: usize,
+    x0: f64,
+    x1: f64,
+    y: f64,
+    size: f64,
+    family: String,
+    bold: bool,
+    italic: bool,
+    color: String,
+    /// fertiges Element, falls das Stück für sich bleibt
+    single: String,
+    text: String,
+}
+
+/// Kombinierendes Zeichen zu einem alleinstehenden Akzent (TeX setzt Akzente einzeln).
+fn accent_mark(c: char) -> Option<char> {
+    Some(match c {
+        '`' => '\u{300}',
+        '´' => '\u{301}',
+        'ˆ' => '\u{302}',
+        '˜' => '\u{303}',
+        '¯' => '\u{304}',
+        '˘' => '\u{306}',
+        '˙' => '\u{307}',
+        '¨' => '\u{308}',
+        '˚' => '\u{30A}',
+        '˝' => '\u{30B}',
+        'ˇ' => '\u{30C}',
+        '¸' => '\u{327}',
+        '˛' => '\u{328}',
+        _ => return None,
+    })
+}
+
+/// Hängt `next` an `text` an; endet `text` mit einem alleinstehenden Akzent und beginnt
+/// `next` mit einem Buchstaben, werden beide ein Zeichen („rˆ“ + „ole“ → „rôle“). Gibt
+/// zurück, was von `next` noch anzuhängen ist.
+fn join_accent<'t>(text: &mut String, next: &'t str) -> &'t str {
+    let Some(mark) = text.chars().last().and_then(accent_mark) else {
+        return next;
+    };
+    let Some(c) = next.chars().next().filter(|c| c.is_alphabetic()) else {
+        return next;
+    };
+    text.pop();
+    text.push(c);
+    text.push(mark);
+    &next[c.len_utf8()..]
+}
+
+/// Eine Textzeile aus einem oder mehreren Stücken (verschiedene Schriften möglich).
+struct Line {
+    frags: Vec<usize>,
+    layer: usize,
+    x0: f64,
+    x1: f64,
+    y: f64,
+    size: f64,
+    color: String,
 }
 
 #[derive(PartialEq)]
@@ -656,6 +731,8 @@ struct Interp<'a> {
     base: Affine,
     page: Rect,
     notes: BTreeSet<String>,
+    /// verwendete Schriften, die nicht installiert sind
+    missing_fonts: BTreeSet<String>,
     depth: usize,
     fonts: HashMap<u32, Rc<Font>>,
     ops: usize,
@@ -663,6 +740,19 @@ struct Interp<'a> {
     images: HashMap<usize, Rc<(&'static str, String)>>,
     /// bisher übernommene Bilddaten (Bytes)
     image_bytes: usize,
+    /// Textstücke der Seite (werden am Seitenende zu Zeilen und Textfeldern zusammengefasst)
+    lines: Vec<Frag>,
+    /// waagerechte Kanten der Seite (Linien, Kanten von Rechtecken wie Tabellenzellen):
+    /// (x0, x1, y) – Zeilen auf beiden Seiten einer Kante gehören nicht zu einem Textfeld
+    rules: Vec<(f64, f64, f64)>,
+    /// senkrechte Kanten (y0, y1, x): Stücke einer Zeile auf beiden Seiten bleiben getrennt
+    vrules: Vec<(f64, f64, f64)>,
+    /// Seiten statt Zeichenflächen (PDF): eine seitenfüllende Fläche als erstes wird der
+    /// Hintergrund der Seite
+    pages: bool,
+    /// Farbe des Seitenhintergrunds und ob auf der Seite schon etwas gezeichnet wurde
+    page_bg: Option<[f64; 3]>,
+    page_drawn: bool,
 }
 
 fn rect_of(a: Pt, b: Pt) -> Rect {
@@ -788,11 +878,18 @@ impl<'a> Interp<'a> {
             base: Affine::IDENTITY,
             page: rect_of(Pt::new(0.0, 0.0), Pt::new(1.0, 1.0)),
             notes: BTreeSet::new(),
+            missing_fonts: BTreeSet::new(),
             depth: 0,
             fonts: HashMap::new(),
             ops: 0,
             images: HashMap::new(),
             image_bytes: 0,
+            lines: Vec::new(),
+            rules: Vec::new(),
+            vrules: Vec::new(),
+            pages: false,
+            page_bg: None,
+            page_drawn: false,
         }
     }
 
@@ -818,6 +915,7 @@ impl<'a> Interp<'a> {
     }
 
     fn emit(&mut self, s: &str) {
+        self.page_drawn = true;
         let i = self.target();
         let b = &mut self.layers[i].body;
         b.push_str("    ");
@@ -1490,6 +1588,59 @@ impl<'a> Interp<'a> {
         let t = transform_subs(subs, &self.gs.ctm);
         let t: Vec<SubPath> = t.into_iter().filter(|s| s.nodes.len() >= 2).collect();
         let Some(bbox) = subs_bbox(&t) else { return };
+        // PDF: eine einfarbige Fläche über die ganze Seite als erstes ist ihr Hintergrund
+        if self.pages
+            && !self.page_drawn
+            && fill
+            && !stroke
+            && self.gs.fa >= 0.999
+            && self.blend_attr().is_empty()
+        {
+            if let Paint::Solid(c) = self.gs.fill {
+                let p = self.page;
+                let covers = bbox.x0 <= p.x0 + 1.0
+                    && bbox.y0 <= p.y0 + 1.0
+                    && bbox.x1 >= p.x1 - 1.0
+                    && bbox.y1 >= p.y1 - 1.0;
+                let area: f64 = boolean::to_rings(&t, 0.5).iter().map(|r| boolean::area(r)).sum();
+                if covers && area.abs() >= p.width() * p.height() * 0.995 {
+                    self.page_bg = Some(c);
+                    return;
+                }
+            }
+        }
+        // Kanten für die Textfelder merken (gerade, achsenparallele Teilpfade)
+        for sp in &t {
+            let straight = sp.nodes.len() <= 5
+                && sp
+                    .nodes
+                    .iter()
+                    .all(|n| n.h_in.dist(n.p) < 0.01 && n.h_out.dist(n.p) < 0.01);
+            if !straight {
+                continue;
+            }
+            let pts: Vec<Pt> = sp.nodes.iter().map(|n| n.p).collect();
+            let axis = pts
+                .iter()
+                .zip(pts.iter().cycle().skip(1))
+                .all(|(a, b)| (a.x - b.x).abs() < 0.01 || (a.y - b.y).abs() < 0.01);
+            let Some(b) = subs_bbox(std::slice::from_ref(sp)) else {
+                continue;
+            };
+            if !axis || (b.width() < 3.0 && b.height() < 3.0) {
+                continue;
+            }
+            if b.height() <= 3.0 {
+                self.rules.push((b.x0, b.x1, (b.y0 + b.y1) / 2.0));
+            } else if b.width() <= 3.0 {
+                self.vrules.push((b.y0, b.y1, (b.x0 + b.x1) / 2.0));
+            } else {
+                self.rules.push((b.x0, b.x1, b.y0));
+                self.rules.push((b.x0, b.x1, b.y1));
+                self.vrules.push((b.y0, b.y1, b.x0));
+                self.vrules.push((b.y0, b.y1, b.x1));
+            }
+        }
         let blend = self.blend_attr();
         let mut fill = fill;
         let mut shape = t.clone();
@@ -1604,63 +1755,147 @@ impl<'a> Interp<'a> {
                 self.draw_image(&s.dict, &s.data, res, Some(key));
             }
             Some("Form") => {
-                if self.depth >= 12 {
-                    return;
-                }
-                self.flush_text();
                 let s = s.clone();
-                let m = pdf.nums(pdf.get(&s.dict, "Matrix"));
-                let saved_gs = self.gs.clone();
-                let saved_stack = self.stack.len();
-                let saved_path = std::mem::take(&mut self.path);
-                if m.len() >= 6 {
-                    let fm = Affine {
-                        a: m[0],
-                        b: m[1],
-                        c: m[2],
-                        d: m[3],
-                        e: m[4],
-                        f: m[5],
-                    };
-                    self.gs.ctm = self.gs.ctm.then_before(&fm);
-                }
-                let is_group = pdf.get(&s.dict, "Group").dict().is_some();
-                let blend = css_blend(&self.gs.blend);
-                let wrap = is_group && (self.gs.fa < 0.999 || blend.is_some());
-                let open_layer = self.target();
-                if wrap {
-                    let mut tag = String::from("<g");
-                    if self.gs.fa < 0.999 {
-                        tag.push_str(&format!(" opacity=\"{}\"", num(self.gs.fa)));
-                    }
-                    if let Some(b) = &blend {
-                        tag.push_str(&format!(" mix-blend-mode=\"{b}\""));
-                    }
-                    tag.push('>');
-                    self.emit(&tag);
-                    self.gs.fa = 1.0;
-                    self.gs.sa = 1.0;
-                    self.gs.blend = "Normal".into();
-                }
-                let fres: Dict = pdf
-                    .get(&s.dict, "Resources")
-                    .dict()
-                    .cloned()
-                    .unwrap_or_else(|| res.clone());
-                let (content, _) = pdf.stream_data(&s);
-                self.depth += 1;
-                self.exec(&content, &fres);
-                self.flush_text();
-                self.depth -= 1;
-                if wrap {
-                    let b = &mut self.layers[open_layer].body;
-                    b.push_str("    </g>\n");
-                }
-                self.stack.truncate(saved_stack);
-                self.gs = saved_gs;
-                self.path = saved_path;
+                self.draw_form(&s, Affine::IDENTITY, res);
             }
             _ => {}
+        }
+    }
+
+    /// Formular (eigener Inhalt) zeichnen; `extra` liegt zwischen der aktuellen Lage und der
+    /// Matrix des Formulars (für Anmerkungen: ihr Rechteck auf der Seite).
+    fn draw_form(&mut self, s: &Rc<Strm>, extra: Affine, res: &Dict) {
+        let pdf = self.pdf;
+        if self.depth >= 12 {
+            return;
+        }
+        self.flush_text();
+        let m = pdf.nums(pdf.get(&s.dict, "Matrix"));
+        let saved_gs = self.gs.clone();
+        let saved_stack = self.stack.len();
+        let saved_path = std::mem::take(&mut self.path);
+        self.gs.ctm = self.gs.ctm.then_before(&extra);
+        if m.len() >= 6 {
+            let fm = Affine {
+                a: m[0],
+                b: m[1],
+                c: m[2],
+                d: m[3],
+                e: m[4],
+                f: m[5],
+            };
+            self.gs.ctm = self.gs.ctm.then_before(&fm);
+        }
+        let is_group = pdf.get(&s.dict, "Group").dict().is_some();
+        let blend = css_blend(&self.gs.blend);
+        let wrap = is_group && (self.gs.fa < 0.999 || blend.is_some());
+        let open_layer = self.target();
+        if wrap {
+            let mut tag = String::from("<g");
+            if self.gs.fa < 0.999 {
+                tag.push_str(&format!(" opacity=\"{}\"", num(self.gs.fa)));
+            }
+            if let Some(b) = &blend {
+                tag.push_str(&format!(" mix-blend-mode=\"{b}\""));
+            }
+            tag.push('>');
+            self.emit(&tag);
+            self.gs.fa = 1.0;
+            self.gs.sa = 1.0;
+            self.gs.blend = "Normal".into();
+        }
+        let fres: Dict = pdf
+            .get(&s.dict, "Resources")
+            .dict()
+            .cloned()
+            .unwrap_or_else(|| res.clone());
+        let (content, _) = pdf.stream_data(s);
+        self.depth += 1;
+        self.exec(&content, &fres);
+        self.flush_text();
+        self.depth -= 1;
+        if wrap {
+            let b = &mut self.layers[open_layer].body;
+            b.push_str("    </g>\n");
+        }
+        self.stack.truncate(saved_stack);
+        self.gs = saved_gs;
+        self.path = saved_path;
+    }
+
+    /// Anmerkungen der Seite (Markierungen, Stempel, ausgefüllte Formularfelder …) mit ihrem
+    /// Aussehen zeichnen – über dem Inhalt, wie ein PDF-Betrachter. Ausgeblendete nicht.
+    fn draw_annotations(&mut self, page: &Dict) {
+        let pdf = self.pdf;
+        let Obj::Arr(annots) = pdf.get(page, "Annots") else {
+            return;
+        };
+        for a in annots {
+            let Some(ad) = pdf.res(a).dict() else { continue };
+            let flags = pdf.num(ad, "F").unwrap_or(0.0) as u32;
+            // ausgeblendet (2) oder nicht zum Ansehen (32)
+            if flags & (2 | 32) != 0 || pdf.get(ad, "Subtype").name() == Some("Popup") {
+                continue;
+            }
+            let Some(ap) = pdf.get(ad, "AP").dict() else {
+                continue;
+            };
+            let strm = match pdf.get(ap, "N") {
+                Obj::Stream(st) => st.clone(),
+                // mehrere Zustände (z. B. Ankreuzfelder): der gewählte
+                Obj::Dict(states) => {
+                    let Some(name) = pdf.get(ad, "AS").name() else {
+                        continue;
+                    };
+                    match states.get(name).map(|o| pdf.res(o)) {
+                        Some(Obj::Stream(st)) => st.clone(),
+                        _ => continue,
+                    }
+                }
+                _ => continue,
+            };
+            let r = pdf.nums(pdf.get(ad, "Rect"));
+            let bb = pdf.nums(pdf.get(&strm.dict, "BBox"));
+            if r.len() < 4 || bb.len() < 4 {
+                continue;
+            }
+            let m = pdf.nums(pdf.get(&strm.dict, "Matrix"));
+            let fm = if m.len() >= 6 {
+                Affine {
+                    a: m[0],
+                    b: m[1],
+                    c: m[2],
+                    d: m[3],
+                    e: m[4],
+                    f: m[5],
+                }
+            } else {
+                Affine::IDENTITY
+            };
+            // umgerechnetes Formularrechteck auf das Rechteck der Anmerkung bringen
+            let mut tb = rect_of(fm.apply(Pt::new(bb[0], bb[1])), fm.apply(Pt::new(bb[2], bb[3])));
+            for p in [Pt::new(bb[0], bb[3]), Pt::new(bb[2], bb[1])] {
+                tb = tb.union(&rect_of(fm.apply(p), fm.apply(p)));
+            }
+            let (rx0, rx1) = (r[0].min(r[2]), r[0].max(r[2]));
+            let (ry0, ry1) = (r[1].min(r[3]), r[1].max(r[3]));
+            if tb.width() < 1e-6 || tb.height() < 1e-6 || rx1 - rx0 < 1e-6 || ry1 - ry0 < 1e-6 {
+                continue;
+            }
+            let (sx, sy) = ((rx1 - rx0) / tb.width(), (ry1 - ry0) / tb.height());
+            let fit = Affine {
+                a: sx,
+                b: 0.0,
+                c: 0.0,
+                d: sy,
+                e: rx0 - tb.x0 * sx,
+                f: ry0 - tb.y0 * sy,
+            };
+            self.flush_text();
+            self.gs = Gs::new(self.base);
+            self.stack.clear();
+            self.path.clear();
+            self.draw_form(&strm, fit, &Dict::new());
         }
     }
 
@@ -2071,6 +2306,9 @@ impl<'a> Interp<'a> {
         }
         let Some(d) = pdf.res(fo).dict() else { return };
         let f = Rc::new(load_font(pdf, d, self.exists));
+        if !f.family.is_empty() && !(self.exists)(&f.family) {
+            self.missing_fonts.insert(f.family.clone());
+        }
         if let Some(k) = key {
             self.fonts.insert(k, f.clone());
         }
@@ -2102,11 +2340,16 @@ impl<'a> Interp<'a> {
         let start_tm = self.tm;
         let mut text = String::new();
         let mut undecodable = false;
+        // nach einem Sprung zurück: der nächste Buchstabe steht unter einem Akzent
+        let mut back = false;
         for it in items {
             match it {
                 TextItem::Adj(v) => {
+                    back = *v > 100.0;
                     let tx = -v / 1000.0 * self.gs.fs * self.gs.th;
-                    if -v > 250.0 && !text.ends_with(' ') && !text.is_empty() {
+                    // ein deutlicher Sprung nach rechts ist ein Wortabstand (Blocksatz setzt
+                    // Wörter oft nur so, ohne Leerzeichen)
+                    if -v > 150.0 && !text.ends_with(' ') && !text.is_empty() {
                         text.push(' ');
                     }
                     self.tm = self.tm.then_before(&Affine::translate(tx, 0.0));
@@ -2116,7 +2359,12 @@ impl<'a> Interp<'a> {
                         if t.is_empty() && code != 32 {
                             undecodable = true;
                         }
-                        text.push_str(&t);
+                        if std::mem::take(&mut back) {
+                            let rest = join_accent(&mut text, &t);
+                            text.push_str(rest);
+                        } else {
+                            text.push_str(&t);
+                        }
                         let mut tx = w / 1000.0 * self.gs.fs + self.gs.tc;
                         if code == 32 && !font.two {
                             tx += self.gs.tw;
@@ -2136,7 +2384,7 @@ impl<'a> Interp<'a> {
             return;
         }
         self.note(tr(
-            "Fonts are replaced by installed fonts; line breaks stay as separate lines of text",
+            "Fonts are replaced by installed fonts; lines of text were combined into text boxes where possible",
         ));
         let gm = self.glyph_matrix(&start_tm);
         let s = (gm.a * gm.a + gm.b * gm.b).sqrt();
@@ -2222,13 +2470,36 @@ impl<'a> Interp<'a> {
         );
         let layer = self.target();
         if let Some(p) = &mut self.pending {
-            if p.sig == sig && p.layer == layer && p.end.dist(origin) < p.size * 0.35 {
-                p.text.push_str(&text);
+            let level = (origin.y - p.end.y).abs() < p.size * 0.05;
+            // TeX setzt Akzente als eigenes Zeichen über den Buchstaben: der nächste beginnt
+            // dann vor dem Ende des vorigen
+            let back = level && origin.x < p.end.x && p.end.x - origin.x < p.size * 0.8;
+            if p.sig == sig && p.layer == layer && (p.end.dist(origin) < p.size * 0.35 || back) {
+                // waagerechte Lücke zwischen zwei Stücken einer Zeile: Wortabstand
+                let gap = origin.x - p.end.x;
+                if level && gap > p.size * 0.15 && !p.text.ends_with(' ') && !text.starts_with(' ') {
+                    p.text.push(' ');
+                }
+                let rest = if back {
+                    join_accent(&mut p.text, &text)
+                } else {
+                    &text
+                };
+                p.text.push_str(rest);
                 p.end = end;
                 return;
             }
         }
         self.flush_text();
+        let blockable = plain
+            && fill_only
+            && self.gs.tc.abs() < 1e-6
+            && self.gs.rise.abs() < 1e-6
+            && self.blend_attr().is_empty();
+        let mut color = format!(" fill=\"{}\"", hex(self.gs.fill.flat()));
+        if self.gs.fa < 0.999 {
+            color.push_str(&format!(" fill-opacity=\"{}\"", num(self.gs.fa)));
+        }
         self.pending = Some(PText {
             sig,
             end,
@@ -2236,13 +2507,370 @@ impl<'a> Interp<'a> {
             text,
             layer,
             size: s,
+            origin,
+            blockable,
+            family: font.family.clone(),
+            bold: font.bold,
+            italic: font.italic,
+            color,
         });
     }
 
     fn flush_text(&mut self) {
         if let Some(p) = self.pending.take() {
+            self.page_drawn = true;
             let line = format!("    {}>{}</text>\n", p.head, escape(&p.text));
-            self.layers[p.layer].body.push_str(&line);
+            if !p.blockable {
+                self.layers[p.layer].body.push_str(&line);
+                return;
+            }
+            // Platzhalter an der Stelle der Zeile (die Stapelfolge bleibt), am Seitenende
+            // durch die Zeile oder ihr Textfeld ersetzt
+            let id = self.lines.len();
+            self.layers[p.layer].body.push_str(&format!("\u{1}{id}\u{1}\n"));
+            self.lines.push(Frag {
+                layer: p.layer,
+                x0: p.origin.x,
+                x1: p.end.x.max(p.origin.x),
+                y: p.origin.y,
+                size: p.size,
+                family: p.family,
+                bold: p.bold,
+                italic: p.italic,
+                color: p.color,
+                single: line,
+                text: p.text,
+            });
+        }
+    }
+
+    /// Textstücke der Seite zu Textfeldern zusammenfassen: Stücke, die auf derselben
+    /// Grundlinie aneinander anschließen, sind eine Zeile (auch in verschiedenen Schriften);
+    /// Zeilen in derselben Farbe und Größe, die mit gleichmäßigem Abstand untereinander stehen
+    /// und links, rechts oder mittig bündig sind, werden ein Textfeld. Zeilen, die bis an den
+    /// rechten Rand reichen, laufen im Absatz weiter, kürzere beenden ihn.
+    fn flush_blocks(&mut self) {
+        self.flush_text();
+        let frags = std::mem::take(&mut self.lines);
+        let rules = std::mem::take(&mut self.rules);
+        let vrules = std::mem::take(&mut self.vrules);
+        if frags.is_empty() {
+            return;
+        }
+        // liegt eine Kante (Tabellenzelle, Linie) zwischen zwei Zeilen?
+        let ruled = |a: &Line, b: &Line| {
+            let (top, bottom) = (a.y.min(b.y), a.y.max(b.y));
+            let (x0, x1) = (a.x0.min(b.x0), a.x1.max(b.x1));
+            rules.iter().any(|&(rx0, rx1, ry)| {
+                ry > top + a.size * 0.1 && ry < bottom - b.size * 0.5 && rx0 < x1 && rx1 > x0
+            })
+        };
+        // Zeilen
+        let mut lines: Vec<Line> = Vec::new();
+        for (i, f) in frags.iter().enumerate() {
+            if let Some(l) = lines.last_mut() {
+                // eine senkrechte Kante (Tabellenzelle) zwischen beiden trennt sie
+                let walled = vrules.iter().any(|&(y0, y1, x)| {
+                    x > l.x1 - l.size * 0.1 && x < f.x0 + f.size * 0.1 && y0 < f.y && y1 > f.y - f.size * 0.5
+                });
+                let joins = !walled
+                    && l.layer == f.layer
+                    && l.color == f.color
+                    && (f.y - l.y).abs() < l.size.min(f.size) * 0.3
+                    && f.x0 >= l.x1 - l.size * 0.8
+                    && f.x0 - l.x1 < l.size * 1.5;
+                if joins {
+                    l.frags.push(i);
+                    l.x1 = l.x1.max(f.x1);
+                    continue;
+                }
+            }
+            lines.push(Line {
+                frags: vec![i],
+                layer: f.layer,
+                x0: f.x0,
+                x1: f.x1,
+                y: f.y,
+                size: f.size,
+                color: f.color.clone(),
+            });
+        }
+        // rechter Rand des Textes auf der Seite: Absätze, die bis dorthin reichen, sind
+        // umbrochener Fließtext; kürzere Zeilen (Listen, Adressen) enden mit einem Umbruch
+        let page_right = lines.iter().map(|l| l.x1).fold(f64::MIN, f64::max);
+        // Zeile beginnt mit einem Aufzählungszeichen („3.“, „a)“, „•“): neuer Absatz
+        let list_start = |l: &Line| {
+            let t: String = l.frags.iter().map(|&i| frags[i].text.as_str()).collect();
+            let t = t.trim_start();
+            let mut words = t.split_whitespace();
+            let w = words.next().unwrap_or("");
+            let bullet = matches!(w, "•" | "◦" | "▪" | "‣" | "○" | "■" | "□" | "–" | "-" | "*" | "·");
+            let numbered = w.len() <= 4
+                && (w.ends_with('.') || w.ends_with(')'))
+                && w[..w.len() - 1]
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())
+                && w.len() >= 2;
+            bullet || numbered || t.starts_with('•')
+        };
+        // Blöcke: Nummern der Zeilen
+        let mut blocks: Vec<Vec<usize>> = Vec::new();
+        for (i, l) in lines.iter().enumerate() {
+            let tol = l.size * 0.6;
+            let fits = |b: &Vec<usize>| -> bool {
+                let first = &lines[b[0]];
+                let last = &lines[*b.last().unwrap()];
+                if first.layer != l.layer
+                    || first.color != l.color
+                    || (first.size - l.size).abs() > first.size * 0.1
+                {
+                    return false;
+                }
+                let dy = l.y - last.y;
+                if dy < l.size * 0.8 || dy > l.size * 2.2 || ruled(last, l) {
+                    return false;
+                }
+                // gleichmäßiger Zeilenabstand
+                if b.len() >= 2 {
+                    let pitch = (last.y - first.y) / (b.len() - 1) as f64;
+                    if (dy - pitch).abs() > l.size * 0.2 {
+                        return false;
+                    }
+                }
+                let left = (l.x0 - first.x0).abs() < tol;
+                let right = (l.x1 - first.x1).abs() < tol;
+                let centre = ((l.x0 + l.x1) / 2.0 - (first.x0 + first.x1) / 2.0).abs() < tol;
+                left || right || centre
+            };
+            match blocks.iter().rposition(fits) {
+                Some(k) if k + 4 >= blocks.len() => blocks[k].push(i),
+                _ => {
+                    // Ein einzeiliger Absatz und die erste Zeile des nächsten stehen weiter
+                    // auseinander als die folgenden Zeilen: die zweite Zeile gehört zum neuen
+                    // Textfeld
+                    let n = blocks.len();
+                    let steal = (n.saturating_sub(4)..n).rev().find(|&k| {
+                        let b = &blocks[k];
+                        b.len() == 2 && {
+                            let last = &lines[b[1]];
+                            let pitch = last.y - lines[b[0]].y;
+                            let dy = l.y - last.y;
+                            last.layer == l.layer
+                                && last.color == l.color
+                                && (last.size - l.size).abs() <= last.size * 0.1
+                                && dy >= l.size * 0.8
+                                && dy < pitch - l.size * 0.2
+                                && !ruled(last, l)
+                                && ((l.x0 - last.x0).abs() < tol || (l.x1 - last.x1).abs() < tol)
+                        }
+                    });
+                    match steal {
+                        Some(k) => {
+                            let last = blocks[k].pop().unwrap();
+                            blocks.push(vec![last, i]);
+                        }
+                        None => blocks.push(vec![i]),
+                    }
+                }
+            }
+        }
+        let mut out: Vec<Option<String>> = vec![None; frags.len()];
+        for b in &blocks {
+            let ls: Vec<&Line> = b.iter().map(|&i| &lines[i]).collect();
+            let first = ls[0];
+            // eine Zeile aus einem Stück bleibt Punkttext
+            if ls.len() == 1 && first.frags.len() == 1 {
+                out[first.frags[0]] = Some(frags[first.frags[0]].single.clone());
+                continue;
+            }
+            let base = &frags[first.frags[0]];
+            let size = first.size;
+            let tol = size * 0.6;
+            let x0 = ls.iter().map(|l| l.x0).fold(f64::MAX, f64::min);
+            let x1 = ls.iter().map(|l| l.x1).fold(f64::MIN, f64::max);
+            let left = ls.iter().all(|l| (l.x0 - first.x0).abs() < tol);
+            let right_but_last = ls[..ls.len() - 1].iter().all(|l| (l.x1 - x1).abs() < tol);
+            let right = ls.iter().all(|l| (l.x1 - first.x1).abs() < tol);
+            let centre = ls
+                .iter()
+                .all(|l| ((l.x0 + l.x1) / 2.0 - (first.x0 + first.x1) / 2.0).abs() < tol);
+            let align = if ls.len() == 1 || (left && !right_but_last) {
+                "left"
+            } else if left && ls.len() >= 3 {
+                "justify"
+            } else if left {
+                "left"
+            } else if centre {
+                "center"
+            } else if right {
+                "right"
+            } else {
+                "left"
+            };
+            let pitch = if ls.len() > 1 {
+                (ls[ls.len() - 1].y - first.y) / (ls.len() - 1) as f64
+            } else {
+                size * 1.2
+            };
+            let line_factor = (pitch / size).clamp(0.5, 5.0);
+            // Inhalt: Text mit abweichenden Schriften als <tspan>; Absätze: eine Zeile, die
+            // (fast) bis an den rechten Rand reicht, läuft weiter
+            let mut body = String::new();
+            let mut plain = String::new();
+            let same = |f: &Frag| {
+                f.family == base.family
+                    && f.bold == base.bold
+                    && f.italic == base.italic
+                    && (f.size - base.size).abs() < 0.01
+            };
+            // ein echter rechter Rand: Blocksatz, der Rand des Textes auf der Seite oder
+            // mehrere Zeilen, die bis dorthin reichen (sonst ist die längste Zeile nur die
+            // längste – etwa in einer Liste – und nichts läuft weiter)
+            let column_edge = align == "justify"
+                || x1 >= page_right - size * 2.0
+                || ls.iter().filter(|l| l.x1 >= x1 - size).count() >= 3;
+            for (k, l) in ls.iter().enumerate() {
+                if k > 0 {
+                    let prev = ls[k - 1];
+                    // die Zeile lief weiter, wenn das erste Wort der nächsten nicht mehr
+                    // hineingepasst hätte (sonst war es ein Zeilenumbruch, z. B. in Listen)
+                    let line_text: String = l.frags.iter().map(|&i| frags[i].text.as_str()).collect();
+                    let chars = line_text.trim().chars().count().max(1) as f64;
+                    let word = line_text
+                        .split_whitespace()
+                        .next()
+                        .map_or(0, |w| w.chars().count()) as f64;
+                    let word_w = (l.x1 - l.x0) * word / chars;
+                    let flows = align != "center"
+                        && ls.len() > 1
+                        && column_edge
+                        && !list_start(l)
+                        && prev.x1 >= x1 - size * 2.5
+                        && prev.x1 + size * 0.25 + word_w > x1 - size * 0.2;
+                    let next = frags[l.frags[0]].text.trim_start().chars().next();
+                    let mut tail = plain.chars().rev();
+                    let hyphen = tail.next() == Some('-') && tail.next().is_some_and(char::is_lowercase);
+                    // getrenntes Wort am Zeilenende: die Zeile läuft sicher weiter
+                    let flows =
+                        flows || (hyphen && align != "center" && next.is_some_and(char::is_lowercase));
+                    if flows && hyphen && body.ends_with('-') && next.is_some_and(char::is_lowercase) {
+                        // Trennstrich am Zeilenende: im Textfeld bricht die Zeile neu um
+                        plain.pop();
+                        body.pop();
+                    } else if flows {
+                        if !plain.ends_with('-') && !plain.ends_with(' ') {
+                            body.push(' ');
+                            plain.push(' ');
+                        }
+                    } else {
+                        while plain.ends_with(' ') {
+                            plain.pop();
+                            body.pop();
+                        }
+                        body.push('\n');
+                        plain.push('\n');
+                    }
+                }
+                for (n, &fi) in l.frags.iter().enumerate() {
+                    let f = &frags[fi];
+                    let mut t = f.text.as_str();
+                    if n == 0 && k > 0 {
+                        t = t.trim_start();
+                    }
+                    if n > 0 {
+                        // Lücke zwischen zwei Stücken: Wortabstand
+                        let prev = &frags[l.frags[n - 1]];
+                        if f.x0 - prev.x1 > f.size * 0.15 && !plain.ends_with(' ') && !t.starts_with(' ') {
+                            body.push(' ');
+                            plain.push(' ');
+                        }
+                    }
+                    if t.is_empty() {
+                        continue;
+                    }
+                    let overlaps = n > 0 && f.x0 < frags[l.frags[n - 1]].x1 - f.size * 0.1;
+                    if overlaps && same(f) && body.ends_with(|c| accent_mark(c).is_some()) {
+                        // Buchstaben brauchen kein Escaping: in beiden gleich zusammenfügen
+                        join_accent(&mut body, t);
+                        t = join_accent(&mut plain, t);
+                    }
+                    plain.push_str(t);
+                    if same(f) {
+                        body.push_str(&escape(t));
+                    } else {
+                        let mut a = format!(
+                            " font-family=\"{}\" font-size=\"{}\"",
+                            escape(&f.family),
+                            num(f.size)
+                        );
+                        a.push_str(if f.bold {
+                            " font-weight=\"bold\""
+                        } else {
+                            " font-weight=\"normal\""
+                        });
+                        a.push_str(if f.italic {
+                            " font-style=\"italic\""
+                        } else {
+                            " font-style=\"normal\""
+                        });
+                        body.push_str(&format!("<tspan{a}>{}</tspan>", escape(t)));
+                    }
+                }
+            }
+            // etwas Luft, damit eine Ersatzschrift nicht anders umbricht
+            let w = (x1 - x0) * 1.02 + size * 0.3;
+            // etwas Luft unten, damit Unterlängen einer Ersatzschrift nicht abgeschnitten werden
+            let h = pitch * ls.len() as f64 + size * 0.3;
+            let mut head = format!(
+                " font-family=\"{}\" font-size=\"{}\"",
+                escape(&base.family),
+                num(base.size)
+            );
+            if base.bold {
+                head.push_str(" font-weight=\"bold\"");
+            }
+            if base.italic {
+                head.push_str(" font-style=\"italic\"");
+            }
+            head.push_str(&base.color);
+            let el = format!(
+                "    <text x=\"{}\" y=\"{}\"{head} xml:space=\"preserve\" mondrian:area=\"{} {}\" mondrian:align=\"{align}\" mondrian:line=\"{}\" mondrian:para=\"0\" mondrian:flow=\"0\" style=\"inline-size:{}px;white-space:pre-wrap;text-align:{align};line-height:{}\">{body}</text>\n",
+                num(x0),
+                num(first.y),
+                num(w),
+                num(h),
+                num(line_factor),
+                num(w),
+                num(line_factor),
+            );
+            let mut all: Vec<usize> = ls.iter().flat_map(|l| l.frags.iter().copied()).collect();
+            all.sort_unstable();
+            out[all[0]] = Some(el);
+            for &i in &all[1..] {
+                out[i] = Some(String::new());
+            }
+        }
+        // Platzhalter ersetzen
+        for layer in self.layers.iter_mut() {
+            if !layer.body.contains('\u{1}') {
+                continue;
+            }
+            let mut body = String::with_capacity(layer.body.len());
+            for line in layer.body.split_inclusive('\n') {
+                match line
+                    .strip_prefix('\u{1}')
+                    .and_then(|r| r.trim_end().strip_suffix('\u{1}'))
+                    .and_then(|n| n.parse::<usize>().ok())
+                {
+                    Some(n) => {
+                        if let Some(Some(s)) = out.get(n) {
+                            body.push_str(s);
+                        }
+                    }
+                    None => body.push_str(line),
+                }
+            }
+            layer.body = body;
         }
     }
 }
@@ -2266,13 +2894,78 @@ fn box_of(pdf: &Pdf, page: &Dict) -> Rect {
 
 /// Liest eine Illustrator-Datei (PDF-kompatibel) und liefert SVG-Text.
 /// `exists` fragt, ob eine Schriftfamilie installiert ist (Groß-/Kleinschreibung egal).
+#[cfg(test)]
 pub fn import(data: &[u8], exists: &dyn Fn(&str) -> bool) -> Result<Import, String> {
+    import_with(data, exists, false)
+}
+
+/// Lage einer Seite: bildet PDF-Koordinaten auf die Seite ab (oben links bei (0, 0), y nach
+/// unten, gedreht wie angezeigt), dazu Breite und Höhe der angezeigten Seite.
+pub fn page_matrix(pdf: &Pdf, page: &Dict) -> (Affine, f64, f64) {
+    let b = box_of(pdf, page);
+    let (w0, h0) = (b.width(), b.height());
+    let rot = pdf.num(page, "Rotate").unwrap_or(0.0) as i32;
+    let rot = rot.rem_euclid(360);
+    let flip = Affine {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: -1.0,
+        e: -b.x0,
+        f: b.y1,
+    };
+    let (rm, w, h) = match rot {
+        90 => (
+            Affine {
+                a: 0.0,
+                b: 1.0,
+                c: -1.0,
+                d: 0.0,
+                e: h0,
+                f: 0.0,
+            },
+            h0,
+            w0,
+        ),
+        180 => (
+            Affine {
+                a: -1.0,
+                b: 0.0,
+                c: 0.0,
+                d: -1.0,
+                e: w0,
+                f: h0,
+            },
+            w0,
+            h0,
+        ),
+        270 => (
+            Affine {
+                a: 0.0,
+                b: -1.0,
+                c: 1.0,
+                d: 0.0,
+                e: 0.0,
+                f: w0,
+            },
+            h0,
+            w0,
+        ),
+        _ => (Affine::IDENTITY, w0, h0),
+    };
+    (rm.then_before(&flip), w, h)
+}
+
+/// Wie `import`; `pages`: ein PDF – seine Seiten werden Seiten (statt Zeichenflächen) mit
+/// weißem bzw. ihrem eigenen Hintergrund, und das Dokument öffnet sich im Notizheft.
+pub fn import_with(data: &[u8], exists: &dyn Fn(&str) -> bool, as_pages: bool) -> Result<Import, String> {
     let pdf = Pdf::load(data)?;
     let pages = pdf.pages();
     if pages.is_empty() {
         return Err(tr("The file contains no pages").into());
     }
     let mut ix = Interp::new(&pdf, exists);
+    ix.pages = as_pages;
     // ausgeblendete Ebenen
     if let Some(ocp) = pdf.get(&pdf.root, "OCProperties").dict() {
         if let Some(d) = pdf.get(ocp, "D").dict() {
@@ -2287,60 +2980,10 @@ pub fn import(data: &[u8], exists: &dyn Fn(&str) -> bool) -> Result<Import, Stri
     }
     let mut x_off = 0.0;
     let mut max_h: f64 = 0.0;
-    let mut boards: Vec<(f64, f64, f64, f64)> = Vec::new();
+    let mut boards: Vec<(f64, f64, f64, f64, Option<[f64; 3]>)> = Vec::new();
     for page in pages.iter().take(MAX_PAGES) {
-        let b = box_of(&pdf, page);
-        let (w0, h0) = (b.width(), b.height());
-        let rot = pdf.num(page, "Rotate").unwrap_or(0.0) as i32;
-        let rot = rot.rem_euclid(360);
-        let flip = Affine {
-            a: 1.0,
-            b: 0.0,
-            c: 0.0,
-            d: -1.0,
-            e: -b.x0,
-            f: b.y1,
-        };
-        let (rm, w, h) = match rot {
-            90 => (
-                Affine {
-                    a: 0.0,
-                    b: 1.0,
-                    c: -1.0,
-                    d: 0.0,
-                    e: h0,
-                    f: 0.0,
-                },
-                h0,
-                w0,
-            ),
-            180 => (
-                Affine {
-                    a: -1.0,
-                    b: 0.0,
-                    c: 0.0,
-                    d: -1.0,
-                    e: w0,
-                    f: h0,
-                },
-                w0,
-                h0,
-            ),
-            270 => (
-                Affine {
-                    a: 0.0,
-                    b: -1.0,
-                    c: 1.0,
-                    d: 0.0,
-                    e: 0.0,
-                    f: w0,
-                },
-                h0,
-                w0,
-            ),
-            _ => (Affine::IDENTITY, w0, h0),
-        };
-        let base = Affine::translate(x_off, 0.0).then_before(&rm).then_before(&flip);
+        let (pm, w, h) = page_matrix(&pdf, page);
+        let base = Affine::translate(x_off, 0.0).then_before(&pm);
         ix.base = base;
         ix.gs = Gs::new(base);
         ix.stack.clear();
@@ -2349,35 +2992,62 @@ pub fn import(data: &[u8], exists: &dyn Fn(&str) -> bool) -> Result<Import, Stri
         ix.cur = None;
         ix.mc.clear();
         ix.oc_depth = 0;
+        ix.page_bg = None;
+        ix.page_drawn = false;
         let res: Dict = pdf.get(page, "Resources").dict().cloned().unwrap_or_default();
         let content = pdf.page_content(page);
         ix.exec(&content, &res);
-        ix.flush_text();
-        boards.push((x_off, 0.0, w, h));
+        ix.draw_annotations(page);
+        ix.flush_blocks();
+        // Seiten: weiß, wenn die Seite keinen eigenen Hintergrund hat
+        let bg = if as_pages {
+            Some(ix.page_bg.unwrap_or([1.0; 3]))
+        } else {
+            None
+        };
+        boards.push((x_off, 0.0, w, h, bg));
         x_off += w + PAGE_GAP;
         max_h = max_h.max(h);
     }
-    let total_w = (x_off - PAGE_GAP).max(1.0);
+    let _ = max_h;
+    // Die erste Seite ist die Hauptzeichenfläche, jede weitere eine eigene
+    let (_, _, w1, h1, bg1) = boards[0];
     let mut o = String::new();
     o.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     o.push_str(&format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\" \
 xmlns:sodipodi=\"http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" \
-xmlns:mondrian=\"https://mondrian.invalid/ns\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" mondrian:unit=\"px\">\n",
-        w = num(total_w),
-        h = num(max_h.max(1.0))
+xmlns:mondrian=\"https://mondrian.invalid/ns\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" mondrian:unit=\"px\"{p}>\n",
+        w = num(w1.max(1.0)),
+        h = num(h1.max(1.0)),
+        p = if as_pages { " mondrian:pages=\"true\"" } else { "" }
     ));
-    if boards.len() > 1 {
-        for (i, (x, y, w, h)) in boards.iter().enumerate() {
-            o.push_str(&format!(
-                "  <mondrian:artboard x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" name=\"{}\"/>\n",
-                num(*x),
-                num(*y),
-                num(*w),
-                num(*h),
-                crate::xml::escape(&trf("Artboard {}", &[&(i + 1)]))
-            ));
-        }
+    if let Some(c) = bg1 {
+        o.push_str(&format!(
+            "  <rect id=\"mondrian-background\" x=\"0\" y=\"0\" width=\"{}\" height=\"{}\" fill=\"{}\" sodipodi:insensitive=\"true\"/>\n",
+            num(w1),
+            num(h1),
+            hex(c)
+        ));
+    }
+    for (i, (x, y, w, h, bg)) in boards.iter().enumerate().skip(1) {
+        let name = if as_pages {
+            trf("Page {}", &[&(i + 1)])
+        } else {
+            trf("Artboard {}", &[&(i + 1)])
+        };
+        let bg = match bg {
+            Some(c) => format!(" background=\"{}\"", hex(*c)),
+            None => " background=\"none\"".to_string(),
+        };
+        o.push_str(&format!(
+            "  <mondrian:artboard x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" name=\"{}\"{bg}/>\n",
+            num(*x),
+            num(*y),
+            num(*w),
+            num(*h),
+            crate::xml::escape(&name)
+        ));
     }
     let mut count = 0;
     for l in ix.layers.iter().filter(|l| !l.body.is_empty()) {
@@ -2402,6 +3072,7 @@ xmlns:mondrian=\"https://mondrian.invalid/ns\" width=\"{w}\" height=\"{h}\" view
     Ok(Import {
         svg: o,
         notes: ix.notes.into_iter().collect(),
+        missing_fonts: ix.missing_fonts.into_iter().collect(),
     })
 }
 
@@ -2624,6 +3295,169 @@ trailer\n<< /Root 1 0 R >>\n%%EOF\n",
             .as_bytes(),
         );
         out
+    }
+
+    fn two_pages(page1: &str, page2: &str) -> Vec<u8> {
+        format!(
+            "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+2 0 obj\n<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>\nendobj\n\
+3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R /Resources << /Font << /F0 7 0 R /F1 8 0 R >> >> >>\nendobj\n\
+4 0 obj\n<< /Length {} >>\nstream\n{page1}\nendstream\nendobj\n\
+5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 150] /Contents 6 0 R /Resources << >> >>\nendobj\n\
+6 0 obj\n<< /Length {} >>\nstream\n{page2}\nendstream\nendobj\n\
+7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 32 /LastChar 126 /Widths [{w}] >>\nendobj\n\
+8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /FirstChar 32 /LastChar 126 /Widths [{w}] >>\nendobj\n\
+trailer\n<< /Root 1 0 R >>\n%%EOF\n",
+            page1.len(),
+            page2.len(),
+            w = vec!["500"; 95].join(" ")
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn pdf_pages_backgrounds_and_text_boxes() {
+        let page1 = "1 0 0 rg 0 0 200 100 re f 0 g BT /F0 10 Tf 20 80 Td (Hello world one) Tj 0 -12 Td (two lines) Tj 0 -12 Td (end) Tj ET";
+        let page2 = "0 0 1 rg 10 10 20 20 re f";
+        let pdf = two_pages(page1, page2);
+        let imp = import_with(&pdf, &|_| false, true).unwrap();
+        let doc = crate::svg::read(&imp.svg).unwrap();
+        // eine Zeichenfläche je Seite (keine zusätzliche über alles), „Seite“ genannt
+        assert!(doc.pages);
+        assert_eq!((doc.width, doc.height), (200.0, 100.0));
+        assert_eq!(doc.artboards.len(), 1);
+        assert_eq!(doc.artboards[0].name, "Page 2");
+        assert_eq!((doc.artboards[0].w, doc.artboards[0].h), (300.0, 150.0));
+        assert_eq!(doc.artboard_rects()[0].0, "Page 1");
+        // die rote Fläche über die ganze Seite ist ihr Hintergrund, Seite 2 ist weiß
+        assert_eq!(doc.background, Some(Color::rgb(1.0, 0.0, 0.0)));
+        assert_eq!(doc.artboards[0].background, Some(Color::WHITE));
+        let objs: Vec<&crate::model::Object> = doc.layers.iter().flat_map(|l| &l.objects).collect();
+        assert_eq!(objs.len(), 2, "{}", imp.svg);
+        // die drei Zeilen sind ein Textfeld
+        let texts: Vec<&crate::model::Object> = objs.iter().copied().filter(|o| o.shape.is_text()).collect();
+        assert_eq!(texts.len(), 1, "{}", imp.svg);
+        match &texts[0].shape {
+            crate::model::Shape::TextArea { text, size, fmt, .. } => {
+                assert!(
+                    text.starts_with("Hello world one") && text.ends_with("end"),
+                    "{text:?}"
+                );
+                assert!((size - 10.0).abs() < 1e-6);
+                assert!((fmt.line - 1.2).abs() < 0.01, "{}", fmt.line);
+            }
+            s => panic!("{s:?}"),
+        }
+        // Illustrator: Zeichenflächen, kein Hintergrund
+        let imp = import_with(&pdf, &|_| false, false).unwrap();
+        let doc = crate::svg::read(&imp.svg).unwrap();
+        assert!(!doc.pages);
+        assert_eq!(doc.artboards.len(), 1);
+        assert_eq!(doc.artboards[0].name, "Artboard 2");
+        assert_eq!(doc.background, None);
+    }
+
+    #[test]
+    fn separate_text_stays_separate() {
+        // verschiedene Größen und weit auseinander: keine gemeinsamen Textfelder
+        let page1 = "BT /F0 20 Tf 20 80 Td (Title) Tj ET BT /F0 10 Tf 20 60 Td (Body text) Tj ET BT /F0 10 Tf 20 10 Td (Footer) Tj ET";
+        let imp = import_with(&two_pages(page1, ""), &|_| false, true).unwrap();
+        let doc = crate::svg::read(&imp.svg).unwrap();
+        let texts = doc
+            .layers
+            .iter()
+            .flat_map(|l| &l.objects)
+            .filter(|o| o.shape.is_text())
+            .count();
+        assert_eq!(texts, 3, "{}", imp.svg);
+    }
+
+    #[test]
+    fn mixed_fonts_hyphens_and_accents_stay_in_one_box() {
+        // ein fettes Wort mitten im Absatz, eine Trennung am Zeilenende, ein TeX-Akzent
+        let page1 = "BT /F0 10 Tf 20 80 Td [(one r\\210) 500 (ole )] TJ /F1 10 Tf (bold) Tj /F0 10 Tf ( three ex-) Tj 0 -12 Td (ample end) Tj ET";
+        let imp = import_with(&two_pages(page1, ""), &|_| false, true).unwrap();
+        // nicht installierte Schriften werden genannt
+        assert_eq!(
+            imp.missing_fonts,
+            vec!["Helvetica".to_string()],
+            "{:?}",
+            imp.missing_fonts
+        );
+        let installed = import_with(&two_pages(page1, ""), &|f| f == "Helvetica", true).unwrap();
+        assert!(installed.missing_fonts.is_empty());
+        let doc = crate::svg::read(&imp.svg).unwrap();
+        let texts: Vec<&crate::model::Object> = doc
+            .layers
+            .iter()
+            .flat_map(|l| &l.objects)
+            .filter(|o| o.shape.is_text())
+            .collect();
+        assert_eq!(texts.len(), 1, "{}", imp.svg);
+        match &texts[0].shape {
+            crate::model::Shape::TextArea { text, bold, rich, .. } => {
+                assert!(!bold);
+                assert!(text.starts_with("one ro\u{302}le bold"), "{text:?}");
+                assert!(text.ends_with("bold three example end"), "{text:?}");
+                let b = text.find("bold").unwrap();
+                assert!(
+                    rich.runs
+                        .iter()
+                        .any(|r| r.start <= b && r.end >= b + 4 && r.style.bold == Some(true)),
+                    "{:?}",
+                    rich.runs
+                );
+            }
+            s => panic!("{s:?}"),
+        }
+        // ein Akzent, der nicht über dem Buchstaben steht, bleibt (Bendix´s)
+        let imp = import_with(
+            &two_pages("BT /F0 10 Tf 20 80 Td (it\\264s) Tj ET", ""),
+            &|_| false,
+            true,
+        )
+        .unwrap();
+        assert!(imp.svg.contains("it´s"), "{}", imp.svg);
+    }
+
+    #[test]
+    fn table_cells_stay_apart_and_lists_keep_their_spacing() {
+        // zwei Tabellenzeilen (Kopf und Wert) mit einer Zellkante dazwischen, daneben eine
+        // Spalte in einer eigenen Zelle; darunter eine Liste mit kurzen Zeilen
+        let page1 = "0 0.5 0 rg 10 70 80 28 re f 0 g 10 84 80 0.5 re f 50 70 0.5 28 re f \
+            1 g BT /F0 10 Tf 20 88 Td (Datum) Tj ET BT /F0 10 Tf 20 74 Td (19.10.2026) Tj ET \
+            BT /F0 10 Tf 40 88 Td (Beginn) Tj ET \
+            0 g BT /F0 10 Tf 20 50 Td (Begr\\374\\337ung) Tj 0 -12 Td (Beschlussf\\344higkeit pr\\374fen) Tj 0 -12 Td (Protokoll genehmigen) Tj ET \
+            BT /F0 10 Tf 20 8 Td (Ein langer Absatz reicht bis an den Rand xx) Tj ET";
+        let imp = import_with(&two_pages(page1, ""), &|_| false, true).unwrap();
+        let doc = crate::svg::read(&imp.svg).unwrap();
+        let texts: Vec<String> = doc
+            .layers
+            .iter()
+            .flat_map(|l| &l.objects)
+            .filter_map(|o| o.shape.text_fields().map(|t| t.0.to_string()))
+            .collect();
+        assert!(texts.contains(&"Datum".to_string()), "{texts:?}");
+        assert!(texts.contains(&"19.10.2026".to_string()), "{texts:?}");
+        // die Zellkante zwischen „Datum“ und „Beginn“ trennt die Zeile
+        assert!(texts.contains(&"Beginn".to_string()), "{texts:?}");
+        // Liste: ein Textfeld ohne zusätzlichen Absatzabstand (die Zeilen bleiben, wo sie waren)
+        let list = doc
+            .layers
+            .iter()
+            .flat_map(|l| &l.objects)
+            .find_map(|o| match &o.shape {
+                crate::model::Shape::TextArea { text, fmt, .. } if text.starts_with("Begr") => {
+                    Some((text.clone(), fmt.para))
+                }
+                _ => None,
+            })
+            .expect("Textfeld");
+        assert_eq!(
+            list.0,
+            "Begrüßung\nBeschlussfähigkeit prüfen\nProtokoll genehmigen"
+        );
+        assert_eq!(list.1, 0.0);
     }
 
     /// Präparierte Dateien: Endlosschleifen, Selbstbezüge und Speicherfresser dürfen weder

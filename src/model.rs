@@ -487,6 +487,7 @@ impl Shape {
             italic,
             underline: fmt.underline,
             strike: fmt.strike,
+            color: None,
         })
     }
 
@@ -1261,6 +1262,16 @@ impl Style {
         }
     }
 
+    /// Effekte entfernen (Schatten, Licht, Glas, Material, Kunst- und 3D-Effekte, Bildfilter,
+    /// Farbüberlagerung): neue Objekte übernehmen nur Farben, Kontur und Schrift – Effekte
+    /// kommen erst nachträglich dazu.
+    pub fn strip_effects(&mut self) {
+        self.fx = Effects::default();
+        self.shadow = None;
+        self.shadow_gradient = None;
+        self.blend = Blend::Normal;
+    }
+
     /// Farbe (und Verlauf) setzen; `None` schaltet Füllung, Kontur bzw. Schatten ab.
     pub fn set_paint(&mut self, t: PaintTarget, c: Option<Color>, g: Option<Gradient>) {
         // eine von Hand gewählte Farbe ist nicht mehr mit der Bibliothek verknüpft
@@ -1724,6 +1735,9 @@ pub struct Object {
     pub locked: bool,
     /// Optionaler Name (in SVG als inkscape:label)
     pub name: String,
+    /// Tabelle oder Diagramm: dieses Objekt ist der Rahmen, aus seinen Daten werden die
+    /// übrigen Objekte seiner Gruppe gebaut (siehe `smart`)
+    pub smart: Option<Box<crate::smart::Smart>>,
 }
 
 impl Object {
@@ -1819,6 +1833,110 @@ pub struct TextFrame {
     pub stroke: Option<Color>,
     pub width: f64,
     pub inset: f64,
+    /// Text weicht Tabellen, Diagrammen und Bildern davor nicht aus
+    pub no_flow: bool,
+    /// Fließtext des Notizhefts: ein Feld je Seite, der Text läuft von Seite zu Seite
+    /// (die Felder verwaltet der Editor)
+    pub body: bool,
+    /// Fließtext: der erste Absatz setzt den letzten Absatz der vorigen Seite fort (sonst
+    /// beginnt mit dem Feld ein neuer Absatz)
+    pub joined: bool,
+    /// Flächen davor, denen der Text ausweicht (Vielecke in lokalen Koordinaten, auf das
+    /// Feld begrenzt, ohne Überschneidungen). Wird laufend aus der Zeichnung bestimmt und
+    /// nicht gespeichert.
+    pub holes: Vec<Vec<Pt>>,
+    /// Kopf- bzw. Fußzeile des Notizhefts (`BAND_HEADER`, `BAND_FOOTER`; 0: keine): ein
+    /// Feld je Seite, auf allen Seiten derselbe Text (die Felder verwaltet der Editor)
+    pub band: u8,
+    /// Kopf-/Fußzeile, vom Editor gesetzt und nicht gespeichert: Seitenzahl, Seitenanzahl
+    /// und Datum für die Felder; `editing`: wird gerade bearbeitet (Felder als Platzhalter)
+    pub page_no: u32,
+    pub page_count: u32,
+    pub date: String,
+    pub editing: bool,
+}
+
+/// Kopfzeile (`TextFrame::band`).
+pub const BAND_HEADER: u8 = 1;
+/// Fußzeile (`TextFrame::band`).
+pub const BAND_FOOTER: u8 = 2;
+
+/// Felder in Kopf- und Fußzeilen (Zeichen des privaten Bereichs): Seitenzahl, Seitenanzahl,
+/// Datum (des letzten Speicherns).
+pub const FIELD_PAGE: char = '\u{E010}';
+pub const FIELD_PAGES: char = '\u{E011}';
+pub const FIELD_DATE: char = '\u{E012}';
+
+/// Ist `c` ein Feld (Seitenzahl, Seitenanzahl, Datum)?
+pub fn is_field(c: char) -> bool {
+    matches!(c, FIELD_PAGE | FIELD_PAGES | FIELD_DATE)
+}
+
+/// Kopf-/Fußzeile, wie sie auf ihrer Seite erscheint: Felder durch ihre Werte ersetzt (das
+/// Format der Zeichen läuft mit). `None`: nichts zu ersetzen (auch während der Bearbeitung).
+pub fn band_display(sh: &Shape) -> Option<Shape> {
+    let Shape::TextArea {
+        text, frame, rich, ..
+    } = sh
+    else {
+        return None;
+    };
+    if frame.band == 0 || frame.editing || !text.chars().any(is_field) {
+        return None;
+    }
+    let mut t = text.clone();
+    let mut r = rich.clone();
+    while let Some((i, c)) = t.char_indices().find(|(_, c)| is_field(*c)) {
+        let value = match c {
+            FIELD_PAGE => frame.page_no.max(1).to_string(),
+            FIELD_PAGES => frame.page_count.max(1).to_string(),
+            _ => frame.date.clone(),
+        };
+        let new = format!("{}{}{}", &t[..i], value, &t[i + c.len_utf8()..]);
+        r.edit(&t, &new);
+        t = new;
+    }
+    let mut out = sh.clone();
+    if let Shape::TextArea { text, rich, .. } = &mut out {
+        *text = t;
+        *rich = r;
+    }
+    Some(out)
+}
+
+impl TextFrame {
+    /// Zeilen folgen einer Form (eigene Form oder Aussparungen): jede Zeile so breit, wie
+    /// an ihrer Stelle Platz ist.
+    pub fn shaped(&self) -> bool {
+        self.path.is_some() || !self.holes.is_empty()
+    }
+
+    /// Fläche für die Zeilen: eigene Form bzw. das Feld (`w` × `h`), dazu die Aussparungen
+    /// (gerade-ungerade: sie liegen innen und überschneiden sich nicht).
+    pub fn flow_path(&self, w: f64, h: f64) -> Option<Vec<SubPath>> {
+        let mut subs = match &self.path {
+            Some(p) => crate::model::effective_subpaths(p),
+            None if !self.holes.is_empty() => vec![rect_subpath(Rect::from_xywh(0.0, 0.0, w, h))],
+            None => return None,
+        };
+        subs.extend(self.holes.iter().map(|r| SubPath {
+            nodes: r.iter().map(|p| Node::corner(*p)).collect(),
+            closed: true,
+        }));
+        Some(subs)
+    }
+}
+
+fn rect_subpath(r: Rect) -> SubPath {
+    SubPath {
+        nodes: vec![
+            Node::corner(Pt::new(r.x0, r.y0)),
+            Node::corner(Pt::new(r.x1, r.y0)),
+            Node::corner(Pt::new(r.x1, r.y1)),
+            Node::corner(Pt::new(r.x0, r.y1)),
+        ],
+        closed: true,
+    }
 }
 
 /// Welcher Teil eines gerahmten Bildes bearbeitet wird.
@@ -1915,12 +2033,39 @@ pub struct TextFormat {
     pub box_inset: f64,
     /// Strichstärke 1–1000 (400 normal, 700 fett); 0 = aus „fett“ abgeleitet
     pub weight: u16,
+    /// Abstand zwischen den Spalten (0: 1,5 × Schriftgröße)
+    pub col_gap: f64,
+    /// Breitenanteile der Spalten (0: gleich breit)
+    pub col_widths: [f64; MAX_COLUMNS as usize],
+    /// Einzug der ersten Zeile jedes Absatzes (Textfelder, Einheiten des Dokuments;
+    /// nicht bei Aufzählungen)
+    pub first: f64,
+    /// Zeilenabstand automatisch: jede Zeile so hoch, wie ihre größte Schrift es braucht
+    /// (`line` gilt erst, wenn ein fester Abstand eingestellt wird)
+    pub line_auto: bool,
+    /// Abstand vor jedem Absatz (Vielfaches der Schriftgröße; `para` ist der danach)
+    pub before: f64,
 }
 
 /// Höchste Spaltenzahl eines Textfeldes.
 pub const MAX_COLUMNS: u32 = 8;
 
+/// Seitenumbruch im Fließtext (wird wie ein Leerzeichen gesetzt; danach geht es auf der
+/// nächsten Seite weiter).
+pub const PAGE_BREAK: char = '\u{c}';
+
+/// Zeilenabstand (Vielfaches der Schriftgröße), wo „automatisch“ eine Zahl braucht.
+pub const AUTO_LINE: f64 = 1.2;
+
 impl TextFormat {
+    /// Abstand der Grundlinien als Vielfaches der Schriftgröße (automatisch: `AUTO_LINE`).
+    pub fn pitch_factor(&self) -> f64 {
+        if self.line_auto {
+            AUTO_LINE
+        } else {
+            self.line
+        }
+    }
     /// Wirksame Strichstärke bei Grundschnitt fett/normal.
     pub fn weight_for(&self, bold: bool) -> u16 {
         effective_weight(self.weight, bold)
@@ -1934,6 +2079,7 @@ impl TextFormat {
             stroke: self.box_stroke,
             width: self.box_width,
             inset: self.box_inset,
+            ..TextFrame::default()
         }
     }
 
@@ -1953,6 +2099,56 @@ impl TextFormat {
     /// Wirksame Spaltenzahl (1 bis `MAX_COLUMNS`).
     pub fn cols(&self) -> usize {
         self.columns.clamp(1, MAX_COLUMNS) as usize
+    }
+
+    /// Wirksamer Spaltenabstand bei Schriftgröße `size`.
+    pub fn gutter(&self, size: f64) -> f64 {
+        if self.col_gap > 0.0 {
+            self.col_gap
+        } else {
+            size * 1.5
+        }
+    }
+
+    /// Spalten in der Breite `width`: (Anfang, Breite) je Spalte.
+    pub fn column_spans(&self, width: f64, size: f64) -> Vec<(f64, f64)> {
+        let n = self.cols();
+        if n == 1 {
+            return vec![(0.0, width.max(1.0))];
+        }
+        let g = self.gutter(size);
+        let room = (width - g * (n - 1) as f64).max(n as f64);
+        let ws: Vec<f64> = (0..n)
+            .map(|i| {
+                if self.col_widths[i] > 0.0 {
+                    self.col_widths[i]
+                } else {
+                    1.0
+                }
+            })
+            .collect();
+        let sum: f64 = ws.iter().sum();
+        let mut x = 0.0;
+        ws.iter()
+            .map(|w| {
+                let cw = (room * w / sum).max(1.0);
+                let s = (x, cw);
+                x += cw + g;
+                s
+            })
+            .collect()
+    }
+
+    /// Breitenanteile aus den Spaltenbreiten `widths` (gleich breit: keine eigenen Anteile).
+    pub fn set_column_widths(&mut self, widths: &[f64]) {
+        let sum: f64 = widths.iter().sum();
+        let equal = widths.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-6);
+        for (i, v) in self.col_widths.iter_mut().enumerate() {
+            *v = match widths.get(i) {
+                Some(w) if !equal && sum > 0.0 => w / sum * widths.len() as f64,
+                _ => 0.0,
+            };
+        }
     }
 }
 
@@ -1977,6 +2173,11 @@ impl Default for TextFormat {
             box_width: 1.0,
             box_inset: 0.0,
             weight: 0,
+            col_gap: 0.0,
+            col_widths: [0.0; MAX_COLUMNS as usize],
+            first: 0.0,
+            line_auto: false,
+            before: 0.0,
         }
     }
 }
@@ -2088,6 +2289,8 @@ pub struct CharFmt {
     pub italic: bool,
     pub underline: bool,
     pub strike: bool,
+    /// eigene Textfarbe (`None`: die Füllung des Objekts)
+    pub color: Option<Color>,
 }
 
 /// Wirksame Strichstärke: angegeben oder aus fett/normal (700/400).
@@ -2142,6 +2345,8 @@ pub struct RunStyle {
     pub italic: Option<bool>,
     pub underline: Option<bool>,
     pub strike: Option<bool>,
+    /// eigene Farbe dieses Textteils
+    pub color: Option<Color>,
 }
 
 impl RunStyle {
@@ -2163,6 +2368,7 @@ impl RunStyle {
             italic: self.italic.unwrap_or(base.italic),
             underline: self.underline.unwrap_or(base.underline),
             strike: self.strike.unwrap_or(base.strike),
+            color: self.color.or(base.color),
         }
     }
 
@@ -2176,6 +2382,7 @@ impl RunStyle {
             italic: (eff.italic != base.italic).then_some(eff.italic),
             underline: (eff.underline != base.underline).then_some(eff.underline),
             strike: (eff.strike != base.strike).then_some(eff.strike),
+            color: if eff.color != base.color { eff.color } else { None },
         }
     }
 }
@@ -2194,6 +2401,53 @@ pub struct ParaFmt {
     pub list: ListStyle,
     /// Einzugsstufe
     pub indent: u8,
+    /// eigene Ausrichtung des Absatzes (`None`: die des Textes)
+    pub align: Option<Align>,
+    /// eigener Zeilenabstand (Vielfaches der Schriftgröße; 0: automatisch; `None`: der des
+    /// Textes)
+    pub line: Option<f64>,
+    /// Abstand vor bzw. nach dem Absatz (Vielfaches der Schriftgröße; `None`: die Abstände
+    /// des Textes)
+    pub before: Option<f64>,
+    pub after: Option<f64>,
+}
+
+impl ParaFmt {
+    /// Format des Textes mit den eigenen Angaben dieses Absatzes (Ausrichtung,
+    /// Zeilenabstand).
+    pub fn apply(&self, fmt: &TextFormat) -> TextFormat {
+        let mut f = *fmt;
+        if let Some(a) = self.align {
+            f.align = a;
+        }
+        match self.line {
+            Some(l) if l <= 0.0 => f.line_auto = true,
+            Some(l) => {
+                f.line = l;
+                f.line_auto = false;
+            }
+            None => {}
+        }
+        f
+    }
+
+    /// Abstand vor dem Absatz (Vielfaches der Schriftgröße).
+    pub fn space_before(&self, fmt: &TextFormat) -> f64 {
+        self.before.unwrap_or(fmt.before).max(0.0)
+    }
+
+    /// Abstand nach dem Absatz (Vielfaches der Schriftgröße).
+    pub fn space_after(&self, fmt: &TextFormat) -> f64 {
+        self.after.unwrap_or(fmt.para).max(0.0)
+    }
+
+    /// Nur Aufzählung und Einzug, sonst wie der Text.
+    pub fn plain(list: ListStyle) -> ParaFmt {
+        ParaFmt {
+            list,
+            ..ParaFmt::default()
+        }
+    }
 }
 
 /// Höchste Einzugsstufe.
@@ -2420,10 +2674,111 @@ impl RichText {
 
     /// Format von Absatz `i`.
     pub fn para(&self, i: usize, default_list: ListStyle) -> ParaFmt {
-        self.paras.get(i).copied().unwrap_or(ParaFmt {
-            list: default_list,
-            indent: 0,
-        })
+        self.paras.get(i).copied().unwrap_or(ParaFmt::plain(default_list))
+    }
+
+    /// Absatzformate für `n` Absätze (fehlende: Voreinstellung).
+    fn paras_filled(&self, n: usize, default_list: ListStyle) -> Vec<ParaFmt> {
+        (0..n).map(|i| self.para(i, default_list)).collect()
+    }
+
+    /// Leere Textteile entfernen; nur voreingestellte Absätze: keine eigenen Einträge.
+    pub fn tidy(mut self, default_list: ListStyle) -> RichText {
+        self.runs.retain(|r| r.end > r.start);
+        let plain = ParaFmt::plain(default_list);
+        if self.paras.iter().all(|p| *p == plain) {
+            self.paras.clear();
+        }
+        self
+    }
+
+    /// Zwei Texte mit ihren Formaten aneinanderfügen. `newline`: dazwischen beginnt ein
+    /// neuer Absatz; sonst läuft der letzte Absatz von `a` in `b` weiter (der erste Absatz
+    /// von `b` übernimmt dessen Format).
+    pub fn join(
+        a: &str,
+        ra: &RichText,
+        newline: bool,
+        b: &str,
+        rb: &RichText,
+        default_list: ListStyle,
+    ) -> (String, RichText) {
+        let mut text = String::with_capacity(a.len() + b.len() + 1);
+        text.push_str(a);
+        if newline {
+            text.push('\n');
+        }
+        text.push_str(b);
+        if ra.is_plain() && rb.is_plain() {
+            return (text, RichText::default());
+        }
+        let off = a.len() + usize::from(newline);
+        let mut runs = ra.runs.clone();
+        runs.extend(rb.runs.iter().map(|r| TextRun {
+            start: r.start + off,
+            end: r.end + off,
+            style: r.style.clone(),
+        }));
+        let mut paras = ra.paras_filled(a.matches('\n').count() + 1, default_list);
+        let pb = rb.paras_filled(b.matches('\n').count() + 1, default_list);
+        paras.extend_from_slice(if newline { &pb[..] } else { &pb[1..] });
+        (text, RichText { runs, paras }.tidy(default_list))
+    }
+
+    /// Text an Byte `at` teilen: (Format des Anfangs, Format des Rests). `newline`: bei
+    /// `at` steht ein Absatzumbruch, der wegfällt (der Rest beginnt einen neuen Absatz);
+    /// sonst setzt der Rest den geteilten Absatz fort.
+    pub fn split(
+        text: &str,
+        rich: &RichText,
+        at: usize,
+        newline: bool,
+        default_list: ListStyle,
+    ) -> (RichText, RichText) {
+        if rich.is_plain() {
+            return (RichText::default(), RichText::default());
+        }
+        let tail = at + usize::from(newline);
+        let head_runs = rich
+            .runs
+            .iter()
+            .filter(|r| r.start < at)
+            .map(|r| TextRun {
+                start: r.start,
+                end: r.end.min(at),
+                style: r.style.clone(),
+            })
+            .collect();
+        let tail_runs = rich
+            .runs
+            .iter()
+            .filter(|r| r.end > tail)
+            .map(|r| TextRun {
+                start: r.start.max(tail) - tail,
+                end: r.end - tail,
+                style: r.style.clone(),
+            })
+            .collect();
+        let all = rich.paras_filled(text.matches('\n').count() + 1, default_list);
+        let k = text[..at.min(text.len())].matches('\n').count();
+        let head_paras = all[..=k.min(all.len() - 1)].to_vec();
+        let tail_paras = if newline {
+            all.get(k + 1..).map(|p| p.to_vec()).unwrap_or_default()
+        } else {
+            all[k.min(all.len() - 1)..].to_vec()
+        };
+        (
+            RichText {
+                runs: head_runs,
+                paras: head_paras,
+            }
+            .tidy(default_list),
+            RichText {
+                runs: tail_runs,
+                paras: tail_paras,
+            }
+            .tidy(default_list),
+        )
     }
 
     /// Absätze im Bereich (None = alle) ändern.
@@ -2443,10 +2798,7 @@ impl RichText {
             ),
         };
         while self.paras.len() < n {
-            self.paras.push(ParaFmt {
-                list: default_list,
-                indent: 0,
-            });
+            self.paras.push(ParaFmt::plain(default_list));
         }
         self.paras.truncate(n);
         for p in &mut self.paras[pa..=pb.min(n - 1)] {
@@ -2677,6 +3029,23 @@ pub struct Effects {
     /// Abstand der Punkte (Dokumenteinheiten) und Winkel (Grad) der Rasterpunkte
     pub art_size: f64,
     pub art_angle: f64,
+    /// Text drängt weg: Textfelder dahinter machen dem Objekt Platz. `None`: wie es zur Art
+    /// des Objekts passt (Bilder, Tabellen und Diagramme ja, sonst nein)
+    pub wrap: Option<bool>,
+    /// Text wegdrängen: Abstand des Textes zum Objekt (Dokumenteinheiten; `None`: `WRAP_GAP`)
+    pub wrap_gap: Option<f64>,
+    /// Text wegdrängen: als Rechteck um das Objekt (sonst entlang seines Umrisses)
+    pub wrap_box: bool,
+}
+
+/// Abstand, den weggedrängter Text zum Objekt hält, wenn nichts eingestellt ist.
+pub const WRAP_GAP: f64 = 12.0;
+
+impl Effects {
+    /// Abstand des weggedrängten Textes zum Objekt.
+    pub fn wrap_gap(&self) -> f64 {
+        self.wrap_gap.unwrap_or(WRAP_GAP).max(0.0)
+    }
 }
 
 /// Abstand der Rasterpunkte, mit dem sie beginnen.
@@ -2725,6 +3094,9 @@ impl Default for Effects {
             mirror_gap: MIRROR_GAP,
             art_size: ART_SIZE,
             art_angle: ART_ANGLE,
+            wrap: None,
+            wrap_gap: None,
+            wrap_box: false,
         }
     }
 }
@@ -2805,6 +3177,15 @@ impl Effects {
         if (self.art_angle - ART_ANGLE).abs() > 1e-9 {
             v.push(format!("artangle={}", self.art_angle));
         }
+        if let Some(w) = self.wrap {
+            v.push(format!("wrap={}", w as u8));
+        }
+        if let Some(g) = self.wrap_gap {
+            v.push(format!("wrapgap={g}"));
+        }
+        if self.wrap_box {
+            v.push("wrapbox=1".to_string());
+        }
         v.join(" ")
     }
 
@@ -2848,6 +3229,15 @@ impl Effects {
                 },
                 "temp" => e.temp = v.parse::<f64>().ok().map_or(0.0, |x| x.clamp(-1.0, 1.0)),
                 "glow" => e.glow = v.parse::<f64>().ok().map(|x| x.clamp(0.0, 1.0)),
+                "wrap" => e.wrap = Some(v == "1"),
+                "wrapbox" => e.wrap_box = v == "1",
+                "wrapgap" => {
+                    e.wrap_gap = v
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|x| x.is_finite())
+                        .map(|x| x.clamp(0.0, 1000.0))
+                }
                 "inner" => e.inner = v.parse::<f64>().ok().map(|x| x.clamp(0.0, 1.0)),
                 "innerdist" | "innerblur" | "innerangle" | "mirrorlen" | "mirrorgap" | "glassgrain"
                 | "matangle" => {
@@ -3864,6 +4254,41 @@ impl Layer {
     }
 }
 
+/// Ansicht eines Dokuments: freie Zeichenflächen (wie in Illustrator), Seiten untereinander
+/// zum Schreiben und Gestalten (wie in Word) oder Ansehen und Vortragen (wie ein
+/// PDF-Betrachter).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ViewMode {
+    #[default]
+    Artboards,
+    Notebook,
+    Presentation,
+}
+
+impl ViewMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            ViewMode::Artboards => "artboards",
+            ViewMode::Notebook => "notebook",
+            ViewMode::Presentation => "presentation",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<ViewMode> {
+        match s {
+            "artboards" => Some(ViewMode::Artboards),
+            "notebook" => Some(ViewMode::Notebook),
+            "presentation" => Some(ViewMode::Presentation),
+            _ => None,
+        }
+    }
+
+    /// Seiten untereinander (Notizheft und Präsentation)?
+    pub fn pages(self) -> bool {
+        self != ViewMode::Artboards
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Document {
     pub width: f64,
@@ -3878,7 +4303,28 @@ pub struct Document {
     /// Weitere Zeichenflächen. Die erste (Haupt-)Zeichenfläche liegt immer bei (0, 0)
     /// und hat die Größe `width` × `height`.
     pub artboards: Vec<Artboard>,
+    /// Das Dokument besteht aus Seiten (z. B. aus einem PDF): Zeichenflächen heißen „Seite“,
+    /// und es öffnet sich im Notizheft (eine Seite zur Zeit).
+    pub pages: bool,
+    /// Name der ersten Zeichenfläche (leer: „Zeichenfläche 1“ bzw. „Seite 1“)
+    pub first_name: String,
+    /// Seite der Originaldatei (PDF) je Zeichenfläche, in der Reihenfolge von
+    /// `artboard_rects`; `usize::MAX` für eine neue Seite. Leer, wenn das Dokument nicht aus
+    /// einem PDF stammt. Wird nicht gespeichert.
+    pub page_src: Vec<usize>,
+    /// Ansicht, in der sich das Dokument öffnet
+    pub view: ViewMode,
+    /// Seitenränder des Fließtexts (oben, rechts, unten, links; Dokumenteinheiten), für alle
+    /// Seiten gleich
+    pub margins: [f64; 4],
+    /// Datum des letzten Speicherns (JJJJ-MM-TT; für das Datumsfeld der Kopf-/Fußzeilen)
+    pub date: String,
+    /// Kopf- und Fußzeile nicht auf der ersten Seite (Titelseite)
+    pub bands_skip_first: bool,
 }
+
+/// Voreingestellter Seitenrand: 20 mm.
+pub const DEFAULT_MARGIN: f64 = 20.0 * 96.0 / 25.4;
 
 /// Zusätzliche Zeichenfläche im selben Dokument.
 #[derive(Clone, Debug, PartialEq)]
@@ -3891,6 +4337,12 @@ pub struct Artboard {
     /// eigener Hintergrund (None = durchsichtig); die erste Zeichenfläche nutzt
     /// `Document::background`
     pub background: Option<Color>,
+    /// Lage in der Zeichenflächen-Ansicht, solange die Seiten untereinander stehen
+    /// (Notizheft, Präsentation); `None`: dort, wo sie gerade ist
+    pub free: Option<(f64, f64)>,
+    /// vom Fließtext angelegt: fällt wieder weg, wenn der Text sie nicht mehr braucht und
+    /// nichts anderes darauf liegt
+    pub auto: bool,
 }
 
 /// Gleiche Farbe (bis auf Rundung beim Speichern als #rrggbb).
@@ -4220,10 +4672,12 @@ impl Document {
 
     /// Alle Zeichenflächen: (Name, Rahmen); Index 0 ist die Hauptzeichenfläche.
     pub fn artboard_rects(&self) -> Vec<(String, Rect)> {
-        let mut v = vec![(
-            tr("Artboard 1").to_string(),
-            Rect::from_xywh(0.0, 0.0, self.width, self.height),
-        )];
+        let first = if self.first_name.is_empty() {
+            self.default_artboard_name(0)
+        } else {
+            self.first_name.clone()
+        };
+        let mut v = vec![(first, Rect::from_xywh(0.0, 0.0, self.width, self.height))];
         for a in &self.artboards {
             v.push((a.name.clone(), Rect::from_xywh(a.x, a.y, a.w, a.h)));
         }
@@ -4255,12 +4709,39 @@ impl Document {
             .unwrap_or(Rect::from_xywh(0.0, 0.0, self.width, self.height))
     }
 
+    /// Vorgegebener Name der Zeichenfläche an Stelle `i` (0 = erste): „Zeichenfläche 1“ bzw.
+    /// „Seite 1“.
+    pub fn default_artboard_name(&self, i: usize) -> String {
+        if self.pages {
+            trf("Page {}", &[&(i + 1)])
+        } else if i == 0 {
+            tr("Artboard 1").to_string()
+        } else {
+            trf("Artboard {}", &[&(i + 1)])
+        }
+    }
+
+    /// Trägt die Zeichenfläche an Stelle `i` einen vorgegebenen Namen (in dieser oder in der
+    /// Ausgangssprache)? Solche Namen werden beim Umsortieren neu durchgezählt.
+    pub fn is_default_artboard_name(&self, name: &str, i: usize) -> bool {
+        let n = i + 1;
+        name == self.default_artboard_name(i)
+            || name == trf("Page {}", &[&n])
+            || name == trf("Artboard {}", &[&n])
+            || name == format!("Page {n}")
+            || name == format!("Artboard {n}")
+    }
+
     /// Freier Name „Zeichenfläche n“.
     pub fn next_artboard_name(&self) -> String {
         let names: Vec<String> = self.artboard_rects().into_iter().map(|(n, _)| n).collect();
         let mut k = names.len() + 1;
         loop {
-            let n = trf("Artboard {}", &[&(k)]);
+            let n = if self.pages {
+                trf("Page {}", &[&(k)])
+            } else {
+                trf("Artboard {}", &[&(k)])
+            };
             if !names.contains(&n) {
                 return n;
             }
@@ -4304,6 +4785,13 @@ impl Document {
             unit: String::new(),
             guides: Vec::new(),
             artboards: Vec::new(),
+            pages: false,
+            first_name: String::new(),
+            page_src: Vec::new(),
+            view: ViewMode::Artboards,
+            margins: [DEFAULT_MARGIN; 4],
+            date: String::new(),
+            bands_skip_first: false,
         };
         let id = d.alloc_id();
         d.layers.push(Layer {
@@ -4471,6 +4959,7 @@ mod tests {
             mirror_gap: 10.0,
             art_size: 12.0,
             art_angle: 15.0,
+            wrap: Some(true),
             ..Effects::default()
         };
         let back = Effects::from_attr(&e.to_attr());
@@ -4536,6 +5025,7 @@ mod tests {
             italic: false,
             underline: false,
             strike: false,
+            color: None,
         };
         let mut r = RichText::default();
         // „Hallo Welt“: „Welt“ fett
@@ -4685,6 +5175,7 @@ mod tests {
                 sub: Vec::new(),
                 mask: false,
                 locked: false,
+                smart: None,
                 name: String::new(),
                 id,
                 shape: Shape::Line {

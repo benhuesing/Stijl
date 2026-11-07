@@ -60,6 +60,9 @@ pub fn local_name(n: &str) -> &str {
     n.rsplit(':').next().unwrap_or(n)
 }
 
+/// So steht ein Seitenumbruch (U+000C) in der Datei.
+pub const PAGE_BREAK_REF: &str = "&#xE00C;";
+
 pub fn escape(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     for c in s.chars() {
@@ -69,6 +72,9 @@ pub fn escape(s: &str) -> String {
             '>' => o.push_str("&gt;"),
             '"' => o.push_str("&quot;"),
             '\'' => o.push_str("&apos;"),
+            // Seitenumbruch: in XML 1.0 nicht erlaubt, daher als Zeichen des privaten
+            // Bereichs (wird beim Einlesen wieder zum Seitenumbruch)
+            '\u{c}' => o.push_str(PAGE_BREAK_REF),
             _ => o.push(c),
         }
     }
@@ -95,7 +101,10 @@ fn unescape(s: &str) -> String {
                     "apos" => Some('\''),
                     "nbsp" => Some('\u{a0}'),
                     _ if ent.starts_with("#x") || ent.starts_with("#X") => {
-                        u32::from_str_radix(&ent[2..], 16).ok().and_then(char::from_u32)
+                        match u32::from_str_radix(&ent[2..], 16).ok() {
+                            Some(0xE00C) => Some('\u{c}'),
+                            n => n.and_then(char::from_u32),
+                        }
                     }
                     _ if ent.starts_with('#') => ent[1..].parse().ok().and_then(char::from_u32),
                     _ => None,

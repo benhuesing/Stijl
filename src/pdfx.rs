@@ -927,9 +927,411 @@ pub fn convert(input: &[u8], opt: &Options) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+// ───────────────────────────── Seiten ordnen ─────────────────────────────
+
+/// Blätter des Seitenbaums: Nummer und Verzeichnis jeder Seite mit vererbten Eigenschaften;
+/// `nodes` sammelt die Zwischenknoten.
+fn page_leaves(
+    pdf: &Pdf,
+    id: u32,
+    inh: &Dict,
+    out: &mut Vec<(u32, Dict)>,
+    nodes: &mut HashSet<u32>,
+    depth: usize,
+) {
+    if depth > 64 || nodes.contains(&id) || out.iter().any(|(n, _)| *n == id) {
+        return;
+    }
+    let Some(d) = pdf.objs.get(&id).and_then(|o| o.dict()) else {
+        return;
+    };
+    let kids = match pdf.get(d, "Kids") {
+        Obj::Arr(k) if d.get("Type").and_then(Obj::name) != Some("Page") => Some(k.clone()),
+        _ => None,
+    };
+    match kids {
+        Some(kids) => {
+            nodes.insert(id);
+            let mut inh = inh.clone();
+            for k in ["Resources", "MediaBox", "CropBox", "Rotate"] {
+                if let Some(v) = d.get(k) {
+                    inh.insert(k.to_string(), v.clone());
+                }
+            }
+            for k in kids {
+                if let Obj::Ref(n) = k {
+                    page_leaves(pdf, n, &inh, out, nodes, depth + 1);
+                }
+            }
+        }
+        None => {
+            let mut page = d.clone();
+            for (k, v) in inh {
+                page.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+            out.push((id, page));
+        }
+    }
+}
+
+/// Alle Verweise in einem Objekt.
+fn refs_of(o: &Obj, out: &mut Vec<u32>) {
+    match o {
+        Obj::Ref(n) => out.push(*n),
+        Obj::Arr(a) => a.iter().for_each(|x| refs_of(x, out)),
+        Obj::Dict(d) => d.values().for_each(|x| refs_of(x, out)),
+        Obj::Stream(s) => s.dict.values().for_each(|x| refs_of(x, out)),
+        _ => {}
+    }
+}
+
+/// Zahl der Seiten eines PDFs (ohne Obergrenze).
+pub fn page_count(input: &[u8]) -> Result<usize, String> {
+    let pdf = Pdf::load(input)?;
+    let Some(Obj::Ref(pages)) = pdf.root.get("Pages") else {
+        return Err(tr("The PDF structure of the file is damaged (no document catalogue)").into());
+    };
+    let mut leaves = Vec::new();
+    page_leaves(&pdf, *pages, &Dict::new(), &mut leaves, &mut HashSet::new(), 0);
+    Ok(leaves.len())
+}
+
+/// Strich eines Textmarkers als Anmerkung (Ink) für eine Seite: `page` zählt in der neuen
+/// Reihenfolge, die Punkte liegen auf der angezeigten Seite (oben links bei (0, 0), y nach
+/// unten – wie in Stijl).
+pub struct Ink {
+    pub page: usize,
+    pub strokes: Vec<Vec<crate::geom::Pt>>,
+    pub color: [f64; 3],
+    pub width: f64,
+    pub opacity: f64,
+}
+
+/// Seiten eines PDFs neu ordnen oder entfernen, ohne ihren Inhalt anzufassen: `order` nennt
+/// die Seiten (ab 0) der Ausgangsdatei in der neuen Reihenfolge, fehlende Seiten entfallen.
+/// Was nur die entfernten Seiten brauchten, kommt nicht mit in die neue Datei.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn rearrange_pages(input: &[u8], order: &[usize]) -> Result<Vec<u8>, String> {
+    rewrite_pages(input, order, &[])
+}
+
+/// Wie `rearrange_pages`, dazu neue Textmarker-Striche als Anmerkungen mit eigenem
+/// Aussehen (jeder Betrachter zeigt sie; der Inhalt der Seiten bleibt unberührt).
+pub fn rewrite_pages(input: &[u8], order: &[usize], inks: &[Ink]) -> Result<Vec<u8>, String> {
+    let damaged = || tr("The PDF structure of the file is damaged (no document catalogue)").to_string();
+    let mut pdf = Pdf::load(input)?;
+    pdf.objs.retain(|_, o| {
+        !matches!(o, Obj::Stream(s) if matches!(s.dict.get("Type").and_then(Obj::name), Some("XRef") | Some("ObjStm")))
+    });
+    let root_id = pdf
+        .root_id
+        .or_else(|| {
+            pdf.objs
+                .iter()
+                .filter(|(_, o)| o.dict().and_then(|d| d.get("Type")).and_then(Obj::name) == Some("Catalog"))
+                .map(|(k, _)| *k)
+                .min()
+        })
+        .ok_or_else(damaged)?;
+    let Some(Obj::Ref(pages_id)) = pdf
+        .objs
+        .get(&root_id)
+        .and_then(|o| o.dict())
+        .and_then(|d| d.get("Pages"))
+        .cloned()
+    else {
+        return Err(damaged());
+    };
+    let mut leaves = Vec::new();
+    let mut nodes = HashSet::new();
+    page_leaves(&pdf, pages_id, &Dict::new(), &mut leaves, &mut nodes, 0);
+    let mut seen = HashSet::new();
+    if order.is_empty() || order.iter().any(|&i| i >= leaves.len() || !seen.insert(i)) {
+        return Err(tr("The pages could not be arranged").into());
+    }
+    // ein flacher Seitenbaum: jede Seite trägt ihre geerbten Eigenschaften selbst
+    let mut kids = Vec::new();
+    for &i in order {
+        let (id, d) = &leaves[i];
+        let mut d = d.clone();
+        d.insert("Parent".into(), Obj::Ref(pages_id));
+        pdf.objs.insert(*id, Obj::Dict(d));
+        kids.push(Obj::Ref(*id));
+    }
+    // Textmarker: Anmerkung mit Aussehen (Formular) an die Seite hängen
+    let mut next = pdf.objs.keys().max().copied().unwrap_or(0) + 1;
+    for ink in inks {
+        let Some(&src_i) = order.get(ink.page) else {
+            continue;
+        };
+        let (page_id, _) = &leaves[src_i];
+        let page_id = *page_id;
+        let Some(Obj::Dict(mut page)) = pdf.objs.get(&page_id).cloned() else {
+            continue;
+        };
+        let (pm, _, _) = crate::ai::page_matrix(&pdf, &page);
+        let inv = pm.invert();
+        let strokes: Vec<Vec<(f64, f64)>> = ink
+            .strokes
+            .iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                s.iter()
+                    .map(|p| {
+                        let q = inv.apply(*p);
+                        (q.x, q.y)
+                    })
+                    .collect()
+            })
+            .collect();
+        if strokes.is_empty() {
+            continue;
+        }
+        let hw = ink.width / 2.0 + 1.0;
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for &(x, y) in strokes.iter().flatten() {
+            x0 = x0.min(x - hw);
+            y0 = y0.min(y - hw);
+            x1 = x1.max(x + hw);
+            y1 = y1.max(y + hw);
+        }
+        let rect = Obj::Arr([x0, y0, x1, y1].iter().map(|v| Obj::Num(*v)).collect());
+        let [r, g, b] = ink.color;
+        let mut content = format!(
+            "/G0 gs {} {} {} RG {} w 1 J 1 j\n",
+            num(r),
+            num(g),
+            num(b),
+            num(ink.width)
+        );
+        for st in &strokes {
+            for (i, (x, y)) in st.iter().enumerate() {
+                content.push_str(&format!(
+                    "{} {} {}\n",
+                    num(*x),
+                    num(*y),
+                    if i == 0 { "m" } else { "l" }
+                ));
+            }
+            if st.len() == 1 {
+                content.push_str(&format!("{} {} l\n", num(st[0].0), num(st[0].1)));
+            }
+            content.push_str("S\n");
+        }
+        let mut gs = Dict::new();
+        gs.insert("Type".into(), Obj::Name("ExtGState".into()));
+        gs.insert("CA".into(), Obj::Num(ink.opacity));
+        gs.insert("BM".into(), Obj::Name("Multiply".into()));
+        let mut gsd = Dict::new();
+        gsd.insert("G0".into(), Obj::Dict(gs));
+        let mut fres = Dict::new();
+        fres.insert("ExtGState".into(), Obj::Dict(gsd));
+        let mut fd = Dict::new();
+        fd.insert("Type".into(), Obj::Name("XObject".into()));
+        fd.insert("Subtype".into(), Obj::Name("Form".into()));
+        fd.insert("BBox".into(), rect.clone());
+        fd.insert("Resources".into(), Obj::Dict(fres));
+        let ap_id = next;
+        next += 1;
+        pdf.objs.insert(
+            ap_id,
+            Obj::Stream(Rc::new(Strm {
+                dict: fd,
+                data: content.into_bytes(),
+            })),
+        );
+        let mut apd = Dict::new();
+        apd.insert("N".into(), Obj::Ref(ap_id));
+        let mut bs = Dict::new();
+        bs.insert("W".into(), Obj::Num(ink.width));
+        let mut ad = Dict::new();
+        ad.insert("Type".into(), Obj::Name("Annot".into()));
+        ad.insert("Subtype".into(), Obj::Name("Ink".into()));
+        ad.insert("Rect".into(), rect);
+        ad.insert(
+            "InkList".into(),
+            Obj::Arr(
+                strokes
+                    .iter()
+                    .map(|st| {
+                        Obj::Arr(
+                            st.iter()
+                                .flat_map(|(x, y)| [Obj::Num(*x), Obj::Num(*y)])
+                                .collect(),
+                        )
+                    })
+                    .collect(),
+            ),
+        );
+        ad.insert("C".into(), Obj::Arr(vec![Obj::Num(r), Obj::Num(g), Obj::Num(b)]));
+        ad.insert("CA".into(), Obj::Num(ink.opacity));
+        ad.insert("BS".into(), Obj::Dict(bs));
+        // druckbar
+        ad.insert("F".into(), Obj::Num(4.0));
+        ad.insert("P".into(), Obj::Ref(page_id));
+        ad.insert("AP".into(), Obj::Dict(apd));
+        let annot_id = next;
+        next += 1;
+        pdf.objs.insert(annot_id, Obj::Dict(ad));
+        let mut list = match page.get("Annots").map(|a| pdf.res(a)) {
+            Some(Obj::Arr(a)) => a.clone(),
+            _ => Vec::new(),
+        };
+        list.push(Obj::Ref(annot_id));
+        page.insert("Annots".into(), Obj::Arr(list));
+        pdf.objs.insert(page_id, Obj::Dict(page));
+    }
+    let mut node = Dict::new();
+    node.insert("Type".into(), Obj::Name("Pages".into()));
+    node.insert("Count".into(), Obj::Num(kids.len() as f64));
+    node.insert("Kids".into(), Obj::Arr(kids));
+    pdf.objs.insert(pages_id, Obj::Dict(node));
+    // entfernte Seiten und alte Zwischenknoten gelten als nicht mehr vorhanden (Verweise
+    // darauf, z. B. aus Lesezeichen, zeigen ins Leere – das ist erlaubt)
+    let mut gone: HashSet<u32> = nodes;
+    gone.remove(&pages_id);
+    for (i, (id, _)) in leaves.iter().enumerate() {
+        if !seen.contains(&i) {
+            gone.insert(*id);
+        }
+    }
+    let mut keep: HashSet<u32> = HashSet::new();
+    let mut stack: Vec<u32> = vec![root_id];
+    stack.extend(pdf.info_id.filter(|i| pdf.objs.contains_key(i)));
+    while let Some(id) = stack.pop() {
+        if gone.contains(&id) || !keep.insert(id) {
+            continue;
+        }
+        if let Some(o) = pdf.objs.get(&id) {
+            refs_of(o, &mut stack);
+        }
+    }
+    let mut out: Vec<u8> = Vec::with_capacity(input.len());
+    out.extend_from_slice(b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n");
+    let mut ids: Vec<u32> = keep.into_iter().filter(|i| pdf.objs.contains_key(i)).collect();
+    ids.sort_unstable();
+    let max = ids.last().copied().unwrap_or(0);
+    let mut offsets = vec![None; max as usize + 1];
+    for &k in &ids {
+        offsets[k as usize] = Some(out.len());
+        write_object(k, &pdf.objs[&k], &mut out);
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n", max + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
+    for o in offsets.iter().skip(1) {
+        match o {
+            Some(off) => out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes()),
+            None => out.extend_from_slice(b"0000000000 65535 f \n"),
+        }
+    }
+    let info = match pdf
+        .info_id
+        .filter(|i| offsets.get(*i as usize).is_some_and(|o| o.is_some()))
+    {
+        Some(i) => format!(" /Info {i} 0 R"),
+        None => String::new(),
+    };
+    out.extend_from_slice(
+        format!(
+            "trailer\n<</Size {} /Root {root_id} 0 R{info}>>\nstartxref\n{xref}\n%%EOF\n",
+            max + 1
+        )
+        .as_bytes(),
+    );
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PDF mit drei Seiten in einem zweistufigen Seitenbaum (die Größe wird vererbt).
+    fn three_pages() -> Vec<u8> {
+        let page = |id: u32, parent: u32, content: u32| {
+            format!("{id} 0 obj\n<< /Type /Page /Parent {parent} 0 R /Contents {content} 0 R >>\nendobj\n")
+        };
+        let content = |id: u32, text: &str| {
+            let s = format!("BT ({text}) Tj ET");
+            format!(
+                "{id} 0 obj\n<< /Length {} >>\nstream\n{s}\nendstream\nendobj\n",
+                s.len()
+            )
+        };
+        format!(
+            "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+2 0 obj\n<< /Type /Pages /Kids [3 0 R 10 0 R] /Count 3 /MediaBox [0 0 200 100] >>\nendobj\n\
+10 0 obj\n<< /Type /Pages /Parent 2 0 R /Kids [5 0 R 7 0 R] /Count 2 >>\nendobj\n\
+{}{}{}{}{}{}\
+9 0 obj\n<< /Title (Test) >>\nendobj\n\
+trailer\n<< /Root 1 0 R /Info 9 0 R >>\n%%EOF\n",
+            page(3, 2, 4),
+            content(4, "PageOne"),
+            page(5, 10, 6),
+            content(6, "PageTwo"),
+            page(7, 10, 8),
+            content(8, "PageThree"),
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn pages_can_be_reordered_and_removed() {
+        let src = three_pages();
+        assert_eq!(page_count(&src).unwrap(), 3);
+        let out = rearrange_pages(&src, &[2, 0]).unwrap();
+        let pdf = Pdf::load(&out).unwrap();
+        let pages = pdf.pages();
+        assert_eq!(pages.len(), 2);
+        let text = |p: &Dict| String::from_utf8_lossy(&pdf.page_content(p)).to_string();
+        assert!(text(&pages[0]).contains("PageThree"), "{}", text(&pages[0]));
+        assert!(text(&pages[1]).contains("PageOne"));
+        // geerbte Größe ist an der Seite selbst
+        assert_eq!(
+            pdf.nums(pdf.get(&pages[0], "MediaBox")),
+            vec![0.0, 0.0, 200.0, 100.0]
+        );
+        // die entfernte Seite ist ganz weg, die Angaben zum Dokument bleiben
+        let s = String::from_utf8_lossy(&out);
+        assert!(!s.contains("PageTwo"));
+        assert!(s.contains("/Info 9 0 R"));
+        assert_eq!(page_count(&out).unwrap(), 2);
+        // ungültig: doppelt, außerhalb, leer
+        assert!(rearrange_pages(&src, &[0, 0]).is_err());
+        assert!(rearrange_pages(&src, &[3]).is_err());
+        assert!(rearrange_pages(&src, &[]).is_err());
+        // Textmarker als Anmerkung; beim Einlesen erscheint er wieder (über dem Inhalt)
+        let ink = Ink {
+            page: 0,
+            strokes: vec![vec![
+                crate::geom::Pt::new(10.0, 20.0),
+                crate::geom::Pt::new(90.0, 20.0),
+            ]],
+            color: [1.0, 0.86, 0.0],
+            width: 12.0,
+            opacity: 0.45,
+        };
+        let marked = rewrite_pages(&src, &[2, 0], &[ink]).unwrap();
+        let pdf3 = Pdf::load(&marked).unwrap();
+        let p0 = &pdf3.pages()[0];
+        let Obj::Arr(annots) = pdf3.get(p0, "Annots") else {
+            panic!("keine Anmerkungen")
+        };
+        let a = pdf3.res(&annots[0]).dict().unwrap();
+        assert_eq!(pdf3.get(a, "Subtype").name(), Some("Ink"));
+        // y nach oben: 20 von oben auf einer 100 hohen Seite
+        assert_eq!(pdf3.nums(pdf3.get(a, "Rect")), vec![3.0, 73.0, 97.0, 87.0]);
+        let imp = crate::ai::import_with(&marked, &|_| false, true).unwrap();
+        assert!(
+            imp.svg.contains("#ffdb00") && imp.svg.contains("multiply"),
+            "{}",
+            imp.svg
+        );
+        // die neue Datei lässt sich wieder einlesen und weiter ordnen
+        let again = rearrange_pages(&out, &[1, 0]).unwrap();
+        let pdf2 = Pdf::load(&again).unwrap();
+        assert!(String::from_utf8_lossy(&pdf2.page_content(&pdf2.pages()[0])).contains("PageOne"));
+    }
 
     #[test]
     fn deflate_round_trip() {

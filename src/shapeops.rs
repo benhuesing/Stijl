@@ -394,6 +394,9 @@ fn flatten_cubic(c: &Cubic, out: &mut Vec<Pt>) {
     }
 }
 
+/// Vorzeichen der Fläche von Außenrändern (siehe `arrangement`).
+const OUTER_SIGN: f64 = -1.0;
+
 /// Aus allen Kurven den ebenen Graphen bilden. `tol`: Genauigkeit in Dokumenteinheiten.
 pub fn arrangement(curves: &[Cubic], tol: f64) -> Arrangement {
     let curves: Vec<Cubic> = curves
@@ -588,14 +591,13 @@ pub fn arrangement(curves: &[Cubic], tol: f64) -> Arrangement {
             width,
         });
     }
-    let outer_sign = faces
-        .iter()
-        .max_by(|a, b| a.area.abs().total_cmp(&b.area.abs()))
-        .map(|f| f.area.signum())
-        .unwrap_or(1.0);
+    // Die Umlaufregel oben läuft Außenränder immer im selben Drehsinn ab (negative Fläche),
+    // begrenzte Flächen im anderen. Früher wurde das an der größten Fläche abgelesen – bei
+    // einer einzelnen geschlossenen Form sind Innen- und Außenrand aber gleich groß, und je
+    // nach Rundung galten dann die Flächen aller übrigen Formen als „außen“ (nicht erkannt).
     Arrangement {
         faces,
-        outer_sign,
+        outer_sign: OUTER_SIGN,
         min_width: tol * 2.0,
     }
 }
@@ -830,6 +832,334 @@ pub fn split_at_cuts(sp: &SubPath, cutter: &[Cubic], tol: f64) -> Option<Vec<Sub
     Some(runs.iter().map(|r| segs_to_open(r)).collect())
 }
 
+// ───────────── Pfadoperationen mit echten Kurven ─────────────
+//
+// Wie bei der Formerstellung werden alle Ränder an ihren Schnittpunkten in Kurvenstücke
+// geteilt. Jedes Stück wird links und rechts dicht daneben geprüft: Liegt das Ergebnis der
+// Operation auf genau einer Seite, gehört das Stück zum Rand des Ergebnisses. So bleiben
+// Kreise Kreise, und es entstehen nur dort neue Punkte, wo sich die Formen schneiden.
+
+fn op_inside(op: Op, a: bool, b: bool) -> bool {
+    match op {
+        Op::Union => a || b,
+        Op::Intersection => a && b,
+        Op::Difference => a && !b,
+        Op::Xor => a != b,
+    }
+}
+
+/// Ränder als Kurvenstücke (Eckenradien angewendet, offene Pfade geschlossen).
+fn closed_segments(sps: &[SubPath]) -> Vec<Cubic> {
+    let mut out = Vec::new();
+    for sp in sps {
+        if sp.nodes.len() < 2 {
+            continue;
+        }
+        let sp = sp.effective();
+        out.extend(sp.segments());
+        if !sp.closed {
+            let (a, b) = (sp.nodes[sp.nodes.len() - 1].p, sp.nodes[0].p);
+            out.push(line_cubic(a, b));
+        }
+    }
+    out
+}
+
+fn cubic_tangent(c: &Cubic, t: f64) -> Pt {
+    let u = 1.0 - t;
+    (c.1 - c.0) * (3.0 * u * u) + (c.2 - c.1) * (6.0 * u * t) + (c.3 - c.2) * (3.0 * t * t)
+}
+
+/// Nächstgelegene Stelle der Kurve zu `p`: (t, Abstand).
+fn nearest_t(c: &Cubic, p: Pt) -> (f64, f64) {
+    let at = |t: f64| cubic_point(c.0, c.1, c.2, c.3, t).dist(p);
+    let n = 32;
+    let mut best = (0.0, f64::MAX);
+    for k in 0..=n {
+        let t = k as f64 / n as f64;
+        let d = at(t);
+        if d < best.1 {
+            best = (t, d);
+        }
+    }
+    // verfeinern
+    let mut step = 1.0 / n as f64;
+    for _ in 0..30 {
+        step *= 0.5;
+        for t in [best.0 - step, best.0 + step] {
+            if (0.0..=1.0).contains(&t) {
+                let d = at(t);
+                if d < best.1 {
+                    best = (t, d);
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Schnittpunkt genauer bestimmen (Newton-Verfahren: a(ta) = b(tb)).
+fn refine_hit(a: &Cubic, b: &Cubic, mut ta: f64, mut tb: f64) -> (f64, f64) {
+    let (ta0, tb0) = (ta, tb);
+    for _ in 0..8 {
+        let pa = cubic_point(a.0, a.1, a.2, a.3, ta);
+        let pb = cubic_point(b.0, b.1, b.2, b.3, tb);
+        let f = pa - pb;
+        if f.len() < 1e-12 {
+            break;
+        }
+        let da = cubic_tangent(a, ta);
+        let db = cubic_tangent(b, tb) * -1.0;
+        let det = da.x * db.y - da.y * db.x;
+        if det.abs() < 1e-12 {
+            break;
+        }
+        ta -= (f.x * db.y - f.y * db.x) / det;
+        tb -= (da.x * f.y - da.y * f.x) / det;
+    }
+    // nur übernehmen, wenn es in der Nähe geblieben ist
+    if ta.is_finite() && tb.is_finite() && (ta - ta0).abs() < 0.05 && (tb - tb0).abs() < 0.05 {
+        (ta.clamp(0.0, 1.0), tb.clamp(0.0, 1.0))
+    } else {
+        (ta0, tb0)
+    }
+}
+
+/// Pfadoperation mit Kurven auf zwei Formen. `None`, wenn das Ergebnis nicht verlässlich
+/// zu bestimmen ist (dann rechnet der Aufrufer mit Vielecken).
+fn boolean_pair(a: &[SubPath], b: &[SubPath], op: Op, tol: f64) -> Option<Vec<SubPath>> {
+    let fine = tol * 0.2;
+    let ra = boolean::RingSet::new(boolean::to_rings(a, fine));
+    let rb = boolean::RingSet::new(boolean::to_rings(b, fine));
+    let mut segs: Vec<Cubic> = closed_segments(a);
+    segs.extend(closed_segments(b));
+    segs.retain(|c| c.0.dist(c.1) + c.1.dist(c.2) + c.2.dist(c.3) > tol * 0.01);
+    let n = segs.len();
+    // sehr viele Kurven (lange Texte): lieber mit Vielecken, das ist dort schneller
+    if n == 0 || n > 4000 {
+        return None;
+    }
+    let boxes: Vec<Rect> = segs.iter().map(ctrl_box).collect();
+    let mut cuts: Vec<Vec<f64>> = vec![Vec::new(); n];
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|x, y| boxes[*x].x0.total_cmp(&boxes[*y].x0));
+    for (oi, &i) in order.iter().enumerate() {
+        for &j in &order[oi + 1..] {
+            if boxes[j].x0 > boxes[i].x1 + tol {
+                break;
+            }
+            if !boxes_touch(&boxes[i], &boxes[j], tol) {
+                continue;
+            }
+            for (ta, tb, _) in intersect_cubics(&segs[i], &segs[j], tol * 0.25) {
+                let (ta, tb) = refine_hit(&segs[i], &segs[j], ta, tb);
+                cuts[i].push(ta);
+                cuts[j].push(tb);
+            }
+            // Endpunkte, die auf der anderen Kurve liegen (aufeinanderliegende Kanten)
+            for (x, y) in [(i, j), (j, i)] {
+                for q in [segs[y].0, segs[y].3] {
+                    if !boxes_touch(&boxes[x], &Rect::from_points(q, q), tol) {
+                        continue;
+                    }
+                    let (t, d) = nearest_t(&segs[x], q);
+                    if d <= tol * 0.5 {
+                        cuts[x].push(t);
+                    }
+                }
+            }
+        }
+    }
+    // Punkte zusammenführen
+    let eps = tol * 0.5;
+    let mut verts: Vec<Pt> = Vec::new();
+    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> = std::collections::HashMap::new();
+    let mut vid = |p: Pt, verts: &mut Vec<Pt>| -> usize {
+        let key = ((p.x / eps).floor() as i64, (p.y / eps).floor() as i64);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                if let Some(v) = grid.get(&(key.0 + dx, key.1 + dy)) {
+                    for &k in v {
+                        if verts[k].dist(p) <= eps {
+                            return k;
+                        }
+                    }
+                }
+            }
+        }
+        verts.push(p);
+        grid.entry(key).or_default().push(verts.len() - 1);
+        verts.len() - 1
+    };
+    // Stücke: (von, nach, Kurve, Herkunft (Kurve, t0, t1))
+    let mut pieces: Vec<(usize, usize, Cubic, (usize, f64, f64))> = Vec::new();
+    for (i, c) in segs.iter().enumerate() {
+        let mut ts: Vec<f64> = cuts[i]
+            .iter()
+            .copied()
+            .filter(|t| *t > 1e-4 && *t < 1.0 - 1e-4)
+            .collect();
+        ts.sort_by(|x, y| x.total_cmp(y));
+        ts.dedup_by(|x, y| {
+            cubic_point(c.0, c.1, c.2, c.3, *x).dist(cubic_point(c.0, c.1, c.2, c.3, *y)) <= eps
+        });
+        let mut t0 = 0.0;
+        for t in ts.into_iter().chain(std::iter::once(1.0)) {
+            let piece = sub_cubic(c.0, c.1, c.2, c.3, t0, t);
+            let u = vid(piece.0, &mut verts);
+            let v = vid(piece.3, &mut verts);
+            let len = piece.0.dist(piece.1) + piece.1.dist(piece.2) + piece.2.dist(piece.3);
+            if !(u == v && len < eps * 4.0) {
+                let (pu, pv) = (verts[u], verts[v]);
+                let piece = (pu, piece.1 + (pu - piece.0), piece.2 + (pv - piece.3), pv);
+                pieces.push((u, v, piece, (i, t0, t)));
+            }
+            t0 = t;
+        }
+    }
+    // links und rechts neben jedem Stück prüfen
+    let delta = tol * 1.5;
+    let inside = |p: Pt| op_inside(op, ra.contains(p), rb.contains(p));
+    let mut keep: Vec<(usize, usize, Cubic, (usize, f64, f64))> = Vec::new();
+    let mut by_ends: std::collections::HashMap<(usize, usize), Vec<Pt>> = std::collections::HashMap::new();
+    for (u, v, c, origin) in pieces {
+        let mid = cubic_point(c.0, c.1, c.2, c.3, 0.5);
+        let mut t = cubic_tangent(&c, 0.5);
+        if t.len() < 1e-9 {
+            t = c.3 - c.0;
+        }
+        if t.len() < 1e-12 {
+            continue;
+        }
+        let nrm = Pt::new(-t.y, t.x) * (1.0 / t.len());
+        let left = inside(mid + nrm * delta);
+        let right = inside(mid - nrm * delta);
+        if left == right {
+            continue;
+        }
+        // Inneres des Ergebnisses immer links
+        let item = if left {
+            (u, v, c, origin)
+        } else {
+            (v, u, reverse(&c), (origin.0, origin.2, origin.1))
+        };
+        // aufeinanderliegende Kanten beider Formen nur einmal
+        let mids = by_ends.entry((item.0, item.1)).or_default();
+        if mids.iter().any(|m| m.dist(mid) <= eps) {
+            continue;
+        }
+        mids.push(mid);
+        keep.push(item);
+    }
+    // zu Rändern verketten
+    let mut starting: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for (k, item) in keep.iter().enumerate() {
+        starting.entry(item.0).or_default().push(k);
+    }
+    let mut used = vec![false; keep.len()];
+    let mut out: Vec<SubPath> = Vec::new();
+    for start in 0..keep.len() {
+        if used[start] {
+            continue;
+        }
+        used[start] = true;
+        let mut chain: Vec<(Cubic, (usize, f64, f64))> = vec![(keep[start].2, keep[start].3)];
+        let first = keep[start].0;
+        let mut end = keep[start].1;
+        while end != first {
+            let k = starting.get(&end)?.iter().copied().find(|&k| !used[k])?;
+            used[k] = true;
+            chain.push((keep[k].2, keep[k].3));
+            end = keep[k].1;
+        }
+        // Stücke derselben Ausgangskurve wieder zusammenfügen
+        let mut merged: Vec<(Cubic, (usize, f64, f64))> = Vec::new();
+        for (c, o) in chain {
+            if let Some(last) = merged.last_mut() {
+                let (lc, lo) = *last;
+                if lo.0 == o.0 && (lo.2 - o.1).abs() < 1e-12 {
+                    let src = segs[o.0];
+                    let joined = sub_cubic(src.0, src.1, src.2, src.3, lo.1.min(o.2), lo.1.max(o.2));
+                    let joined = if lo.1 > o.2 { reverse(&joined) } else { joined };
+                    *last = (
+                        (
+                            lc.0,
+                            joined.1 + (lc.0 - joined.0),
+                            joined.2 + (c.3 - joined.3),
+                            c.3,
+                        ),
+                        (o.0, lo.1, o.2),
+                    );
+                    continue;
+                }
+            }
+            merged.push((c, o));
+        }
+        // auch über den Anfang hinweg
+        if merged.len() > 1 {
+            let (lc, lo) = merged[merged.len() - 1];
+            let (fc, fo) = merged[0];
+            if lo.0 == fo.0 && (lo.2 - fo.1).abs() < 1e-12 {
+                let src = segs[fo.0];
+                let joined = sub_cubic(src.0, src.1, src.2, src.3, lo.1.min(fo.2), lo.1.max(fo.2));
+                let joined = if lo.1 > fo.2 { reverse(&joined) } else { joined };
+                merged[0] = (
+                    (
+                        lc.0,
+                        joined.1 + (lc.0 - joined.0),
+                        joined.2 + (fc.3 - joined.3),
+                        fc.3,
+                    ),
+                    (fo.0, lo.1, fo.2),
+                );
+                merged.pop();
+            }
+        }
+        let curves: Vec<Cubic> = merged.into_iter().map(|(c, _)| c).collect();
+        if curves.len() == 1 && curves[0].0.dist(curves[0].3) > eps {
+            return None;
+        }
+        out.push(segs_to_subpath(&curves));
+    }
+    // Probe: An einem Raster von Punkten muss das Ergebnis mit der Operation übereinstimmen
+    // (Punkte dicht am Rand dürfen wegen der Rundung abweichen).
+    let res = boolean::RingSet::new(boolean::to_rings(&out, fine));
+    let mut bb: Option<Rect> = None;
+    for c in &segs {
+        let b = ctrl_box(c);
+        bb = Some(bb.map_or(b, |x| x.union(&b)));
+    }
+    if let Some(bb) = bb {
+        let n = 40;
+        let mut wrong = 0;
+        for iy in 0..n {
+            for ix in 0..n {
+                let p = Pt::new(
+                    bb.x0 + bb.width() * (ix as f64 + 0.5) / n as f64,
+                    bb.y0 + bb.height() * (iy as f64 + 0.37) / n as f64,
+                );
+                if res.contains(p) != inside(p) {
+                    wrong += 1;
+                }
+            }
+        }
+        if wrong > n * n / 100 {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+/// Pfadoperation auf mehrere Formen (unten nach oben, wie `boolean::apply_many`), mit echten
+/// Kurven im Ergebnis. `None`, wenn sie sich so nicht verlässlich bestimmen lässt.
+pub fn boolean_curves(shapes: &[Vec<SubPath>], op: Op, tol: f64) -> Option<Vec<SubPath>> {
+    let mut acc: Vec<SubPath> = shapes.first()?.clone();
+    for next in &shapes[1..] {
+        acc = boolean_pair(&acc, next, op, tol)?;
+    }
+    Some(acc)
+}
+
 /// Kurvenstücke eines Randes als geschlossener Teilpfad.
 pub fn segs_to_subpath(segs: &[Cubic]) -> SubPath {
     let n = segs.len();
@@ -851,6 +1181,120 @@ pub fn segs_to_subpath(segs: &[Cubic]) -> SubPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shape_path(s: crate::model::Shape) -> Vec<SubPath> {
+        match s.to_path().unwrap() {
+            crate::model::Shape::Path { subpaths, .. } => subpaths,
+            _ => unreachable!(),
+        }
+    }
+    fn brect(x: f64, y: f64, w: f64, h: f64) -> Vec<SubPath> {
+        shape_path(crate::model::Shape::Rect { x, y, w, h, r: 0.0 })
+    }
+    fn bcircle(cx: f64, cy: f64, r: f64) -> Vec<SubPath> {
+        shape_path(crate::model::Shape::Ellipse { cx, cy, rx: r, ry: r })
+    }
+    fn nodes(sps: &[SubPath]) -> usize {
+        sps.iter().map(|s| s.nodes.len()).sum()
+    }
+    fn area_of(sps: &[SubPath]) -> f64 {
+        boolean::to_rings(sps, 0.01).iter().map(|r| area(r)).sum()
+    }
+
+    #[test]
+    fn builder_finds_every_shape_whatever_the_direction() {
+        // eine einzelne Form neben einer weiteren, in beiden Umlaufrichtungen: jede Fläche
+        // wird gefunden (früher hing das von Rundungen an der größten Fläche ab)
+        for big in [brect(0.0, 0.0, 10.0, 10.0), bcircle(5.0, 5.0, 5.0)] {
+            for rev in [false, true] {
+                let mut segs = closed_segments(&big);
+                if rev {
+                    segs = segs.iter().rev().map(reverse).collect();
+                }
+                segs.extend(closed_segments(&bcircle(50.0, 50.0, 3.0)));
+                let arr = arrangement(&segs, 0.01);
+                assert!(arr.face_at(Pt::new(5.0, 5.0)).is_some(), "big, rev {rev}");
+                assert!(arr.face_at(Pt::new(50.0, 50.0)).is_some(), "small, rev {rev}");
+                assert!(arr.face_at(Pt::new(30.0, 30.0)).is_none(), "outside, rev {rev}");
+            }
+        }
+    }
+
+    #[test]
+    fn path_operations_keep_curves() {
+        use std::f64::consts::PI;
+        let tol = 0.15;
+        let a = bcircle(50.0, 50.0, 40.0);
+        let b = bcircle(90.0, 50.0, 40.0);
+        let polys = |op| boolean::apply_many(&[a.clone(), b.clone()], op, tol);
+        for op in [Op::Union, Op::Intersection, Op::Difference, Op::Xor] {
+            let r = boolean_curves(&[a.clone(), b.clone()], op, tol).expect("with curves");
+            let want = if op == Op::Xor {
+                let d = |x: &Vec<SubPath>, y: &Vec<SubPath>| {
+                    area_of(&boolean::apply_many(&[x.clone(), y.clone()], Op::Difference, tol))
+                };
+                d(&a, &b) + d(&b, &a)
+            } else {
+                area_of(&polys(op))
+            };
+            assert!((area_of(&r) - want).abs() < want.abs() * 0.002 + 1.0, "{op:?}");
+            // nur die Bögen der Kreise und die beiden Schnittpunkte – keine Vielecke
+            assert!(nodes(&r) <= 12, "{op:?}: {} nodes", nodes(&r));
+        }
+        // Rechteck minus Kreis in der Mitte: Loch als zweiter Rand, Kreis bleibt Kreis
+        let r = boolean_curves(
+            &[brect(0.0, 0.0, 100.0, 100.0), bcircle(50.0, 50.0, 20.0)],
+            Op::Difference,
+            tol,
+        )
+        .unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(nodes(&r), 8);
+        assert!((area_of(&r) - (10_000.0 - PI * 400.0)).abs() < 2.0);
+        // Rechteck minus halb überlappender Kreis: gerade Kanten und Bögen
+        let r = boolean_curves(
+            &[brect(0.0, 0.0, 100.0, 100.0), bcircle(100.0, 50.0, 20.0)],
+            Op::Difference,
+            tol,
+        )
+        .unwrap();
+        assert_eq!(r.len(), 1);
+        assert!(nodes(&r) <= 8, "{}", nodes(&r));
+        assert!((area_of(&r) - (10_000.0 - PI * 200.0)).abs() < 2.0);
+        // aneinanderliegende Rechtecke mit gemeinsamer Kante: eine Fläche
+        let r = boolean_curves(
+            &[brect(0.0, 0.0, 50.0, 40.0), brect(50.0, 10.0, 50.0, 40.0)],
+            Op::Union,
+            tol,
+        )
+        .unwrap();
+        assert_eq!(r.len(), 1);
+        assert!((area_of(&r) - 4000.0).abs() < 1e-6);
+        // deckungsgleich
+        let r = boolean_curves(
+            &[brect(0.0, 0.0, 50.0, 40.0), brect(0.0, 0.0, 50.0, 40.0)],
+            Op::Union,
+            tol,
+        )
+        .unwrap();
+        assert!((area_of(&r) - 2000.0).abs() < 1e-6);
+        // getrennt: Schnittmenge leer
+        let r = boolean_curves(
+            &[bcircle(0.0, 0.0, 10.0), bcircle(100.0, 0.0, 10.0)],
+            Op::Intersection,
+            tol,
+        )
+        .unwrap();
+        assert!(r.is_empty());
+        // mehrere Formen nacheinander
+        let r = boolean_curves(&[a.clone(), b.clone(), bcircle(70.0, 90.0, 30.0)], Op::Union, tol).unwrap();
+        let want = area_of(&boolean::apply_many(
+            &[a.clone(), b.clone(), bcircle(70.0, 90.0, 30.0)],
+            Op::Union,
+            tol,
+        ));
+        assert!((area_of(&r) - want).abs() < want * 0.002);
+    }
 
     #[test]
     fn eraser_region_and_line() {

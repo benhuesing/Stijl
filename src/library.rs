@@ -322,6 +322,7 @@ impl Library {
                 sub: Vec::new(),
                 mask: false,
                 locked: false,
+                smart: None,
                 name: self.color_name(i).to_string(),
                 id,
                 shape: Shape::Rect {
@@ -391,6 +392,7 @@ impl Library {
                 sub: Vec::new(),
                 mask: false,
                 locked: false,
+                smart: None,
                 name: s.name.clone(),
                 id,
                 shape,
@@ -500,6 +502,7 @@ mod tests {
             sub: Vec::new(),
             mask: false,
             locked: false,
+            smart: None,
             name: String::new(),
             shape: Shape::Rect {
                 x,

@@ -240,6 +240,7 @@ fn split_text_boxes(doc: &mut Document) {
                         sub: o.sub.clone(),
                         mask: o.mask,
                         locked: o.locked,
+                        smart: None,
                         name: String::new(),
                     });
                     next += 1;

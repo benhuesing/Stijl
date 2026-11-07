@@ -16,7 +16,7 @@ use crate::editor::{Drag, Editor, Metrics, Tool, HANDLE_RADIUS};
 use crate::geom::{Affine, Pt, Rect};
 use crate::model::{
     Align, Art, Blend, Color, Document, Effects, Gradient, ImagePart, Layer, ListStyle, Marker, Node, Object,
-    RichText, Shape, SubPath, TextFormat, VAlign,
+    RichText, Shape, SubPath, TextFormat, VAlign, ViewMode,
 };
 
 const ACCENT: (f64, f64, f64) = (0.208, 0.518, 0.894);
@@ -209,7 +209,7 @@ fn fmt_key(f: &TextFormat) -> (u8, u64, u64) {
     };
     (
         a | (f.underline as u8) << 2 | (f.strike as u8) << 3 | l << 4,
-        f.line.to_bits(),
+        if f.line_auto { u64::MAX } else { f.line.to_bits() },
         f.tracking.to_bits(),
     )
 }
@@ -358,6 +358,12 @@ fn add_runs(l: &pango::Layout, rich: &RichText, off: usize, len: usize, map: &[(
         if let Some(v) = st.strike {
             list.push(pango::AttrInt::new_strikethrough(v).into());
         }
+        // eigene Farbe (wirkt beim Zeichnen mit echter Schrift, siehe `draw_filled`)
+        if let Some(c) = st.color {
+            let ch = |v: f64| (v.clamp(0.0, 1.0) * 65535.0).round() as u16;
+            list.push(pango::AttrColor::new_foreground(ch(c.r), ch(c.g), ch(c.b)).into());
+            list.push(pango::AttrInt::new_foreground_alpha(ch(c.a).max(1)).into());
+        }
         for mut at in list {
             at.set_start_index(da);
             at.set_end_index(db);
@@ -410,51 +416,72 @@ fn para_lines(
     limit: f64,
     fmt: &TextFormat,
     rich: &RichText,
+    cont: bool,
 ) -> (EditLines, f64) {
     let k = pango::SCALE as f64;
     let fd = font_desc(family, size, bold, italic);
     // Abstand zwischen den Zeilen wie innerhalb eines Absatzes, dazu der Absatzabstand
-    let extra = size * fmt.line - natural_line(pctx, &fd);
-    let gap = size * fmt.para.max(0.0);
+    // (automatisch: keiner, die Zeilen sind so hoch wie ihre Schrift)
+    // (Zeilenabstand, Ausrichtung und Abstände kann jeder Absatz selbst haben, siehe unten)
+    let natural = natural_line(pctx, &fd);
+    let mut prev_after = 0.0;
     let cols = fmt.cols();
-    let gutter = size * 1.5;
-    let col_w = if cols > 1 {
-        ((width - gutter * (cols - 1) as f64) / cols as f64).max(1.0)
-    } else {
-        width
-    };
+    // Spalten: Anfang und Breite (auch unterschiedlich breit)
+    let col_spans = fmt.column_spans(width, size);
+    let col_wd = |c: usize| col_spans.get(c).map(|s| s.1).unwrap_or(width);
     let mut lines: EditLines = Vec::new();
     let mut y = 0.0;
     let mut max_y: f64 = 0.0;
     let mut col = 0usize;
     let mut start = 0usize;
     let mut counters = [0usize; crate::model::MAX_INDENT as usize + 1];
+    let text_fmt = fmt;
     for (i, para) in text.split('\n').enumerate() {
-        let pf = rich.para(i, fmt.list);
+        let pf = rich.para(i, text_fmt.list);
+        // Format dieses Absatzes: eigene Ausrichtung und eigener Zeilenabstand
+        let para_fmt = pf.apply(text_fmt);
+        let fmt = &para_fmt;
+        let extra = if fmt.line_auto {
+            0.0
+        } else {
+            size * fmt.line - natural
+        };
         let lvl = (pf.indent.min(crate::model::MAX_INDENT)) as usize;
-        let marker = match pf.list {
-            ListStyle::None => {
-                counters = [0; crate::model::MAX_INDENT as usize + 1];
-                String::new()
-            }
-            ListStyle::Number => {
-                counters[lvl] += 1;
-                for c in counters[lvl + 1..].iter_mut() {
-                    *c = 0;
+        // Fließtext: der erste Absatz setzt einen der vorigen Seite fort – ohne neues
+        // Aufzählungszeichen, eingerückt wie dessen Folgezeilen
+        let cont_first = cont && i == 0 && pf.list != ListStyle::None;
+        let marker = if cont_first {
+            String::new()
+        } else {
+            match pf.list {
+                ListStyle::None => {
+                    counters = [0; crate::model::MAX_INDENT as usize + 1];
+                    String::new()
                 }
-                ListStyle::Number.marker(counters[lvl] - 1)
-            }
-            other => {
-                for c in counters[lvl..].iter_mut() {
-                    *c = 0;
+                ListStyle::Number => {
+                    counters[lvl] += 1;
+                    for c in counters[lvl + 1..].iter_mut() {
+                        *c = 0;
+                    }
+                    ListStyle::Number.marker(counters[lvl] - 1)
                 }
-                other.marker(0)
+                other => {
+                    for c in counters[lvl..].iter_mut() {
+                        *c = 0;
+                    }
+                    other.marker(0)
+                }
             }
         };
         // Aufzählungszeichen, Einzug und Abstand richten sich nach der Schriftgröße am Anfang
         // des Absatzes (nicht nach der Grundgröße des Feldes)
         let psize = para_size(rich, start, size);
-        let left = lvl as f64 * indent_step(psize);
+        let left = lvl as f64 * indent_step(psize)
+            + if cont_first {
+                psize * if pf.list == ListStyle::Number { 1.8 } else { 1.2 }
+            } else {
+                0.0
+            };
         let (shown, map) = crate::model::para_display(para, &marker);
         let prefix = shown.len() - para.len();
         let l = area_layout(
@@ -464,21 +491,31 @@ fn para_lines(
             size,
             bold,
             italic,
-            (col_w - left).max(1.0),
+            (col_wd(col) - left).max(1.0),
             fmt,
         );
         let hang = psize * if pf.list == ListStyle::Number { 1.8 } else { 1.2 };
+        // Einzug der ersten Zeile (nicht bei Aufzählungen und nicht, wenn der Absatz von der
+        // vorigen Seite weitergeht)
+        let first_in = if pf.list == ListStyle::None && !(cont && i == 0) {
+            fmt.first.max(0.0)
+        } else {
+            0.0
+        };
         if !marker.is_empty() {
             // Platz für das Zeichen, Folgezeilen hängen darunter ein
             let mut tabs = pango::TabArray::new(1, false);
             tabs.set_tab(0, pango::TabAlign::Left, (hang * k).round() as i32);
             l.set_tabs(Some(&tabs));
             l.set_indent(-(hang * k).round() as i32);
+        } else if first_in > 0.0 {
+            l.set_indent((first_in * k).round() as i32);
         }
         add_runs(&l, rich, start, para.len(), &map);
         size_marker(&l, prefix, psize, size);
+        // Abstand nach dem vorigen und vor diesem Absatz (nicht oben im Feld)
         if y > 0.0 {
-            y += extra + gap;
+            y += extra + prev_after + size * pf.space_before(text_fmt);
         }
         // Zeilen des Absatzes: (Byte-Beginn, Oberkante, Unterkante) im Layout
         let mut spans: Vec<(usize, f64, f64)> = Vec::new();
@@ -498,7 +535,7 @@ fn para_lines(
                 }
             }
         }
-        let col_x = |c: usize| c as f64 * (col_w + gutter);
+        let col_x = |c: usize| col_spans.get(c).map(|s| s.0).unwrap_or(0.0);
         if spans.len() <= 1 {
             // ein Absatz ohne Teilung (bei Spalten: eventuell erst in die nächste Spalte)
             let (_, logical) = l.extents();
@@ -507,6 +544,7 @@ fn para_lines(
                 max_y = max_y.max(y);
                 col += 1;
                 y = 0.0;
+                l.set_width(((col_wd(col) - left).max(1.0) * k) as i32);
             }
             lines.push(EditLine {
                 layout: l,
@@ -546,7 +584,7 @@ fn para_lines(
                     size,
                     bold,
                     italic,
-                    (col_w - left - hang_in).max(1.0),
+                    (col_wd(col) - left - hang_in).max(1.0),
                     fmt,
                 );
                 if a == 0 {
@@ -555,6 +593,8 @@ fn para_lines(
                         tabs.set_tab(0, pango::TabAlign::Left, (hang * k).round() as i32);
                         lay.set_tabs(Some(&tabs));
                         lay.set_indent(-(hang * k).round() as i32);
+                    } else if first_in > 0.0 {
+                        lay.set_indent((first_in * k).round() as i32);
                     }
                     add_runs(&lay, rich, start, e0.saturating_sub(prefix), &map);
                     size_marker(&lay, prefix, psize, size);
@@ -596,6 +636,7 @@ fn para_lines(
             y = base + spans[n - 1].2 - spans[first].1;
         }
         max_y = max_y.max(y);
+        prev_after = size * pf.space_after(text_fmt);
         start += para.len() + 1;
     }
     (lines, if cols > 1 { max_y.max(y) } else { y })
@@ -667,11 +708,31 @@ fn area_layout(
         _ => pango::Alignment::Left,
     });
     l.set_justify(fmt.align == Align::Justify);
-    // Zeilenabstand: Grundlinienabstand = Schriftgröße × Faktor
-    let extra = size * fmt.line - natural_line(pctx, &fd);
-    l.set_spacing((extra * k).round() as i32);
+    // Zeilenabstand: Grundlinienabstand = Schriftgröße × Faktor (automatisch: jede Zeile so
+    // hoch wie ihre größte Schrift)
+    if !fmt.line_auto {
+        let extra = size * fmt.line - natural_line(pctx, &fd);
+        l.set_spacing((extra * k).round() as i32);
+    }
     apply_tracking(&l, fmt, size);
-    l.set_text(text);
+    // Seitenumbruch wie ein Leerzeichen (gleiche Länge, die Indizes bleiben)
+    // Felder der Kopf-/Fußzeile beim Bearbeiten als Platzhalter (gleich lang: № Seitenzahl,
+    // ∑ Seitenanzahl, ◷ Datum)
+    if text.contains(crate::model::PAGE_BREAK) || text.chars().any(crate::model::is_field) {
+        let shown: String = text
+            .chars()
+            .map(|c| match c {
+                crate::model::PAGE_BREAK => ' ',
+                crate::model::FIELD_PAGE => '№',
+                crate::model::FIELD_PAGES => '∑',
+                crate::model::FIELD_DATE => '◷',
+                c => c,
+            })
+            .collect();
+        l.set_text(&shown);
+    } else {
+        l.set_text(text);
+    }
     l
 }
 
@@ -698,6 +759,7 @@ fn area_height(
         limit,
         fmt,
         &RichText::default(),
+        false,
     )
     .1
 }
@@ -735,7 +797,7 @@ fn rect_lines(shape: &Shape) -> Option<(EditLines, f64)> {
     else {
         return None;
     };
-    if frame.path.is_some() {
+    if frame.shaped() {
         return None;
     }
     let i = frame.inset.max(0.0);
@@ -750,6 +812,7 @@ fn rect_lines(shape: &Shape) -> Option<(EditLines, f64)> {
         (h - 2.0 * i).max(1.0),
         fmt,
         rich,
+        frame.joined,
     ))
 }
 
@@ -776,7 +839,7 @@ fn rect_geom(shape: &Shape) -> Option<Rc<TextGeom>> {
     else {
         return None;
     };
-    if frame.path.is_some() {
+    if frame.shaped() {
         return None;
     }
     let mut hs = std::collections::hash_map::DefaultHasher::new();
@@ -791,6 +854,7 @@ fn rect_geom(shape: &Shape) -> Option<Rc<TextGeom>> {
         h.to_bits().hash(&mut hs);
     }
     frame.inset.to_bits().hash(&mut hs);
+    frame.joined.hash(&mut hs);
     if !rich.is_plain() {
         format!("{rich:?}").hash(&mut hs);
     }
@@ -880,7 +944,7 @@ fn intersect_spans(a: &[(f64, f64)], b: &[(f64, f64)]) -> Vec<(f64, f64)> {
 }
 
 /// Breitester Abschnitt, der über die ganze Höhe `ya`…`yb` innen liegt (minus Abstand).
-fn band_span(polys: &[Vec<Pt>], ya: f64, yb: f64, inset: f64) -> Option<(f64, f64)> {
+fn band_span(polys: &[Vec<Pt>], ya: f64, yb: f64, inset: f64, clip: (f64, f64)) -> Option<(f64, f64)> {
     let n = 6;
     let mut cur = spans_at(polys, ya);
     for i in 1..=n {
@@ -890,8 +954,9 @@ fn band_span(polys: &[Vec<Pt>], ya: f64, yb: f64, inset: f64) -> Option<(f64, f6
             return None;
         }
     }
+    // nur innerhalb der Spalte `clip`
     cur.into_iter()
-        .map(|(a, b)| (a + inset, b - inset))
+        .map(|(a, b)| ((a + inset).max(clip.0), (b - inset).min(clip.1)))
         .filter(|(a, b)| b > a)
         .max_by(|x, y| (x.1 - x.0).total_cmp(&(y.1 - y.0)))
 }
@@ -900,6 +965,7 @@ fn band_span(polys: &[Vec<Pt>], ya: f64, yb: f64, inset: f64) -> Option<(f64, f6
 /// Stelle ist. Liefert die Zeilen und ob Text nicht mehr hineinpasst.
 fn shape_lines(shape: &Shape) -> Option<(EditLines, bool)> {
     let Shape::TextArea {
+        w,
         h,
         text,
         family,
@@ -914,23 +980,45 @@ fn shape_lines(shape: &Shape) -> Option<(EditLines, bool)> {
     else {
         return None;
     };
-    let path = frame.path.as_ref()?;
-    let gap = size * fmt.para.max(0.0);
-    let subs = crate::model::effective_subpaths(path);
+    // eigene Form bzw. das Feld, dazu Aussparungen für Objekte davor
+    let subs = frame.flow_path(*w, *h)?;
     let polys = flatten_polys(&subs);
     let bb = subpaths_bbox(&subs)?;
     let pctx = plain_context();
-    let pitch = (size * fmt.line).max(1.0);
+    // Zeilenabstand je Absatz: fest (Schriftgröße × Faktor) oder automatisch – dann gilt die
+    // natürliche Höhe der Grundschrift, und Zeilen mit größerer Schrift werden höher
+    let natural = natural_line(&pctx, &font_desc(family, *size, *bold, *italic));
     let inset = frame.inset.max(0.0);
     let top0 = bb.y0.max(0.0) + inset;
     let bottom = bb.y1.min(*h) - inset;
     let min_w = size * 1.2;
+    // Spalten (innerhalb des Rands)
+    let cspans: Vec<(f64, f64)> = fmt
+        .column_spans((w - 2.0 * inset).max(1.0), *size)
+        .into_iter()
+        .map(|(x, cw)| (inset + x, inset + x + cw))
+        .collect();
+    let joined = frame.joined;
     let run = |y0: f64| -> (EditLines, bool, f64) {
         let mut lines: EditLines = Vec::new();
         let mut y = y0;
+        let mut used: f64 = 0.0;
+        let mut col = 0usize;
         let mut pos = 0usize;
         let mut guard = 0;
         let mut overflow = false;
+        // Absatz: Nummer, Aufzählungszeichen, Einzug der ersten und der folgenden Zeilen
+        let mut para_i = 0usize;
+        let mut fresh = true;
+        let mut first_line = true;
+        let mut counters = [0usize; crate::model::MAX_INDENT as usize + 1];
+        let mut marker = String::new();
+        let (mut off_first, mut off_rest, mut hang, mut psize) = (0.0, 0.0, 0.0, *size);
+        // Format des Absatzes (Ausrichtung, Zeilenabstand) und der Abstand danach
+        let mut pfmt = *fmt;
+        let mut auto = fmt.line_auto;
+        let mut pitch = natural.max(1.0);
+        let mut after = 0.0;
         loop {
             guard += 1;
             if guard > 4000 {
@@ -941,42 +1029,176 @@ fn shape_lines(shape: &Shape) -> Option<(EditLines, bool)> {
             if done && !(lines.is_empty() || text.ends_with('\n')) {
                 break;
             }
+            if fresh {
+                fresh = false;
+                first_line = true;
+                let pf = rich.para(para_i, fmt.list);
+                pfmt = pf.apply(fmt);
+                auto = pfmt.line_auto;
+                pitch = if auto { natural } else { size * pfmt.line }.max(1.0);
+                after = size * pf.space_after(fmt);
+                if para_i > 0 {
+                    y += size * pf.space_before(fmt);
+                }
+                let lvl = (pf.indent.min(crate::model::MAX_INDENT)) as usize;
+                // Fließtext: Fortsetzung eines Absatzes der vorigen Seite ohne neues Zeichen
+                let cont_first = joined && para_i == 0 && pf.list != ListStyle::None;
+                marker = if cont_first {
+                    String::new()
+                } else {
+                    match pf.list {
+                        ListStyle::None => {
+                            counters = [0; crate::model::MAX_INDENT as usize + 1];
+                            String::new()
+                        }
+                        ListStyle::Number => {
+                            counters[lvl] += 1;
+                            for c in counters[lvl + 1..].iter_mut() {
+                                *c = 0;
+                            }
+                            ListStyle::Number.marker(counters[lvl] - 1)
+                        }
+                        other => {
+                            for c in counters[lvl..].iter_mut() {
+                                *c = 0;
+                            }
+                            other.marker(0)
+                        }
+                    }
+                };
+                psize = para_size(rich, pos, *size);
+                let indent = lvl as f64 * indent_step(psize);
+                hang = if pf.list == ListStyle::None {
+                    0.0
+                } else {
+                    psize * if pf.list == ListStyle::Number { 1.8 } else { 1.2 }
+                };
+                // Einzug der ersten Zeile (nicht bei Aufzählungen und Fortsetzungen)
+                let first_in = if pf.list == ListStyle::None && !(joined && para_i == 0) {
+                    fmt.first.max(0.0)
+                } else {
+                    0.0
+                };
+                off_first = indent + first_in + if cont_first { hang } else { 0.0 };
+                off_rest = indent + hang;
+            }
             if y + pitch > bottom + 1e-6 {
+                // nächste Spalte, sonst passt der Rest nicht mehr
+                if col + 1 < cspans.len() {
+                    used = used.max(y - y0);
+                    col += 1;
+                    y = y0;
+                    continue;
+                }
                 overflow = !done;
                 break;
             }
-            let Some((a, b)) =
-                band_span(&polys, y - inset, y + pitch + inset, inset).filter(|(a, b)| b - a >= min_w)
+            let off = if first_line { off_first } else { off_rest };
+            let Some((a, b)) = band_span(&polys, y - inset, y + pitch + inset, inset, cspans[col])
+                .map(|(a, b)| (a + off, b))
+                .filter(|(a, b)| b - a >= min_w)
             else {
                 y += pitch * 0.25;
                 continue;
             };
+            let with_marker = first_line && !marker.is_empty();
+            let lay = |part: &str, a: f64, b: f64| {
+                let (shown, map) = if with_marker {
+                    crate::model::para_display(part, &marker)
+                } else {
+                    (part.to_string(), Vec::new())
+                };
+                let layout = area_layout(&pctx, &shown, family, *size, *bold, *italic, b - a, &pfmt);
+                if with_marker {
+                    let k = pango::SCALE as f64;
+                    let mut tabs = pango::TabArray::new(1, false);
+                    tabs.set_tab(0, pango::TabAlign::Left, (hang * k).round() as i32);
+                    layout.set_tabs(Some(&tabs));
+                }
+                (layout, shown, map)
+            };
             if done || text[pos..].starts_with('\n') {
-                let layout = area_layout(&pctx, "", family, *size, *bold, *italic, b - a, fmt);
+                // leere Zeile (in einer Aufzählung mit ihrem Zeichen)
+                let (layout, shown, map) = lay("", a, b);
+                if with_marker {
+                    size_marker(&layout, shown.len(), psize, *size);
+                }
                 lines.push(EditLine {
                     layout,
                     x: a,
                     top: y,
                     start: pos,
                     first_only: true,
-                    map: Vec::new(),
+                    map,
                 });
                 y += pitch;
                 if done {
                     break;
                 }
                 pos += 1;
-                y += gap;
+                y += after;
+                para_i += 1;
+                fresh = true;
                 continue;
             }
             let rest = &text[pos..];
-            let layout = area_layout(&pctx, rest, family, *size, *bold, *italic, b - a, fmt);
-            add_runs(&layout, rich, pos, rest.len(), &[]);
-            let len = layout
+            let make = |a: f64, b: f64| {
+                let (layout, shown, map) = lay(rest, a, b);
+                add_runs(&layout, rich, pos, rest.len(), &map);
+                if with_marker {
+                    size_marker(&layout, shown.len() - rest.len(), psize, *size);
+                }
+                (layout, map)
+            };
+            let (mut layout, mut map) = make(a, b);
+            let mut a = a;
+            // automatischer Abstand: so hoch wie die Zeile (größere Schrift); der Bereich
+            // neben den Objekten wird für diese Höhe neu bestimmt
+            let mut line_h = pitch;
+            if auto {
+                let h = layout
+                    .line_readonly(0)
+                    .map(|l| l.extents().1.height() as f64 / pango::SCALE as f64)
+                    .unwrap_or(pitch);
+                if h > pitch + 0.5 {
+                    line_h = h;
+                    if y + line_h > bottom + 1e-6 {
+                        if col + 1 < cspans.len() {
+                            used = used.max(y - y0);
+                            col += 1;
+                            y = y0;
+                            continue;
+                        }
+                        overflow = true;
+                        break;
+                    }
+                    match band_span(&polys, y - inset, y + line_h + inset, inset, cspans[col])
+                        .map(|(a2, b2)| (a2 + off, b2))
+                        .filter(|(a2, b2)| b2 - a2 >= min_w)
+                    {
+                        Some((a2, b2)) => {
+                            if (a2 - a).abs() > 0.01 || (b2 - b).abs() > 0.01 {
+                                (layout, map) = make(a2, b2);
+                            }
+                            a = a2;
+                        }
+                        None => {
+                            y += pitch * 0.25;
+                            continue;
+                        }
+                    }
+                }
+            }
+            let shown_len = layout
                 .line_readonly(0)
                 .map(|l| l.length().max(0) as usize)
-                .unwrap_or(0)
-                .min(rest.len());
+                .unwrap_or(0);
+            let len = if map.is_empty() {
+                shown_len
+            } else {
+                crate::model::list_from_display(&map, shown_len)
+            }
+            .min(rest.len());
             if len == 0 {
                 overflow = true;
                 break;
@@ -987,16 +1209,19 @@ fn shape_lines(shape: &Shape) -> Option<(EditLines, bool)> {
                 top: y,
                 start: pos,
                 first_only: true,
-                map: Vec::new(),
+                map,
             });
             pos += len;
-            y += pitch;
+            y += line_h;
+            first_line = false;
             if text[pos..].starts_with('\n') {
                 pos += 1;
-                y += gap;
+                y += after;
+                para_i += 1;
+                fresh = true;
             }
         }
-        let used = y - y0;
+        let used = used.max(y - y0);
         (lines, overflow, used)
     };
     let (lines, ov, used) = run(top0);
@@ -1044,19 +1269,19 @@ fn shape_geom(shape: &Shape) -> Option<Rc<(TextGeom, bool)>> {
     else {
         return None;
     };
-    frame.path.as_ref()?;
+    if !frame.shaped() {
+        return None;
+    }
     let mut hs = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hs);
     family.hash(&mut hs);
     size.to_bits().hash(&mut hs);
     bold.hash(&mut hs);
     italic.hash(&mut hs);
-    fmt_key(fmt).hash(&mut hs);
-    (fmt.weight, fmt.small_caps, fmt.no_ligatures).hash(&mut hs);
-    fmt.valign.name().hash(&mut hs);
+    format!("{fmt:?}").hash(&mut hs);
     w.to_bits().hash(&mut hs);
     h.to_bits().hash(&mut hs);
-    format!("{:?}{}", frame.path, frame.inset).hash(&mut hs);
+    format!("{:?}{}{:?}{}", frame.path, frame.inset, frame.holes, frame.joined).hash(&mut hs);
     fmt.para.to_bits().hash(&mut hs);
     if let Shape::TextArea { rich, .. } = shape {
         if !rich.is_plain() {
@@ -1226,7 +1451,7 @@ fn edit_layouts(shape: &Shape) -> Option<(String, EditLines)> {
             let mut start = 0;
             for (i, line) in text.split('\n').enumerate() {
                 let l = line_layout(&pctx, line, &fd, fmt, *size);
-                let top = i as f64 * size * fmt.line - l.baseline() as f64 / k;
+                let top = i as f64 * size * fmt.pitch_factor() - l.baseline() as f64 / k;
                 let x = line_shift(&l, fmt);
                 out.push(EditLine {
                     layout: l,
@@ -1241,7 +1466,7 @@ fn edit_layouts(shape: &Shape) -> Option<(String, EditLines)> {
             Some((text.clone(), out))
         }
         Shape::TextArea { text, frame, .. } => {
-            if frame.path.is_some() {
+            if frame.shaped() {
                 return shape_lines(shape).map(|(l, _)| (text.clone(), l));
             }
             let i = frame.inset.max(0.0);
@@ -1353,7 +1578,7 @@ fn compute_text_geom(
         for (i, line) in text.split('\n').enumerate() {
             let layout = line_layout(&pctx, line, &fd, fmt, size);
             let baseline = layout.baseline() as f64 / k;
-            let top = i as f64 * size * fmt.line - baseline;
+            let top = i as f64 * size * fmt.pitch_factor() - baseline;
             let x = line_shift(&layout, fmt);
             cr.move_to(x, top);
             pangocairo::functions::layout_path(cr, &layout);
@@ -1609,11 +1834,73 @@ fn textpath_index(shape: &Shape, p: Pt) -> Option<usize> {
     Some(text.len())
 }
 
+/// Wie viel Text (Bytes) passt in ein Textfeld? `None`: alles. Gezählt bis zum Ende der
+/// letzten Zeile, die noch ganz hineinpasst.
+pub fn area_fit(shape: &Shape) -> Option<usize> {
+    let Shape::TextArea { h, frame, text, .. } = shape else {
+        return None;
+    };
+    if frame.shaped() {
+        let (lines, overflow) = shape_lines(shape)?;
+        if !overflow {
+            return None;
+        }
+        let end = lines
+            .iter()
+            .map(|l| {
+                let len = l
+                    .layout
+                    .line_readonly(0)
+                    .map(|x| x.length().max(0) as usize)
+                    .unwrap_or(0);
+                // mit Aufzählungszeichen: Länge im Original
+                l.start
+                    + if l.map.is_empty() {
+                        len
+                    } else {
+                        crate::model::list_from_display(&l.map, len)
+                    }
+            })
+            .max()
+            .unwrap_or(0);
+        return Some(end.min(text.len()));
+    }
+    let i = frame.inset.max(0.0);
+    let limit = (h - 2.0 * i).max(1.0);
+    let (lines, _) = rect_lines(shape)?;
+    let k = pango::SCALE as f64;
+    for l in &lines {
+        let mut it = l.layout.iter();
+        let mut idx = 0;
+        loop {
+            let (_, y1) = it.line_yrange();
+            if l.top + y1 as f64 / k > limit + 0.5 {
+                let st = l
+                    .layout
+                    .line_readonly(idx)
+                    .map(|ln| ln.start_index().max(0) as usize)
+                    .unwrap_or(0);
+                let orig = if l.map.is_empty() {
+                    st
+                } else {
+                    crate::model::list_from_display(&l.map, st)
+                };
+                return Some((l.start + orig).min(text.len()));
+            }
+            idx += 1;
+            if l.first_only || !it.next_line() {
+                break;
+            }
+        }
+    }
+    None
+}
+
 /// Läuft der Text eines Textfeldes über die Feldhöhe hinaus?
 pub fn area_overflows(shape: &Shape) -> bool {
     match shape {
         Shape::TextArea { h, frame, .. } => {
-            if frame.path.is_some() {
+            if frame.shaped() {
                 return shape_geom(shape).map(|g| g.1).unwrap_or(false);
             }
             let i = frame.inset.max(0.0);
@@ -1627,7 +1914,7 @@ pub fn area_overflows(shape: &Shape) -> bool {
 fn text_doc_outline(shape: &Shape) -> Vec<SubPath> {
     match shape {
         Shape::TextArea { xf, frame, .. } => {
-            if frame.path.is_some() {
+            if frame.shaped() {
                 return shape_geom(shape)
                     .map(|g| map_subpaths(&g.0.outline, xf))
                     .unwrap_or_default();
@@ -1689,13 +1976,13 @@ fn text_runs(shape: &Shape) -> Option<(Affine, Vec<(pango::Layout, f64, f64, boo
             for (i, line) in text.split('\n').enumerate() {
                 let layout = line_layout(&pctx, line, &fd, fmt, *size);
                 let baseline = layout.baseline() as f64 / k;
-                let top = i as f64 * size * fmt.line - baseline;
+                let top = i as f64 * size * fmt.pitch_factor() - baseline;
                 let x = line_shift(&layout, fmt);
                 v.push((layout, x, top, false));
             }
             Some((*xf, v))
         }
-        Shape::TextArea { xf, frame, .. } if frame.path.is_none() => {
+        Shape::TextArea { xf, frame, .. } if !frame.shaped() => {
             let (lines, _) = rect_lines(shape)?;
             let i = frame.inset.max(0.0);
             let m = xf.then_before(&Affine::translate(i, area_dy(shape)));
@@ -1747,10 +2034,10 @@ fn show_text_runs(cr: &cairo::Context, m: &Affine, runs: &[(pango::Layout, f64, 
 /// für den SVG-Export: so umbrechen auch Programme, die Textfelder nicht kennen, gleich.
 pub fn area_export_lines(shape: &Shape) -> Option<Vec<crate::svg::TextLine>> {
     let k = pango::SCALE as f64;
-    let Shape::TextArea { frame, fmt, text, .. } = shape else {
+    let Shape::TextArea { frame, text, .. } = shape else {
         return None;
     };
-    let (lines, dx, dy) = if frame.path.is_none() {
+    let (lines, dx, dy) = if !frame.shaped() {
         let (l, _) = rect_lines(shape)?;
         (l, frame.inset.max(0.0), area_dy(shape))
     } else {
@@ -1806,7 +2093,8 @@ pub fn area_export_lines(shape: &Shape) -> Option<Vec<crate::svg::TextLine>> {
                 text_x: text_x + dx,
                 baseline: baseline + dy,
                 width: (right - text_x).max(0.0),
-                justify: fmt.align == Align::Justify && !last_of_para,
+                // (Ausrichtung des Absatzes steckt im Layout)
+                justify: l.layout.is_justify() && !last_of_para,
             });
         }
     }
@@ -2326,6 +2614,18 @@ fn blend_operator(b: Blend) -> cairo::Operator {
 
 pub fn draw_object(cr: &cairo::Context, obj: &Object) {
     if obj.style.opacity <= 0.0 {
+        return;
+    }
+    // Kopf-/Fußzeile: auf der Titelseite ausgeblendet, sonst mit den Werten der Felder
+    if let Shape::TextArea { frame, .. } = &obj.shape {
+        if frame.band != 0 && frame.page_no == 0 && frame.page_count > 0 {
+            return;
+        }
+    }
+    if let Some(sh) = crate::model::band_display(&obj.shape) {
+        let mut o = obj.clone();
+        o.shape = sh;
+        draw_object(cr, &o);
         return;
     }
     draw_extras(cr, obj);
@@ -2868,8 +3168,13 @@ fn draw_filled(cr: &cairo::Context, obj: &Object) {
             .and_then(|g| object_box(obj).map(|r| (g, r)));
         // Kunsteffekte wirken auf die Füllung (Farbe, Verlauf oder Muster)
         let art = obj.style.fx.art;
-        // PDF mit durchsuchbarem Text: echte Schrift statt Umrissen (nicht bei Kunsteffekten)
-        let glyphs = if art.is_none() && TEXT_GLYPHS.with(|c| c.get()) {
+        // PDF mit durchsuchbarem Text: echte Schrift statt Umrissen (nicht bei Kunsteffekten);
+        // ebenso bei Textteilen mit eigener Farbe (die Umrisse kennen nur eine Farbe)
+        let colored = obj
+            .shape
+            .rich()
+            .is_some_and(|r| r.runs.iter().any(|t| t.style.color.is_some()));
+        let glyphs = if art.is_none() && (colored || TEXT_GLYPHS.with(|c| c.get())) {
             text_runs(&obj.shape)
         } else {
             None
@@ -3558,8 +3863,10 @@ struct FxEntry {
     aux: Option<cairo::ImageSurface>,
     /// Dokument → Bildpixel beim Erzeugen
     to_img: cairo::Matrix,
-    /// Rahmen des Objekts (Dokument) beim Erzeugen
+    /// Rahmen des Objekts beim Erzeugen, in seinem gedrehten System (siehe `fx_frame`)
     anchor: Rect,
+    /// Drehung des Objekts beim Erzeugen
+    angle: f64,
     used: u64,
 }
 
@@ -3642,35 +3949,35 @@ fn fx_lookup(obj: &Object, slot: u8, key: u64) -> Option<(FxEntry, cairo::Matrix
             return None;
         }
         e.used = frame;
-        if !fresh {
-            FX_STALE.with(|s| s.set(true));
+        if fresh {
+            return Some((e.clone(), e.to_img));
         }
-        let now = object_box(obj).unwrap_or(e.anchor);
-        Some((e.clone(), fx_map(e, &now)))
+        // veraltetes Bild: mit dem Objekt verschieben, skalieren und drehen
+        FX_STALE.with(|s| s.set(true));
+        Some((e.clone(), fx_map(e, obj)))
     })
 }
 
-/// Matrix, die ein Bild vom alten Rahmen des Objekts auf den neuen überträgt.
-fn fx_map(e: &FxEntry, now: &Rect) -> cairo::Matrix {
-    let a = &e.anchor;
-    let ratio = |n: f64, o: f64| {
-        if o.abs() > 1e-9 && n.abs() > 1e-9 {
-            n / o
-        } else {
-            1.0
-        }
-    };
-    let sx = ratio(now.width(), a.width());
-    let sy = ratio(now.height(), a.height());
-    let ainv = cairo::Matrix::new(
-        1.0 / sx,
-        0.0,
-        0.0,
-        1.0 / sy,
-        a.x0 - now.x0 / sx,
-        a.y0 - now.y0 / sy,
-    );
-    cairo::Matrix::multiply(&ainv, &e.to_img)
+/// Rahmen eines Objekts in seinem eigenen, um `angle` gedrehten System (wie der
+/// Auswahlrahmen): so lässt sich ein altes Bild mitdrehen, nicht nur verschieben.
+fn fx_frame(obj: &Object) -> Option<(Rect, f64)> {
+    let angle = obj.angle;
+    if angle.abs() < 1e-9 {
+        return object_box(obj).map(|b| (b, 0.0));
+    }
+    let mut c = obj.clone();
+    c.shape
+        .transform(&crate::geom::Affine::rotate_about(angle, Pt::new(0.0, 0.0)));
+    object_box(&c).map(|b| (b, angle))
+}
+
+/// Matrix, die ein Bild vom alten Rahmen des Objekts auf den jetzigen überträgt
+/// (verschoben, skaliert und gedreht).
+fn fx_map(e: &FxEntry, obj: &Object) -> cairo::Matrix {
+    let (now, angle) = fx_frame(obj).unwrap_or((e.anchor, e.angle));
+    let m = crate::geom::Affine::frame_to_frame(&now, angle, &e.anchor, e.angle);
+    let back = cairo::Matrix::new(m.a, m.b, m.c, m.d, m.e, m.f);
+    cairo::Matrix::multiply(&back, &e.to_img)
 }
 
 fn fx_store(
@@ -3684,7 +3991,9 @@ fn fx_store(
     if !FX_CANVAS.with(|c| c.get()) || FX_BACK.with(|c| c.get()) {
         return;
     }
-    let Some(anchor) = object_box(obj) else { return };
+    let Some((anchor, angle)) = fx_frame(obj) else {
+        return;
+    };
     let used = FX_FRAME.with(|c| c.get());
     FX_CACHE.with(|c| {
         c.borrow_mut().insert(
@@ -3695,6 +4004,7 @@ fn fx_store(
                 aux,
                 to_img,
                 anchor,
+                angle,
                 used,
             },
         )
@@ -4649,7 +4959,7 @@ impl Metrics for CairoMetrics {
             return None;
         };
         let inset = frame.inset.max(0.0);
-        let shaped = frame.path.is_some();
+        let shaped = frame.shaped();
         let words: Vec<&str> = crate::editor::LOREM.split(' ').collect();
         let make = |n: usize| {
             words
@@ -4697,6 +5007,14 @@ impl Metrics for CairoMetrics {
         Some(make(lo))
     }
 
+    fn area_fit(&self, obj: &Object) -> Option<usize> {
+        area_fit(&obj.shape)
+    }
+
+    fn caret_top(&self, obj: &Object, idx: usize) -> Option<Pt> {
+        caret_line(&obj.shape, idx).map(|(a, _)| a)
+    }
+
     fn text_index(&self, obj: &Object, p: Pt) -> Option<usize> {
         if matches!(obj.shape, Shape::TextPath { .. }) {
             return textpath_index(&obj.shape, p);
@@ -4708,15 +5026,60 @@ impl Metrics for CairoMetrics {
         let local = xf.invert().apply(p);
         let (text, layouts) = edit_layouts(&obj.shape)?;
         let k = pango::SCALE as f64;
+        // Spalten: nur die Zeilen der Spalte unter dem Zeiger (sonst gewänne die rechte
+        // Spalte, deren Zeilen auf gleicher Höhe später kommen)
+        let column = match &obj.shape {
+            Shape::TextArea {
+                w, size, fmt, frame, ..
+            } if fmt.cols() > 1 => {
+                let inset = frame.inset.max(0.0);
+                let spans: Vec<(f64, f64)> = fmt
+                    .column_spans((w - 2.0 * inset).max(1.0), *size)
+                    .into_iter()
+                    .map(|(x, cw)| (inset + x, inset + x + cw))
+                    .collect();
+                let nearest = move |x: f64| {
+                    spans
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (a, b))| {
+                            (
+                                i,
+                                if x < *a {
+                                    a - x
+                                } else if x > *b {
+                                    x - b
+                                } else {
+                                    0.0
+                                },
+                            )
+                        })
+                        .min_by(|a, b| a.1.total_cmp(&b.1))
+                        .map(|(i, _)| i)
+                        .unwrap_or(0)
+                };
+                Some(nearest)
+            }
+            _ => None,
+        };
+        let want = column.as_ref().map(|f| f(local.x));
+        let in_col = |l: &EditLine| match (&column, want) {
+            (Some(f), Some(c)) => f(l.x + 0.5) == c,
+            _ => true,
+        };
         // Zeile anhand der Höhe wählen
-        let mut best = 0;
+        let mut best = None;
         for (i, l) in layouts.iter().enumerate() {
+            if !in_col(l) {
+                continue;
+            }
             let (_, logical) = l.layout.extents();
             let y0 = l.top + logical.y() as f64 / k;
-            if local.y >= y0 {
-                best = i;
+            if local.y >= y0 || best.is_none() {
+                best = Some(i);
             }
         }
+        let best = best.unwrap_or(0);
         let line = layouts.get(best)?;
         // Text in Form: nur die erste Zeile des Layouts gilt
         let ly = if line.first_only {
@@ -4806,6 +5169,156 @@ fn square(cr: &cairo::Context, p: Pt, size: f64, filled: bool) {
     let _ = cr.stroke();
 }
 
+/// Farbe der Auswahl-Anfasser: die Markierungsfarbe, sehr helle Farben (z. B. Gelb)
+/// etwas abgedunkelt, damit die vollen Anfasser auf Weiß gut zu sehen sind.
+fn handle_rgb() -> (f64, f64, f64) {
+    let (r, g, b) = ACC.with(|c| c.get());
+    let l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if l <= 0.55 {
+        return (r, g, b);
+    }
+    let k = 0.55 / l;
+    (r * k, g * k, b * k)
+}
+
+/// Auswahl-Anfasser: abgerundete Dreiecke in den Ecken, Pillen an den Seiten (ab einer
+/// gewissen Seitenlänge), runder Drehgriff – voll in der Markierungsfarbe mit weißem Rand
+/// und weichem Schatten. `hs`: Bildschirmpunkte, oben links im Uhrzeigersinn.
+fn draw_selection_handles(cr: &cairo::Context, hs: &[Pt; 8], rotate: Option<Pt>) {
+    let (r, g, b) = handle_rgb();
+    let dir = |a: Pt, to: Pt| {
+        let d = to - a;
+        if d.len() > 1e-9 {
+            d.normalized()
+        } else {
+            Pt::new(1.0, 0.0)
+        }
+    };
+    // Umrisse als Pfade: Ecken (Dreiecke, gefüllt) und Seiten (Linien mit runden Enden)
+    let mut corners: Vec<[Pt; 3]> = Vec::new();
+    let mut sides: Vec<(Pt, Pt)> = Vec::new();
+    for i in 0..8 {
+        if !crate::editor::handle_shown(hs, i) {
+            continue;
+        }
+        let p = hs[i];
+        let (prev, next) = (hs[(i + 6) % 8], hs[(i + 2) % 8]);
+        if i % 2 == 0 {
+            // Schenkel entlang der Kanten; bei kleinen Auswahlen kürzer
+            let len = (p.dist(prev).min(p.dist(next)) / 4.0).clamp(5.0, 13.0);
+            corners.push([p, p + dir(p, next) * len, p + dir(p, prev) * len]);
+        } else {
+            let d = dir(hs[(i + 7) % 8], hs[(i + 1) % 8]);
+            sides.push((p - d * 9.0, p + d * 9.0));
+        }
+    }
+    let rot_stem = rotate.map(|rh| {
+        let d = dir(hs[1], rh);
+        (hs[1] + d * 5.0, rh - d * 6.0, rh)
+    });
+    if let Some((s0, s1, _)) = rot_stem {
+        cr.move_to(s0.x, s0.y);
+        cr.line_to(s1.x, s1.y);
+        cr.set_source_rgb(r, g, b);
+        cr.set_line_width(1.0);
+        let _ = cr.stroke();
+    }
+    let _ = cr.save();
+    cr.set_line_join(cairo::LineJoin::Round);
+    cr.set_line_cap(cairo::LineCap::Round);
+    // Form in einer Breite zeichnen (Dreiecke werden dabei rund und etwas größer)
+    let shapes = |cr: &cairo::Context, grow: f64, dx: f64, dy: f64| {
+        for t in &corners {
+            cr.move_to(t[0].x + dx, t[0].y + dy);
+            cr.line_to(t[1].x + dx, t[1].y + dy);
+            cr.line_to(t[2].x + dx, t[2].y + dy);
+            cr.close_path();
+            cr.set_line_width(grow);
+            let _ = cr.fill_preserve();
+            let _ = cr.stroke();
+        }
+        for (a, b2) in &sides {
+            cr.move_to(a.x + dx, a.y + dy);
+            cr.line_to(b2.x + dx, b2.y + dy);
+            cr.set_line_width(grow + 1.0);
+            let _ = cr.stroke();
+        }
+        if let Some((_, _, rh)) = rot_stem {
+            cr.new_path();
+            cr.arc(rh.x + dx, rh.y + dy, 2.5 + grow / 2.0, 0.0, TAU);
+            let _ = cr.fill();
+        }
+    };
+    // weicher Schatten: zwei leicht versetzte, durchscheinende Lagen
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.10);
+    shapes(cr, 9.5, 0.0, 1.0);
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.14);
+    shapes(cr, 8.0, 0.0, 1.0);
+    // weißer Rand, dann die volle Farbe
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    shapes(cr, 7.0, 0.0, 0.0);
+    cr.set_source_rgb(r, g, b);
+    shapes(cr, 4.0, 0.0, 0.0);
+    let _ = cr.restore();
+}
+
+/// Abgerundetes Quadrat (fast ein Squircle) um `p`, `dy` nach unten versetzt.
+fn squircle_path(cr: &cairo::Context, p: Pt, size: f64, dy: f64) {
+    let h = size / 2.0;
+    let rad = size * 0.32;
+    let (x0, y0, x1, y1) = (p.x - h, p.y - h + dy, p.x + h, p.y + h + dy);
+    let q = TAU / 4.0;
+    cr.new_path();
+    cr.arc(x1 - rad, y0 + rad, rad, -q, 0.0);
+    cr.arc(x1 - rad, y1 - rad, rad, 0.0, q);
+    cr.arc(x0 + rad, y1 - rad, rad, q, 2.0 * q);
+    cr.arc(x0 + rad, y0 + rad, rad, 2.0 * q, 3.0 * q);
+    cr.close_path();
+}
+
+/// Knoten beim Bearbeiten: klein (genau), aber im Stil der Auswahl-Anfasser – abgerundet,
+/// mit weißem Rand und weichem Schatten. Gewählt: voll in der Markierungsfarbe; sonst weiß
+/// mit farbigem Ring.
+fn node_handle(cr: &cairo::Context, p: Pt, size: f64, selected: bool) {
+    let (r, g, b) = handle_rgb();
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.12);
+    squircle_path(cr, p, size + 4.5, 1.0);
+    let _ = cr.fill();
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.12);
+    squircle_path(cr, p, size + 3.5, 1.0);
+    let _ = cr.fill();
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    squircle_path(cr, p, size + 3.0, 0.0);
+    let _ = cr.fill();
+    cr.set_source_rgb(r, g, b);
+    squircle_path(cr, p, size, 0.0);
+    let _ = cr.fill();
+    if !selected {
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        squircle_path(cr, p, size - 3.0, 0.0);
+        let _ = cr.fill();
+    }
+}
+
+/// Griffpunkt einer Kurve beim Bearbeiten: kleiner Punkt mit weißem Rand und Schatten.
+fn node_dot(cr: &cairo::Context, p: Pt) {
+    let (r, g, b) = handle_rgb();
+    for (rad, dy, a) in [(5.2, 1.0, 0.12), (4.6, 1.0, 0.12)] {
+        cr.new_path();
+        cr.arc(p.x, p.y + dy, rad, 0.0, TAU);
+        cr.set_source_rgba(0.0, 0.0, 0.0, a);
+        let _ = cr.fill();
+    }
+    cr.new_path();
+    cr.arc(p.x, p.y, 4.2, 0.0, TAU);
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    let _ = cr.fill();
+    cr.new_path();
+    cr.arc(p.x, p.y, 2.8, 0.0, TAU);
+    cr.set_source_rgb(r, g, b);
+    let _ = cr.fill();
+}
+
 fn dot(cr: &cairo::Context, p: Pt, r: f64) {
     cr.new_path();
     cr.arc(p.x, p.y, r, 0.0, TAU);
@@ -4866,6 +5379,39 @@ pub fn draw_canvas(
     let v = ed.view;
     let doc = &ed.doc;
 
+    // Präsentation: schwarz drumherum, nur die Seite – ohne Rahmen, Lineale und Hilfen
+    if ed.presenting {
+        cr.set_source_rgb(0.0, 0.0, 0.0);
+        let _ = cr.paint();
+        let Some(r) = ed.page_clip() else { return };
+        let i = ed.page_index().unwrap_or(0);
+        let a = v.to_screen(Pt::new(r.x0, r.y0));
+        cr.rectangle(a.x, a.y, r.width() * v.zoom, r.height() * v.zoom);
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        let _ = cr.fill_preserve();
+        match doc.artboard_backgrounds().get(i).copied().flatten() {
+            Some(bg) => {
+                set_color(cr, bg);
+                let _ = cr.fill();
+            }
+            None => cr.new_path(),
+        }
+        let _ = cr.save();
+        cr.translate(v.ox, v.oy);
+        cr.scale(v.zoom, v.zoom);
+        let prev_res = set_effect_resolution(res);
+        fx_canvas_begin();
+        cr.rectangle(r.x0, r.y0, r.width(), r.height());
+        cr.clip();
+        draw_document(cr, doc);
+        draw_objects(cr, &ed.marks);
+        fx_canvas_end();
+        set_effect_resolution(prev_res);
+        let _ = cr.restore();
+        draw_laser(cr, ed);
+        return;
+    }
+
     // Arbeitsbereich: Schachbrett (außerhalb der Seite wird nichts exportiert)
     let pb = match backdrop {
         Backdrop::Checker if dark => checker((0.22, 0.17), 10.0),
@@ -4888,8 +5434,7 @@ pub fn draw_canvas(
     let _ = cr.fill();
 
     // Zeichenflächen (ohne Schatten); transparente Flächen als helleres Schachbrett
-    // Notizheft: nur die aktuelle Seite
-    let only = ed.page_index();
+    let only = if ed.presenting { ed.page_index() } else { None };
     let bgs = doc.artboard_backgrounds();
     let pages: Vec<(String, (f64, f64, f64, f64))> = doc
         .artboard_rects()
@@ -4967,15 +5512,20 @@ pub fn draw_canvas(
     cr.scale(v.zoom, v.zoom);
     let prev_res = set_effect_resolution(res);
     fx_canvas_begin();
-    if let Some(r) = ed.page_clip() {
-        // Inhalte außerhalb der Seite ausblenden
-        cr.rectangle(r.x0, r.y0, r.width(), r.height());
+    if let Some(rs) = ed.shown_pages() {
+        // Notizheft und Präsentation: Inhalte neben den Seiten ausblenden
+        for r in &rs {
+            cr.rectangle(r.x0, r.y0, r.width(), r.height());
+        }
         cr.clip();
     }
     draw_document(cr, doc);
+    // eigene Markierungen in der Präsentation (nicht Teil des Dokuments)
+    draw_objects(cr, &ed.marks);
     fx_canvas_end();
     set_effect_resolution(prev_res);
     let _ = cr.restore();
+    draw_laser(cr, ed);
 
     // Ränder der Zeichenflächen dezent nachziehen, bei mehreren mit Namen darüber
     cr.set_source_rgba(0.0, 0.0, 0.0, 0.35);
@@ -4989,7 +5539,8 @@ pub fn draw_canvas(
         );
     }
     let _ = cr.stroke();
-    if pages.len() > 1 {
+    // Namen über den Zeichenflächen (nicht im Notizheft: dort sind es einfach Seiten)
+    if pages.len() > 1 && ed.notebook.is_none() {
         let _ = cr.save();
         cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
         cr.set_font_size(11.0);
@@ -5026,6 +5577,10 @@ pub fn draw_canvas(
         }
     }
 
+    draw_text_corners(cr, ed, dark);
+    draw_format_marks(cr, ed);
+    draw_band_marks(cr, ed);
+    draw_wrap_areas(cr, ed);
     draw_guides(cr, ed, w, h);
     draw_overlay(cr, ed, m);
     draw_snap_hints(cr, ed);
@@ -5123,12 +5678,21 @@ fn draw_guides(cr: &cairo::Context, ed: &Editor, w: f64, h: f64) {
             cr.move_to(a.x, a.y);
             cr.line_to(b.x, b.y);
         }
-        let selected = ed.guide_sel == Some(i);
-        if selected {
-            cr.set_source_rgba(0.87, 0.18, 0.6, 1.0);
-            cr.set_line_width(1.5);
+        // in der Farbe ihrer Ebene (ohne Ebene: Hellblau); die gewählte kräftiger und mit
+        // hellem Saum, damit sie sich abhebt
+        let c = ed
+            .doc
+            .layer(g.layer)
+            .map(|l| crate::model::layer_color(l.color))
+            .unwrap_or(Color::rgb(0.0, 0.68, 0.94));
+        if ed.guide_sel == Some(i) {
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.8);
+            cr.set_line_width(4.0);
+            let _ = cr.stroke_preserve();
+            cr.set_source_rgba(c.r, c.g, c.b, 1.0);
+            cr.set_line_width(2.0);
         } else {
-            cr.set_source_rgba(0.0, 0.68, 0.94, 0.9);
+            cr.set_source_rgba(c.r, c.g, c.b, 0.9);
             cr.set_line_width(1.0);
         }
         let _ = cr.stroke();
@@ -5199,6 +5763,63 @@ fn draw_gradient_line(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
     }
 }
 
+/// Kopf- bzw. Fußzeile in Arbeit: gestrichelte Linie zum Fließtext hin mit Beschriftung,
+/// auf jeder Seite.
+fn draw_band_marks(cr: &cairo::Context, ed: &Editor) {
+    let boxes = ed.band_boxes_editing();
+    if boxes.is_empty() {
+        return;
+    }
+    let v = ed.view;
+    let _ = cr.save();
+    use_color(ui_accent_color());
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    cr.set_font_size(10.0);
+    for (header, r) in boxes {
+        let y = if header { r.y1 } else { r.y0 };
+        let a = v.to_screen(Pt::new(r.x0, y));
+        let b = v.to_screen(Pt::new(r.x1, y));
+        let yy = a.y.round() + 0.5;
+        accent(cr, 0.7);
+        cr.set_line_width(1.0);
+        cr.set_dash(&[4.0, 3.0], 0.0);
+        cr.move_to(a.x, yy);
+        cr.line_to(b.x, yy);
+        let _ = cr.stroke();
+        cr.set_dash(&[], 0.0);
+        let label = if header { tr("Header") } else { tr("Footer") };
+        accent(cr, 0.9);
+        cr.move_to(a.x, if header { yy + 12.0 } else { yy - 4.0 });
+        let _ = cr.show_text(label);
+    }
+    let _ = cr.restore();
+}
+
+/// Gewählte Objekte, die Text wegdrängen: die Fläche, die sie freihalten (mit Abstand),
+/// gestrichelt.
+fn draw_wrap_areas(cr: &cairo::Context, ed: &Editor) {
+    let areas = ed.wrap_preview();
+    if areas.is_empty() {
+        return;
+    }
+    let v = ed.view;
+    let _ = cr.save();
+    use_color(ui_accent_color());
+    cr.new_path();
+    for subs in &areas {
+        let _ = cr.save();
+        cr.translate(v.ox, v.oy);
+        cr.scale(v.zoom, v.zoom);
+        path_subpaths(cr, subs);
+        let _ = cr.restore();
+    }
+    accent(cr, 0.8);
+    cr.set_line_width(1.0);
+    cr.set_dash(&[2.0, 3.0], 0.0);
+    let _ = cr.stroke();
+    let _ = cr.restore();
+}
+
 fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
     let v = ed.view;
     let idle = matches!(ed.drag, Drag::None);
@@ -5232,8 +5853,31 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
         }
     }
 
-    // Umrisse der Auswahl (in der Farbe ihrer Ebene)
+    // Tabelle in Arbeit: Spalten- und Zeilenköpfe
+    if !ed.read_only {
+        draw_table_heads(cr, ed);
+    }
+    // Umrisse der Auswahl (in der Farbe ihrer Ebene); beim Ansehen ohne den Text, in dem
+    // gerade Zeichen markiert werden
+    // Tabellen und Diagramme: nur ihr Rahmen, nicht jedes Teil
+    let smart_groups: Vec<u64> = ed
+        .selected_objects()
+        .iter()
+        .filter(|o| o.smart.is_some())
+        .map(|o| o.inner_group())
+        .collect();
     for o in ed.selected_objects() {
+        if ed.read_only && ed.text_edit.is_some_and(|t| t.id == o.id) {
+            continue;
+        }
+        if o.smart.is_none() && !smart_groups.is_empty() && o.chain().iter().any(|g| smart_groups.contains(g))
+        {
+            continue;
+        }
+        // Fließtext, Kopf- und Fußzeile: kein Rahmen (sie sind einfach Text der Seite)
+        if crate::editor::is_body(&o.shape) || crate::editor::is_band(&o.shape) {
+            continue;
+        }
         use_layer_color(ed, o.id);
         outline(cr, ed, o, m);
         accent(cr, 0.9);
@@ -5255,6 +5899,15 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
                 cr.line_to(c.x - 4.5, c.y - 7.5);
                 let _ = cr.stroke();
             }
+        }
+    }
+    // gewählter Teil eines Diagramms (Stück, Balken, Reihe, Beschriftungen)
+    for id in ed.picked_members() {
+        if let Some(o) = ed.doc.object(id) {
+            outline(cr, ed, o, m);
+            accent(cr, 1.0);
+            cr.set_line_width(2.0);
+            let _ = cr.stroke();
         }
     }
     // Gerahmtes Bild im Inhaltsmodus: ganzes Bild blass zeigen
@@ -5485,6 +6138,8 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
     }
 
     match ed.tool {
+        // beim Ansehen: keine Anfasser (nichts lässt sich verschieben oder skalieren)
+        Tool::Select if ed.read_only => {}
         Tool::Select => {
             if !matches!(ed.drag, Drag::Rubber { .. }) {
                 if let Some(hs) = ed.handle_positions(m) {
@@ -5505,24 +6160,10 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
                     accent(cr, 1.0);
                     cr.set_line_width(1.0);
                     let _ = cr.stroke();
-                    for hp in hs {
-                        square(cr, hp, 7.0, false);
-                    }
-                    // Drehgriff
-                    if let Some(rh) = ed.rotate_handle(m) {
-                        let dir = (rh - hs[1]).normalized();
-                        let (s0, s1) = (hs[1] + dir * 4.0, rh - dir * 4.5);
-                        cr.move_to(s0.x, s0.y);
-                        cr.line_to(s1.x, s1.y);
-                        accent(cr, 1.0);
-                        cr.set_line_width(1.0);
-                        let _ = cr.stroke();
-                        cr.new_path();
-                        cr.arc(rh.x, rh.y, 4.5, 0.0, TAU);
-                        cr.set_source_rgb(1.0, 1.0, 1.0);
-                        let _ = cr.fill_preserve();
-                        accent(cr, 1.0);
-                        let _ = cr.stroke();
+                    // beim Verschieben, Skalieren und Drehen nur der Rahmen: man sieht die
+                    // echten Kanten
+                    if !ed.transforming() {
+                        draw_selection_handles(cr, &hs, ed.rotate_handle(m));
                     }
                 }
             }
@@ -5582,9 +6223,16 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
                     cr.line_to(s.x, s.y);
                 }
             }
-            let c = ed.defaults.stroke.or(ed.defaults.fill).unwrap_or(Color::BLACK);
-            set_color(cr, c);
-            cr.set_line_width((ed.defaults.width * v.zoom).max(1.0));
+            if ed.read_only {
+                // Textmarker
+                let c = ed.highlight_color;
+                cr.set_source_rgba(c.r, c.g, c.b, 0.45);
+                cr.set_line_width((ed.highlight_width * v.zoom).max(1.0));
+            } else {
+                let c = ed.defaults.stroke.or(ed.defaults.fill).unwrap_or(Color::BLACK);
+                set_color(cr, c);
+                cr.set_line_width((ed.defaults.width * v.zoom).max(1.0));
+            }
             cr.set_line_cap(cairo::LineCap::Round);
             cr.set_line_join(cairo::LineJoin::Round);
             let _ = cr.stroke();
@@ -5607,13 +6255,91 @@ fn draw_overlay(cr: &cairo::Context, ed: &Editor, m: &dyn Metrics) {
             }
             accent(cr, 0.3);
             let _ = cr.fill();
-            if let Some((p0, p1)) = caret_line(&o.shape, te.caret) {
+            // beim Ansehen keine Schreibmarke (nur die Markierung)
+            if let Some((p0, p1)) = caret_line(&o.shape, te.caret).filter(|_| !ed.read_only) {
                 let (a, b) = (v.to_screen(p0), v.to_screen(p1));
                 cr.move_to(a.x, a.y);
                 cr.line_to(b.x, b.y);
                 accent(cr, 1.0);
                 cr.set_line_width(1.5);
                 let _ = cr.stroke();
+            }
+        }
+    }
+
+    // Formel in Arbeit: vorgeschlagene Funktion hellgrau hinter dem Cursor (Eingabe übernimmt)
+    if let (Some(ce), Some(te), Some((rest, _))) = (&ed.cell_edit, ed.text_edit, ed.formula_suggestion()) {
+        if let Some(o) = ed.doc.object(ce.part) {
+            if let (Some((p0, p1)), Some((_, family, size, bold, italic))) =
+                (caret_line(&o.shape, te.caret), o.shape.text_fields())
+            {
+                let (a, b) = (v.to_screen(p0), v.to_screen(p1));
+                let h = a.dist(b);
+                if h > 2.0 {
+                    let _ = cr.save();
+                    // Schreibrichtung: quer zur Schreibmarke (auch bei senkrechtem Text)
+                    let ang = (b.y - a.y).atan2(b.x - a.x) - std::f64::consts::FRAC_PI_2;
+                    cr.translate(a.x, a.y);
+                    cr.rotate(ang);
+                    let layout = pangocairo::functions::create_layout(cr);
+                    let mut fd = pango::FontDescription::new();
+                    fd.set_family(family);
+                    fd.set_absolute_size(size * v.zoom * pango::SCALE as f64);
+                    if bold {
+                        fd.set_weight(pango::Weight::Bold);
+                    }
+                    if italic {
+                        fd.set_style(pango::Style::Italic);
+                    }
+                    layout.set_font_description(Some(&fd));
+                    layout.set_text(&format!("{rest}("));
+                    let (_, lh) = layout.pixel_size();
+                    // so hoch wie die Zeile, unten bündig mit der Schreibmarke
+                    cr.move_to(2.0, h - lh as f64);
+                    cr.set_source_rgba(0.55, 0.55, 0.58, 0.9);
+                    pangocairo::functions::show_layout(cr, &layout);
+                    let _ = cr.restore();
+                }
+            }
+        }
+    }
+
+    // Formel in Arbeit: Bezüge im Text in ihren Farben
+    if let Some(ce) = &ed.cell_edit {
+        if let Some(o) = ed.doc.object(ce.part) {
+            let marks = ed.formula_marks();
+            if !marks.is_empty() {
+                let view = Affine {
+                    a: v.zoom,
+                    b: 0.0,
+                    c: 0.0,
+                    d: v.zoom,
+                    e: v.ox,
+                    f: v.oy,
+                };
+                let outline = map_subpaths(&text_doc_outline(&o.shape), &view);
+                for (a, b, _, k) in marks {
+                    let quads = selection_quads(&o.shape, a, b);
+                    if quads.is_empty() {
+                        continue;
+                    }
+                    let _ = cr.save();
+                    cr.new_path();
+                    for q in &quads {
+                        let s: Vec<Pt> = q.iter().map(|p| v.to_screen(*p)).collect();
+                        cr.move_to(s[0].x, s[0].y);
+                        for p in &s[1..] {
+                            cr.line_to(p.x, p.y);
+                        }
+                        cr.close_path();
+                    }
+                    cr.clip();
+                    path_subpaths(cr, &outline);
+                    let (r, g, bl) = crate::sheet::REF_COLORS[k];
+                    cr.set_source_rgb(r, g, bl);
+                    let _ = cr.fill();
+                    let _ = cr.restore();
+                }
             }
         }
     }
@@ -5753,14 +6479,14 @@ fn draw_nodes(cr: &cairo::Context, ed: &Editor) {
         accent(cr, 0.8);
         cr.set_line_width(1.0);
         let _ = cr.stroke();
-        dot(cr, b, 3.5);
+        node_dot(cr, b);
     }
     for (id, subpaths) in &views {
         use_layer_color(ed, *id);
         for (si, sp) in subpaths.iter().enumerate() {
             for (ni, n) in sp.nodes.iter().enumerate() {
                 let sel = ed.node_sel.contains(&(*id, si, ni));
-                square(cr, v.to_screen(n.p), if sel { 8.0 } else { 7.0 }, sel);
+                node_handle(cr, v.to_screen(n.p), if sel { 7.0 } else { 6.0 }, sel);
             }
         }
     }
@@ -5793,7 +6519,7 @@ fn draw_pen(cr: &cairo::Context, ed: &Editor, nodes: &[crate::model::Node]) {
     }
     // Vorschau zum Zeiger
     let last = nodes[nodes.len() - 1];
-    let ptr = ed.pointer.filter(|_| !matches!(ed.drag, Drag::PenHandle));
+    let ptr = ed.pointer.filter(|_| !matches!(ed.drag, Drag::PenHandle { .. }));
     if let Some(ptr) = ptr {
         let c1 = v.to_screen(last.h_out);
         let p = v.to_screen(ptr);
@@ -5987,6 +6713,186 @@ fn draw_badge(cr: &cairo::Context, ed: &Editor, unit: Unit, w: f64, h: f64) {
     let _ = cr.restore();
 }
 
+/// Notizheft: graue Winkel an den Ecken des Schreibbereichs jeder Seite (wie in einer
+/// Textverarbeitung) – dort beginnt und endet der Fließtext.
+fn draw_text_corners(cr: &cairo::Context, ed: &Editor, dark: bool) {
+    if ed.view_mode() != ViewMode::Notebook || ed.presenting {
+        return;
+    }
+    let v = ed.view;
+    let len = 14.0;
+    let _ = cr.save();
+    if dark {
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.35);
+    } else {
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.3);
+    }
+    cr.set_line_width(1.0);
+    for (_, r) in ed.doc.artboard_rects() {
+        let [t, rt, b, l] = ed.margins_for(r);
+        let a = v.to_screen(Pt::new(r.x0 + l, r.y0 + t));
+        let z = v.to_screen(Pt::new(r.x1 - rt, r.y1 - b));
+        let (x0, y0, x1, y1) = (
+            a.x.round() + 0.5,
+            a.y.round() + 0.5,
+            z.x.round() + 0.5,
+            z.y.round() + 0.5,
+        );
+        for (x, y, dx, dy) in [
+            (x0, y0, -1.0, -1.0),
+            (x1, y0, 1.0, -1.0),
+            (x0, y1, -1.0, 1.0),
+            (x1, y1, 1.0, 1.0),
+        ] {
+            cr.move_to(x + dx * len, y);
+            cr.line_to(x, y);
+            cr.line_to(x, y + dy * len);
+        }
+    }
+    let _ = cr.stroke();
+    let _ = cr.restore();
+}
+
+/// Formatierungszeichen: ¶ am Absatzende, · für Leerzeichen, → für Tabulatoren, ↵ für
+/// Zeilenumbrüche und eine gestrichelte Linie für Seitenumbrüche – im Fließtext des
+/// Notizhefts.
+fn draw_format_marks(cr: &cairo::Context, ed: &Editor) {
+    // nur im Notizheft (zum Schreiben); auf der Zeichenfläche und beim Präsentieren nie
+    if !ed.show_marks || ed.presenting || ed.view_mode() != ViewMode::Notebook {
+        return;
+    }
+    let mut ids = ed.body_frames();
+    if let Some(t) = ed.text_edit {
+        if !ids.contains(&t.id) {
+            ids.push(t.id);
+        }
+    }
+    let v = ed.view;
+    let k = pango::SCALE as f64;
+    let _ = cr.save();
+    use_color(ui_accent_color());
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    for (n, id) in ids.iter().enumerate() {
+        let Some(o) = ed.doc.object(*id) else { continue };
+        if ed
+            .doc
+            .layers
+            .iter()
+            .any(|l| !l.visible && l.objects.iter().any(|x| x.id == *id))
+        {
+            continue;
+        }
+        let (Some(xf), Some((text, layouts))) = (text_xf(&o.shape), edit_layouts(&o.shape)) else {
+            continue;
+        };
+        let (width, inset, body) = match &o.shape {
+            Shape::TextArea { w, frame, .. } => (Some(*w), frame.inset.max(0.0), frame.body),
+            _ => (None, 0.0, false),
+        };
+        // geht der Absatz im nächsten Rahmen weiter, endet er hier nicht
+        let continues = body
+            && ids
+                .get(n + 1)
+                .and_then(|i| ed.doc.object(*i))
+                .is_some_and(|o| match &o.shape {
+                    Shape::TextArea { frame, .. } => frame.body && frame.joined,
+                    _ => false,
+                });
+        let scale = v.zoom * (xf.a * xf.d - xf.b * xf.c).abs().sqrt();
+        let to_s = |p: Pt| v.to_screen(xf.apply(p));
+        // Lage eines Zeichens im Text: (links oben, Breite, Höhe)
+        let at = |i: usize| -> Option<(Pt, f64, f64)> {
+            let (l, x0, top, li) = layout_for(&layouts, &text, i)?;
+            let r = l.index_to_pos(li as i32);
+            Some((
+                Pt::new(x0 + r.x() as f64 / k, top + r.y() as f64 / k),
+                r.width() as f64 / k,
+                r.height() as f64 / k,
+            ))
+        };
+        let glyph = |c: &str, p: Pt, h: f64, centre: bool| {
+            let fs = (h * 0.7 * scale).clamp(4.0, 200.0);
+            cr.set_font_size(fs);
+            let s = to_s(p);
+            let dx = match (centre, cr.text_extents(c)) {
+                (true, Ok(e)) => -e.x_advance() / 2.0,
+                _ => 0.0,
+            };
+            cr.move_to(s.x + dx, s.y + h * scale * 0.5 + fs * 0.35);
+            let _ = cr.show_text(c);
+        };
+        accent(cr, 0.75);
+        let end = text.len();
+        let marks = text
+            .char_indices()
+            .filter(|(_, c)| matches!(*c, '\n' | ' ' | '\t' | '\u{2028}' | crate::model::PAGE_BREAK))
+            .chain((!continues && !text.ends_with(crate::model::PAGE_BREAK)).then_some((end, '\n')));
+        for (i, c) in marks {
+            let Some((p, w, h)) = at(i) else { continue };
+            match c {
+                '\n' => glyph("¶", p, h, false),
+                ' ' => glyph("·", Pt::new(p.x + w / 2.0, p.y), h, true),
+                '\t' => glyph("→", Pt::new(p.x + w / 2.0, p.y), h, true),
+                '\u{2028}' => glyph("↵", p, h, false),
+                _ => {
+                    // Seitenumbruch: gestrichelt bis zum rechten Rand, Beschriftung mittig
+                    let right = width.map(|w| w - inset).unwrap_or(p.x + 200.0).max(p.x + w);
+                    let y = p.y + h / 2.0;
+                    let (a, b) = (to_s(Pt::new(p.x, y)), to_s(Pt::new(right, y)));
+                    let label = tr("Page Break");
+                    cr.set_font_size(9.0);
+                    let lw = cr.text_extents(label).map(|e| e.x_advance()).unwrap_or(50.0);
+                    let mid = (a.x + b.x) / 2.0;
+                    cr.set_line_width(1.0);
+                    cr.set_dash(&[3.0, 3.0], 0.0);
+                    let yy = a.y.round() + 0.5;
+                    if b.x - a.x > lw + 16.0 {
+                        cr.move_to(a.x, yy);
+                        cr.line_to(mid - lw / 2.0 - 6.0, yy);
+                        cr.move_to(mid + lw / 2.0 + 6.0, yy);
+                        cr.line_to(b.x, yy);
+                        let _ = cr.stroke();
+                        cr.move_to(mid - lw / 2.0, yy + 3.0);
+                        let _ = cr.show_text(label);
+                    } else {
+                        cr.move_to(a.x, yy);
+                        cr.line_to(b.x.max(a.x + 20.0), yy);
+                        let _ = cr.stroke();
+                    }
+                    cr.set_dash(&[], 0.0);
+                }
+            }
+        }
+    }
+    let _ = cr.restore();
+}
+
+/// Anfasser am Lineal im Stil der Auswahl-Anfasser: weicher Schatten, weißer Rand, voll in
+/// der Markierungsfarbe. `path` zeichnet die Form (um `dy` nach unten versetzt), `w` skaliert
+/// die Strichbreiten; ohne `fill` nur als Linie mit runden Enden (Pille).
+fn ruler_handle(cr: &cairo::Context, path: &dyn Fn(&cairo::Context, f64), w: f64, fill: bool) {
+    let (r, g, b) = handle_rgb();
+    let _ = cr.save();
+    cr.set_line_join(cairo::LineJoin::Round);
+    cr.set_line_cap(cairo::LineCap::Round);
+    for (c, lw, dy) in [
+        ((0.0, 0.0, 0.0, 0.10), 5.5, 1.0),
+        ((0.0, 0.0, 0.0, 0.14), 4.5, 1.0),
+        ((1.0, 1.0, 1.0, 1.0), 4.0, 0.0),
+        ((r, g, b, 1.0), 1.6, 0.0),
+    ] {
+        cr.new_path();
+        path(cr, dy);
+        cr.set_source_rgba(c.0, c.1, c.2, c.3);
+        cr.set_line_width(lw * w);
+        if fill {
+            let _ = cr.fill_preserve();
+        }
+        let _ = cr.stroke();
+    }
+    let _ = cr.restore();
+}
+
 fn draw_rulers(cr: &cairo::Context, w: f64, h: f64, ed: &Editor, unit: Unit, dark: bool) {
     let v = ed.view;
     let k = v.zoom * unit.px(); // Bildschirmpixel pro Einheit
@@ -6016,16 +6922,66 @@ fn draw_rulers(cr: &cairo::Context, w: f64, h: f64, ed: &Editor, unit: Unit, dar
     cr.line_to(RULER - 0.5, h);
     let _ = cr.stroke();
 
+    // Notizheft: Lineal der aktuellen Seite wie in einer Textverarbeitung – Ränder grau,
+    // Schreibbereich hell, gezählt ab dem Textanfang
+    let page = if ed.view_mode() == ViewMode::Notebook {
+        ed.page_index()
+            .and_then(|i| ed.doc.artboard_rects().get(i).map(|x| x.1))
+    } else {
+        None
+    };
+    let sx = |x: f64| v.to_screen(Pt::new(x, 0.0)).x;
+    let sy = |y: f64| v.to_screen(Pt::new(0.0, y)).y;
+    // Ursprung und Bereich der Striche: (Ursprung, von, bis) oben und links
+    let (top_o, top_lo, top_hi, left_o, left_lo, left_hi) = match page {
+        Some(r) => {
+            let [t, rt, b, l] = ed.margins_for(r);
+            let (margin_c, text_c) = if dark {
+                ((0.22, 0.22, 0.24), (0.32, 0.32, 0.34))
+            } else {
+                ((0.85, 0.85, 0.87), (1.0, 1.0, 1.0))
+            };
+            let band = |a: f64, b: f64, c: (f64, f64, f64), across: bool| {
+                let (a, b) = (a.max(RULER), b.max(RULER));
+                if b > a {
+                    if across {
+                        cr.rectangle(a, 4.0, b - a, RULER - 8.0);
+                    } else {
+                        cr.rectangle(4.0, a, RULER - 8.0, b - a);
+                    }
+                    cr.set_source_rgb(c.0, c.1, c.2);
+                    let _ = cr.fill();
+                }
+            };
+            band(sx(r.x0), sx(r.x0 + l), margin_c, true);
+            band(sx(r.x0 + l), sx(r.x1 - rt), text_c, true);
+            band(sx(r.x1 - rt), sx(r.x1), margin_c, true);
+            band(sy(r.y0), sy(r.y0 + t), margin_c, false);
+            band(sy(r.y0 + t), sy(r.y1 - b), text_c, false);
+            band(sy(r.y1 - b), sy(r.y1), margin_c, false);
+            // Spalten des Fließtextes: Zwischenräume grau (die Griffe an ihren Kanten kommen
+            // mit den übrigen Anfassern; Mitte ziehen verschiebt die Spalte, Kante ändert den
+            // Abstand)
+            for pair in ed.body_columns().windows(2) {
+                band(sx(pair[0].1), sx(pair[1].0), margin_c, true);
+            }
+            (sx(r.x0 + l), sx(r.x0), sx(r.x1), sy(r.y0 + t), sy(r.y0), sy(r.y1))
+        }
+        None => (v.ox, RULER, w, v.oy, RULER, h),
+    };
+    let notebook = page.is_some();
+
     cr.set_source_rgb(fg.0, fg.1, fg.2);
     // oben
-    let first = ((RULER - v.ox) / k / minor).floor() as i64;
-    let last = ((w - v.ox) / k / minor).ceil() as i64;
+    let first = ((top_lo - top_o) / k / minor).floor() as i64;
+    let last = ((top_hi - top_o) / k / minor).ceil() as i64;
     for i in first..=last {
         let u = i as f64 * minor;
-        let x = (v.ox + u * k).round() + 0.5;
-        if x < RULER {
+        let x = (top_o + u * k).round() + 0.5;
+        if x < RULER || x < top_lo - 0.5 || x > top_hi + 0.5 {
             continue;
         }
+        let u = if notebook { u.abs() } else { u };
         let major = i.rem_euclid(minors as i64) == 0;
         let len = if major { 9.0 } else { 4.0 };
         cr.move_to(x, RULER);
@@ -6037,14 +6993,15 @@ fn draw_rulers(cr: &cairo::Context, w: f64, h: f64, ed: &Editor, unit: Unit, dar
     }
     let _ = cr.stroke();
     // links (Beschriftung gedreht)
-    let first = ((RULER - v.oy) / k / minor).floor() as i64;
-    let last = ((h - v.oy) / k / minor).ceil() as i64;
+    let first = ((left_lo - left_o) / k / minor).floor() as i64;
+    let last = ((left_hi - left_o) / k / minor).ceil() as i64;
     for i in first..=last {
         let u = i as f64 * minor;
-        let y = (v.oy + u * k).round() + 0.5;
-        if y < RULER {
+        let y = (left_o + u * k).round() + 0.5;
+        if y < RULER || y < left_lo - 0.5 || y > left_hi + 0.5 {
             continue;
         }
+        let u = if notebook { u.abs() } else { u };
         let major = i.rem_euclid(minors as i64) == 0;
         let len = if major { 9.0 } else { 4.0 };
         cr.move_to(RULER, y);
@@ -6057,6 +7014,50 @@ fn draw_rulers(cr: &cairo::Context, w: f64, h: f64, ed: &Editor, unit: Unit, dar
             cr.move_to(0.0, 0.0);
             let _ = cr.show_text(&fmt_tick(u, step));
             let _ = cr.restore();
+        }
+    }
+
+    // Anfasser im Stil der Auswahl-Anfasser: kleine Reiter mit Spitze zur Skala – oben links
+    // (Spitze nach unten) der Einzug der ersten Zeile, darunter die Seitenränder links und
+    // rechts (Spitze nach oben), im linken Lineal oben und unten (Spitze nach rechts); an
+    // den Kanten der Spaltenzwischenräume schmale Pillen
+    let tab = |cr: &cairo::Context, x: f64, y: f64, dir: (f64, f64)| {
+        // Spitze bei (x, y), Körper in Richtung -dir
+        let (dx, dy) = (-dir.0, -dir.1);
+        let (nx, ny) = (-dy, dx);
+        let p = |a: f64, b: f64| (x + dx * a + nx * b, y + dy * a + ny * b);
+        let pts = [p(0.0, 0.0), p(3.5, 3.2), p(8.5, 3.2), p(8.5, -3.2), p(3.5, -3.2)];
+        cr.move_to(pts[0].0, pts[0].1);
+        for q in &pts[1..] {
+            cr.line_to(q.0, q.1);
+        }
+        cr.close_path();
+    };
+    for (side, p, _) in ed.margin_handles() {
+        let (x, y) = (p.x.round() + 0.5, p.y.round() + 0.5);
+        match side {
+            4 if x >= RULER => ruler_handle(cr, &|cr, dy| tab(cr, x, 10.5 + dy, (0.0, 1.0)), 0.9, true),
+            1 | 3 if x >= RULER => ruler_handle(cr, &|cr, dy| tab(cr, x, 9.5 + dy, (0.0, -1.0)), 0.9, true),
+            0 | 2 if y >= RULER => {
+                ruler_handle(cr, &|cr, dy| tab(cr, RULER - 3.0, y + dy, (1.0, 0.0)), 0.9, true)
+            }
+            _ => {}
+        }
+    }
+    for pair in ed.body_columns().windows(2) {
+        for edge in [pair[0].1, pair[1].0] {
+            let x = v.to_screen(Pt::new(edge, 0.0)).x.round() + 0.5;
+            if x >= RULER {
+                ruler_handle(
+                    cr,
+                    &|cr, dy| {
+                        cr.move_to(x, 7.0 + dy);
+                        cr.line_to(x, RULER - 7.0 + dy);
+                    },
+                    1.0,
+                    false,
+                );
+            }
         }
     }
 
@@ -6133,6 +7134,47 @@ pub fn draw_layer_objects(
 /// Vorschaubild des ganzen Dokuments (alle sichtbaren Ebenen).
 pub fn draw_document_thumbnail(cr: &cairo::Context, w: f64, h: f64, doc: &Document, dark: bool) {
     thumbnail_frame(cr, w, h, doc, dark, |cr| draw_document(cr, doc));
+}
+
+/// Vorschaubild der Zeichenfläche `idx` (ohne das Dokument zu kopieren; gezeichnet wird nur,
+/// was die Zeichenfläche berührt).
+pub fn draw_artboard_thumbnail(cr: &cairo::Context, w: f64, h: f64, doc: &Document, idx: usize, dark: bool) {
+    let Some((_, r)) = doc.artboard_rects().into_iter().nth(idx) else {
+        return;
+    };
+    if r.width() <= 0.0 || r.height() <= 0.0 {
+        return;
+    }
+    let bg = doc.artboard_backgrounds().get(idx).copied().flatten();
+    let s = ((w - 2.0) / r.width()).min((h - 2.0) / r.height());
+    let (pw, ph) = (r.width() * s, r.height() * s);
+    let (x, y) = (((w - pw) / 2.0).round(), ((h - ph) / 2.0).round());
+    cr.rectangle(x, y, pw, ph);
+    match bg {
+        Some(bg) => set_color(cr, bg),
+        None => {
+            if let Some(p) = checkerboard() {
+                let _ = cr.set_source(&p);
+            }
+        }
+    }
+    let _ = cr.fill();
+    let _ = cr.save();
+    cr.rectangle(x, y, pw, ph);
+    cr.clip();
+    cr.translate(x, y);
+    cr.scale(s, s);
+    cr.translate(-r.x0, -r.y0);
+    draw_document_in(cr, doc, None, true, Some(r));
+    let _ = cr.restore();
+    if dark {
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.25);
+    } else {
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.25);
+    }
+    cr.set_line_width(1.0);
+    cr.rectangle(x + 0.5, y + 0.5, pw - 1.0, ph - 1.0);
+    let _ = cr.stroke();
 }
 
 /// Lage der Seite in einem Vorschaubild der Größe `w`×`h` (x, y, Breite, Höhe).
@@ -6214,6 +7256,7 @@ pub fn draw_style_preview(cr: &cairo::Context, w: f64, h: f64, s: &crate::librar
         sub: Vec::new(),
         mask: false,
         locked: false,
+        smart: None,
         name: String::new(),
         id: 0,
         shape,
@@ -6292,4 +7335,315 @@ fn cairo_cap(c: crate::model::LineCap) -> cairo::LineCap {
         crate::model::LineCap::Round => cairo::LineCap::Round,
         crate::model::LineCap::Square => cairo::LineCap::Square,
     }
+}
+
+/// Rechteck mit runden Ecken (Radius `r`) als Pfad.
+fn rounded_rect(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
+    let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+    let q = TAU / 4.0;
+    cr.new_path();
+    cr.arc(x + w - r, y + r, r, -q, 0.0);
+    cr.arc(x + w - r, y + h - r, r, 0.0, q);
+    cr.arc(x + r, y + h - r, r, q, 2.0 * q);
+    cr.arc(x + r, y + r, r, 2.0 * q, 3.0 * q);
+    cr.close_path();
+}
+
+/// Laserpointer: leuchtend rote Spur, die mit der Zeit verblasst (älteste Stücke zuerst).
+fn draw_laser(cr: &cairo::Context, ed: &Editor) {
+    if ed.laser.is_empty() {
+        return;
+    }
+    let now = std::time::Instant::now();
+    let life = crate::editor::LASER_MS as f64 / 1000.0;
+    let v = ed.view;
+    let pts: Vec<(Pt, f64)> = ed
+        .laser
+        .iter()
+        .map(|(p, t)| {
+            let age = now.duration_since(*t).as_secs_f64() / life;
+            (v.to_screen(*p), (1.0 - age).clamp(0.0, 1.0))
+        })
+        .collect();
+    let _ = cr.save();
+    cr.set_line_cap(cairo::LineCap::Round);
+    cr.set_line_join(cairo::LineJoin::Round);
+    // außen weiches Leuchten, innen ein heller Kern
+    for (width, alpha, (r, g, b)) in [
+        (18.0, 0.10, (1.0, 0.1, 0.1)),
+        (10.0, 0.22, (1.0, 0.15, 0.15)),
+        (5.0, 0.75, (1.0, 0.25, 0.2)),
+        (2.0, 0.95, (1.0, 0.85, 0.8)),
+    ] {
+        cr.set_line_width(width);
+        if pts.len() == 1 {
+            let (p, a) = pts[0];
+            cr.arc(p.x, p.y, width / 2.0, 0.0, std::f64::consts::TAU);
+            cr.set_source_rgba(r, g, b, alpha * a);
+            let _ = cr.fill();
+            continue;
+        }
+        for w in pts.windows(2) {
+            let ((p0, _), (p1, a1)) = (w[0], w[1]);
+            if a1 <= 0.0 {
+                continue;
+            }
+            cr.move_to(p0.x, p0.y);
+            cr.line_to(p1.x, p1.y);
+            cr.set_source_rgba(r, g, b, alpha * a1);
+            let _ = cr.stroke();
+        }
+    }
+    let _ = cr.restore();
+}
+
+/// Tabelle in Arbeit (ausgewählt oder eine Zelle wird bearbeitet): Spaltenköpfe A, B, C …
+/// über und Zeilenköpfe 1, 2, 3 … links neben dem Rahmen, die gewählte Zelle umrandet –
+/// so sieht man, wie die Zellen in Formeln heißen.
+fn draw_table_heads(cr: &cairo::Context, ed: &Editor) {
+    let Some(a) = ed.smart_target() else { return };
+    let Some(o) = ed.doc.object(a) else { return };
+    let Some(crate::smart::Smart::Table(t)) = o.smart.as_deref() else {
+        return;
+    };
+    let frame = match &o.shape {
+        Shape::Rect { x, y, w, h, .. } => Rect::from_xywh(*x, *y, *w, *h),
+        s => match s.geom_bbox() {
+            Some(b) => b,
+            None => return,
+        },
+    };
+    let (xs, ys) = t.grid(frame);
+    let (nr, nc) = (t.n_rows(), t.n_cols());
+    let v = ed.view;
+    // gewählte Zellen (sonst gilt die ganze Tabelle; die zuletzt angeklickte Zelle ist
+    // dünn umrandet – sie zeigt die Formelleiste)
+    let range = ed.active_pick().and_then(|p| p.cell_range(nr, nc));
+    let current = ed.cell_sel.filter(|c| c.0 == a);
+    let accent = (0.208, 0.518, 0.894);
+    let band = crate::editor::HEAD_BAND;
+    let gap = crate::editor::HEAD_GAP;
+    let tl = v.to_screen(Pt::new(frame.x0, frame.y0));
+    let _ = cr.save();
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+    cr.set_font_size(10.0);
+    // Köpfe wie die Anfasser: weiße, runde Kapseln mit weichem Schatten (oben die Buchstaben
+    // in einer, links die Zahlen in einer), gewählte Spalten/Zeilen als blaue Pille darin,
+    // dazwischen feine Trennstriche – dort zieht man die Größe
+    let rw = crate::editor::HEAD_ROW_W;
+    let capsule = |x: f64, y: f64, w: f64, h: f64| {
+        let r = (w.min(h) / 2.0).max(0.0);
+        for (grow, dy, alpha) in [(0.75, 1.0, 0.08), (0.25, 1.0, 0.10)] {
+            rounded_rect(
+                cr,
+                x - grow,
+                y - grow + dy,
+                w + 2.0 * grow,
+                h + 2.0 * grow,
+                r + grow,
+            );
+            cr.set_source_rgba(0.0, 0.0, 0.0, alpha);
+            let _ = cr.fill();
+        }
+        rounded_rect(cr, x, y, w, h, r);
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        let _ = cr.fill();
+    };
+    let pill = |x: f64, y: f64, w: f64, h: f64| {
+        if w > 2.0 && h > 2.0 {
+            rounded_rect(cr, x, y, w, h, w.min(h) / 2.0);
+            cr.set_source_rgb(accent.0, accent.1, accent.2);
+            let _ = cr.fill();
+        }
+    };
+    let label = |cx: f64, cy: f64, room: f64, text: &str, on: bool| {
+        if let Ok(ext) = cr.text_extents(text) {
+            if ext.x_advance() + 4.0 <= room {
+                cr.move_to(cx - ext.x_advance() / 2.0, cy + ext.height() / 2.0);
+                if on {
+                    cr.set_source_rgb(1.0, 1.0, 1.0);
+                } else {
+                    cr.set_source_rgb(0.37, 0.36, 0.39);
+                }
+                let _ = cr.show_text(text);
+            }
+        }
+    };
+    let divider = |x0: f64, y0: f64, x1: f64, y1: f64| {
+        cr.move_to(x0, y0);
+        cr.line_to(x1, y1);
+        cr.set_source_rgb(0.871, 0.867, 0.855);
+        cr.set_line_width(1.0);
+        let _ = cr.stroke();
+    };
+    let sx: Vec<f64> = xs.iter().map(|x| v.to_screen(Pt::new(*x, 0.0)).x).collect();
+    let sy: Vec<f64> = ys.iter().map(|y| v.to_screen(Pt::new(0.0, *y)).y).collect();
+    // Spalten
+    let cy0 = (tl.y - gap - band).round();
+    if sx[nc] - sx[0] >= 8.0 {
+        capsule(sx[0], cy0, sx[nc] - sx[0], band);
+        for x in &sx[1..nc] {
+            let x = x.round() + 0.5;
+            divider(x, cy0 + 5.0, x, cy0 + band - 5.0);
+        }
+        if let Some((_, c0, _, c1)) = range {
+            pill(sx[c0] + 2.0, cy0 + 2.0, sx[c1 + 1] - sx[c0] - 4.0, band - 4.0);
+        }
+        for c in 0..nc {
+            let on = range.is_some_and(|(_, c0, _, c1)| (c0..=c1).contains(&c));
+            label(
+                (sx[c] + sx[c + 1]) / 2.0,
+                cy0 + band / 2.0,
+                sx[c + 1] - sx[c],
+                &crate::sheet::col_name(c),
+                on,
+            );
+        }
+    }
+    // Zeilen
+    let rx0 = (tl.x - gap - rw).round();
+    if sy[nr] - sy[0] >= 8.0 {
+        capsule(rx0, sy[0], rw, sy[nr] - sy[0]);
+        for y in &sy[1..nr] {
+            let y = y.round() + 0.5;
+            divider(rx0 + 5.0, y, rx0 + rw - 5.0, y);
+        }
+        if let Some((r0, _, r1, _)) = range {
+            pill(rx0 + 2.0, sy[r0] + 2.0, rw - 4.0, sy[r1 + 1] - sy[r0] - 4.0);
+        }
+        for r in 0..nr {
+            let on = range.is_some_and(|(r0, _, r1, _)| (r0..=r1).contains(&r));
+            label(
+                rx0 + rw / 2.0,
+                (sy[r] + sy[r + 1]) / 2.0,
+                rw.min(sy[r + 1] - sy[r] + 8.0),
+                &(r + 1).to_string(),
+                on,
+            );
+        }
+    }
+    // Griff zum Verschieben, wo sich die Köpfe treffen: runder Knopf mit Pfeilkreuz
+    {
+        let (gx, gy) = (rx0, cy0 + band - rw);
+        let moving = matches!(ed.drag, crate::editor::Drag::Move { .. });
+        capsule(gx, gy, rw, rw);
+        if moving {
+            pill(gx, gy, rw, rw);
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+        } else {
+            cr.set_source_rgb(0.37, 0.36, 0.39);
+        }
+        let (cx, cy, k) = (gx + rw / 2.0, gy + rw / 2.0, 4.5);
+        cr.set_line_width(1.3);
+        cr.move_to(cx - k, cy);
+        cr.line_to(cx + k, cy);
+        cr.move_to(cx, cy - k);
+        cr.line_to(cx, cy + k);
+        let _ = cr.stroke();
+        for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+            let (tx, ty) = (cx + dx * k, cy + dy * k);
+            let (nx, ny) = (-dy, dx);
+            cr.move_to(tx + dx * 1.6, ty + dy * 1.6);
+            cr.line_to(tx - dx * 0.8 + nx * 2.2, ty - dy * 0.8 + ny * 2.2);
+            cr.line_to(tx - dx * 0.8 - nx * 2.2, ty - dy * 0.8 - ny * 2.2);
+            cr.close_path();
+            let _ = cr.fill();
+        }
+    }
+    let mark = |r0: usize, c0: usize, r1: usize, c1: usize, w: f64, fill: bool| {
+        if r1 + 1 < ys.len() && c1 + 1 < xs.len() {
+            let p0 = v.to_screen(Pt::new(xs[c0], ys[r0]));
+            let p1 = v.to_screen(Pt::new(xs[c1 + 1], ys[r1 + 1]));
+            cr.rectangle(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+            if fill {
+                cr.set_source_rgba(accent.0, accent.1, accent.2, 0.12);
+                let _ = cr.fill_preserve();
+            }
+            cr.set_source_rgb(accent.0, accent.1, accent.2);
+            cr.set_line_width(w);
+            let _ = cr.stroke();
+        }
+    };
+    // verbundene Zellen immer ganz umranden; eine einzelne (auch verbundene) Zelle ohne Fläche
+    match range {
+        Some(g) => {
+            let (r0, c0, r1, c1) = t.expand(g);
+            let single = (r0 == r1 && c0 == c1) || t.merge_at(r0, c0) == Some((r0, c0, r1, c1));
+            mark(r0, c0, r1, c1, 2.0, !single)
+        }
+        None => {
+            if let Some((_, r, c)) = current {
+                let (r0, c0, r1, c1) = t.expand((r, c, r, c));
+                mark(r0, c0, r1, c1, 1.0, false);
+            }
+        }
+    }
+    // Formel in Arbeit: ihre Bezüge farbig umrandet (wie in Tabellenkalkulationen)
+    for (_, _, (r0, c0, r1, c1), k) in ed.formula_marks() {
+        if r1 + 1 < ys.len() && c1 + 1 < xs.len() {
+            let (cr0, cg, cb) = crate::sheet::REF_COLORS[k];
+            let p0 = v.to_screen(Pt::new(xs[c0], ys[r0]));
+            let p1 = v.to_screen(Pt::new(xs[c1 + 1], ys[r1 + 1]));
+            cr.rectangle(p0.x + 1.0, p0.y + 1.0, p1.x - p0.x - 2.0, p1.y - p0.y - 2.0);
+            cr.set_source_rgba(cr0, cg, cb, 0.10);
+            let _ = cr.fill_preserve();
+            cr.set_source_rgb(cr0, cg, cb);
+            cr.set_line_width(2.0);
+            let _ = cr.stroke();
+        }
+    }
+    // Ausfüllen bzw. Verschieben: gestrichelt, wohin es geht (unten und rechts auch über die
+    // Tabelle hinaus, in der Größe der letzten Zeile/Spalte)
+    let edge = |edges: &[f64], i: isize| -> f64 {
+        let n = edges.len() as isize - 1;
+        if i <= n {
+            edges[i.max(0) as usize]
+        } else {
+            let last = edges[n as usize] - edges[n as usize - 1];
+            edges[n as usize] + last * (i - n) as f64
+        }
+    };
+    let preview = match ed.drag {
+        Drag::CellFill {
+            range: (r0, c0, r1, c1),
+            ext: (dr, dc),
+            ..
+        } if (dr, dc) != (0, 0) => Some((
+            r0 as isize + dr.min(0),
+            c0 as isize + dc.min(0),
+            r1 as isize + dr.max(0),
+            c1 as isize + dc.max(0),
+        )),
+        Drag::CellMove {
+            range: (r0, c0, r1, c1),
+            off: (dr, dc),
+            ..
+        } if (dr, dc) != (0, 0) => Some((
+            r0 as isize + dr,
+            c0 as isize + dc,
+            r1 as isize + dr,
+            c1 as isize + dc,
+        )),
+        _ => None,
+    };
+    if let Some((r0, c0, r1, c1)) = preview {
+        let p0 = v.to_screen(Pt::new(edge(&xs, c0), edge(&ys, r0)));
+        let p1 = v.to_screen(Pt::new(edge(&xs, c1 + 1), edge(&ys, r1 + 1)));
+        cr.rectangle(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+        cr.set_source_rgb(accent.0, accent.1, accent.2);
+        cr.set_line_width(1.5);
+        cr.set_dash(&[4.0, 3.0], 0.0);
+        let _ = cr.stroke();
+        cr.set_dash(&[], 0.0);
+    }
+    // Ausfüllkästchen unten rechts an den gewählten Zellen
+    if let Some(h) = ed.fill_handle() {
+        cr.rectangle(h.x - 3.5, h.y - 3.5, 7.0, 7.0);
+        cr.set_source_rgb(1.0, 1.0, 1.0);
+        let _ = cr.fill_preserve();
+        cr.set_source_rgb(accent.0, accent.1, accent.2);
+        cr.set_line_width(1.5);
+        let _ = cr.stroke();
+    }
+    let _ = cr.restore();
 }

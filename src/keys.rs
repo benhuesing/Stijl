@@ -284,6 +284,20 @@ pub const DEFS: &[Def] = &[
         Action("win.notebook"),
     ),
     d(
+        "present",
+        "Presentation Full Screen",
+        GROUP_VIEW,
+        &["F5"],
+        Action("win.present"),
+    ),
+    d(
+        "formatting-marks",
+        "Formatting Marks On/Off",
+        GROUP_VIEW,
+        &["<Control>F10"],
+        Action("win.formatting-marks"),
+    ),
+    d(
         "toggle-panel",
         "Show/Hide Properties",
         GROUP_VIEW,
@@ -370,6 +384,13 @@ pub const DEFS: &[Def] = &[
         Kind::Tool(Tool::Scissors),
     ),
     d(
+        "tool-data",
+        "Data (Tables and Charts)",
+        GROUP_TOOLS,
+        &["d"],
+        Kind::Tool(Tool::Data),
+    ),
+    d(
         "tool-builder",
         "Shape Builder",
         GROUP_TOOLS,
@@ -422,6 +443,13 @@ pub const DEFS: &[Def] = &[
         "New Line Within a Paragraph (text box)",
         GROUP_FIXED,
         &["<Shift>Return"],
+        Fixed,
+    ),
+    d(
+        "fixed-page-break",
+        "Page Break (Notebook)",
+        GROUP_FIXED,
+        &["<Control>Return"],
         Fixed,
     ),
 ];

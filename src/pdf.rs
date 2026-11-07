@@ -794,6 +794,9 @@ impl<'a> Lex<'a> {
 pub struct Pdf {
     pub objs: HashMap<u32, Obj>,
     pub root: Dict,
+    /// Nummern des Katalogs und des Info-Verzeichnisses laut Trailer (falls angegeben)
+    pub root_id: Option<u32>,
+    pub info_id: Option<u32>,
     null: Obj,
 }
 
@@ -901,6 +904,8 @@ impl Pdf {
         let mut pdf = Pdf {
             objs: HashMap::new(),
             root: Dict::new(),
+            root_id: None,
+            info_id: None,
             null: Obj::Null,
         };
         let mut trailers: Vec<Dict> = Vec::new();
@@ -1016,6 +1021,14 @@ impl Pdf {
         if trailers.iter().any(|t| t.contains_key("Encrypt")) {
             return Err(tr("The file is encrypted (password-protected) and cannot be opened").into());
         }
+        let refnum = |k: &str| {
+            trailers.iter().rev().find_map(|t| match t.get(k) {
+                Some(Obj::Ref(n)) => Some(*n),
+                _ => None,
+            })
+        };
+        pdf.root_id = refnum("Root");
+        pdf.info_id = refnum("Info");
         let root = trailers
             .iter()
             .rev()

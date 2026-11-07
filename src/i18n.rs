@@ -53,6 +53,17 @@ impl Lang {
 static LANG: OnceLock<Lang> = OnceLock::new();
 static TABLE: OnceLock<HashMap<String, String>> = OnceLock::new();
 
+/// The language uses a decimal comma (German, Spanish, French): numbers in tables and
+/// charts are written and read that way, and formula arguments are separated by `;`.
+pub fn decimal_comma() -> bool {
+    matches!(LANG.get(), Some(Lang::De | Lang::Es | Lang::Fr))
+}
+
+/// Current language (English until set).
+pub fn lang() -> Lang {
+    LANG.get().copied().unwrap_or(Lang::En)
+}
+
 /// Set the language (once at start-up, before the user interface is built).
 pub fn init(lang: Lang) {
     let _ = LANG.set(lang);

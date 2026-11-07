@@ -412,6 +412,37 @@ pub fn rings_op(a: &[Ring], b: &[Ring], op: Op) -> Vec<Ring> {
     normalize(r)
 }
 
+/// Ringe mit ihren Rahmen: schnelle Prüfung vieler Punkte (Ringe, deren Rahmen den Punkt
+/// nicht enthält, tragen nichts zur Umlaufzahl bei).
+pub struct RingSet {
+    rings: Vec<Ring>,
+    boxes: Vec<(f64, f64, f64, f64)>,
+}
+
+impl RingSet {
+    pub fn new(rings: Vec<Ring>) -> RingSet {
+        let boxes = rings
+            .iter()
+            .map(|r| {
+                r.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| {
+                    (b.0.min(p.x), b.1.min(p.y), b.2.max(p.x), b.3.max(p.y))
+                })
+            })
+            .collect();
+        RingSet { rings, boxes }
+    }
+
+    pub fn contains(&self, p: Pt) -> bool {
+        let mut w = 0;
+        for (r, b) in self.rings.iter().zip(&self.boxes) {
+            if p.x >= b.0 && p.x <= b.2 && p.y >= b.1 && p.y <= b.3 {
+                w += winding(std::slice::from_ref(r), p);
+            }
+        }
+        w != 0
+    }
+}
+
 /// Liegt `p` innerhalb der (ausgerichteten) Ringe?
 pub fn contains(rings: &[Ring], p: Pt) -> bool {
     winding(rings, p) != 0

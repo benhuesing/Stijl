@@ -174,6 +174,30 @@ impl Affine {
             .then_before(&Affine::translate(-anchor.x, -anchor.y))
     }
 
+    /// Abbildung, die einen gedrehten Rahmen auf einen anderen legt: `new_box` ist der Rahmen
+    /// eines Objekts in seinem um `new_angle` gedrehten System (siehe `rotate_about`), `old_box`
+    /// der eines früheren Zustands. Liefert die Abbildung Dokument (jetzt) → Dokument (damals),
+    /// so dass ein damals berechnetes Bild mit dem Objekt verschoben, skaliert und gedreht wird.
+    pub fn frame_to_frame(new_box: &Rect, new_angle: f64, old_box: &Rect, old_angle: f64) -> Affine {
+        let ratio = |o: f64, n: f64| {
+            if o.abs() > 1e-9 && n.abs() > 1e-9 {
+                o / n
+            } else {
+                1.0
+            }
+        };
+        let fit = Affine::translate(old_box.x0, old_box.y0)
+            .then_before(&Affine::scale(
+                ratio(old_box.width(), new_box.width()),
+                ratio(old_box.height(), new_box.height()),
+            ))
+            .then_before(&Affine::translate(-new_box.x0, -new_box.y0));
+        Affine::rotate_about(old_angle, Pt::new(0.0, 0.0))
+            .invert()
+            .then_before(&fit)
+            .then_before(&Affine::rotate_about(new_angle, Pt::new(0.0, 0.0)))
+    }
+
     /// `self * o`: erst `o` anwenden, dann `self` (wie SVG-Transformlisten von rechts nach links).
     pub fn then_before(&self, o: &Affine) -> Affine {
         Affine {
@@ -560,6 +584,36 @@ pub fn arc_to_cubics(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frames_follow_rotation() {
+        // Rechteck 0..40 × 0..20, dann um seine Mitte gedreht, verschoben und vergrößert
+        let local = |angle: f64, pts: &[Pt]| {
+            let r = Affine::rotate_about(angle, Pt::new(0.0, 0.0));
+            let mut b = Rect::from_points(r.apply(pts[0]), r.apply(pts[0]));
+            for p in pts {
+                b.include(r.apply(*p));
+            }
+            b
+        };
+        let old: Vec<Pt> = [(0.0, 0.0), (40.0, 0.0), (40.0, 20.0), (0.0, 20.0)]
+            .iter()
+            .map(|&(x, y)| Pt::new(x, y))
+            .collect();
+        let xf = Affine::translate(100.0, 50.0)
+            .then_before(&Affine::rotate_about(-30.0, Pt::new(20.0, 10.0)))
+            .then_before(&Affine::scale_about(1.5, 1.5, Pt::new(20.0, 10.0)));
+        let new: Vec<Pt> = old.iter().map(|p| xf.apply(*p)).collect();
+        // das Objekt hat danach den Winkel 30 (im Sinne von `rotate_about`)
+        let m = Affine::frame_to_frame(&local(30.0, &new), 30.0, &local(0.0, &old), 0.0);
+        for (n, o) in new.iter().zip(&old) {
+            let back = m.apply(*n);
+            assert!(back.dist(*o) < 1e-6, "{back:?} != {o:?}");
+        }
+        // ohne Drehung: wie bisher nur verschieben und skalieren
+        let id = Affine::frame_to_frame(&local(0.0, &old), 0.0, &local(0.0, &old), 0.0);
+        assert!(id.apply(Pt::new(7.0, 3.0)).dist(Pt::new(7.0, 3.0)) < 1e-9);
+    }
 
     #[test]
     fn transform_parse() {
